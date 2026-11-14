@@ -869,12 +869,51 @@
     if (path === '/api/recipe' && a[path]) return recipeRead();
     if (path === '/api/voice') return voiceRead();
     if (path === '/api/programme-sound') return programmeSound();
+    if (path === '/api/calibrate') return calibrateRead();
     if (path === '/api/teleprompter') return promptRead();
     if (path === '/api/karaoke') return karaokeRead();
     if (path.startsWith('/api/teleprompter/scripts/')) return promptText(decodeURIComponent(path.slice('/api/teleprompter/scripts/'.length)));
     if (path in a) return a[path];
     if (path.startsWith('/api/commands/')) return { state: 'SUCCEEDED', result: { type: 'ack', ok: true } };
     return null;
+  }
+  // Calibrate (calibrate.py), as the manager drives it: a colour run asks the page for black, the patch area lit,
+  // black, lit, then the chart, each once the page has said it shows the one before; then fits. A sound run measures
+  // while the page flashes. What it finds is what the demonstration manager's own run found, when it recorded one.
+  const CAL_STEPS = [['black', 'Finding the phone: hold it still where every camera sees it'], ['locate', 'Finding the phone'], ['black', 'Finding the phone'],
+    ['locate', 'Finding the phone'], ['chart', 'Taking each camera’s picture of the chart: hold still']];
+  function calibrateRead() {
+    const base = S.answers['/api/calibrate'] || { cameras: [], relay: true, lip_sync_by_camera: {} };
+    const run = S.calRun;
+    if (run && run.state === 'running') {
+      const t = now();
+      if (run.kind === 'sync' && t - run.started > 13) {
+        run.result = { calibration: calibrateSync(), cameras: [] }; Object.assign(run, { state: 'done', said: 'Done', show: null, ended: t });
+      } else if (run.kind === 'colour') {
+        if (run.step < CAL_STEPS.length && run.answered >= run.step && t >= run.nextAt) {
+          const [show, said] = CAL_STEPS[run.step]; Object.assign(run, { step: run.step + 1, show, said, nextAt: t + 1.5 });
+        } else if (run.step === CAL_STEPS.length && run.answered >= run.step && t >= run.nextAt && run.show) {
+          Object.assign(run, { show: null, said: 'Fitting each camera’s colours: you can put the phone down', nextAt: t + 2.5 });
+        } else if (run.step === CAL_STEPS.length && !run.show && t >= run.nextAt) {
+          const found = base.run?.kind === 'colour' && base.run.result ? base.run.result : { cameras: {}, reference: 'the chart' };
+          run.result = { ...found, in_obs: run.obs }; Object.assign(run, { state: 'done', said: 'Done', ended: t });
+        }
+      }
+      save();
+    }
+    return { ...base, phone: 'https://calibrate.mcvsaid.local/calibrate', run: run ? { ...run } : (base.run ? { ...base.run, yours: false } : null) };
+  }
+  function calibrateSync() {
+    // Calibrate sync (avsync.py), as the manager answers: in the demo the first three cameras saw the flashes.
+    const list = (cams()?.cameras || []).filter(c => c.id), found = {}, set = {};
+    list.forEach((c, i) => {
+      // Each camera's stream, plus OBS's own 70 ms on the way to the programme (avsync.settings).
+      const late = [15, 60, 25][i];
+      if (late == null) found[c.name] = { why: 'saw 0 flashes (hold the sync page where the camera sees it)', flashes: 0, beeps: 9 };
+      else { found[c.name] = { offset_ms: late, pairs: 9, spread_ms: 6.5, set_ms: -late - 70 }; set[c.id] = -late - 70; }
+    });
+    S.calibrated = set; S.calibration = { at: Date.now() / 1000, cameras: found, programme: { offset_ms: 85, pairs: 8, spread_ms: 9, camera: list[0]?.name } };
+    return S.calibration;
   }
   function programmeSound() {
     // The chosen camera leads; in the demo every other camera is lined up with it, the third a few milliseconds moved.
@@ -1461,15 +1500,22 @@
     if (path === '/api/sync/calibrate') {
       // Calibrate sync (avsync.py), as the manager answers: in the demo the first three cameras saw the flashes.
       if (body.clear) { S.calibrated = null; S.calibration = null; save(); return answer(programmeSound()); }
-      const list = (cams()?.cameras || []).filter(c => c.id), found = {}, set = {};
-      list.forEach((c, i) => {
-        // Each camera's stream, plus OBS's own 70 ms on the way to the programme (avsync.settings).
-        const late = [15, 60, 25][i];
-        if (late == null) found[c.name] = { why: 'saw 0 flashes (hold the sync page where the camera sees it)', flashes: 0, beeps: 9 };
-        else { found[c.name] = { offset_ms: late, pairs: 9, spread_ms: 6.5, set_ms: -late - 70 }; set[c.id] = -late - 70; }
-      });
-      S.calibrated = set; S.calibration = { at: Date.now() / 1000, cameras: found, programme: { offset_ms: 85, pairs: 8, spread_ms: 9, camera: list[0]?.name } };
-      save(); return answer(programmeSound());
+      calibrateSync(); save(); return answer(programmeSound());
+    }
+    if (path === '/api/calibrate/start') {
+      if (!['sync', 'colour'].includes(body.kind)) return answer({ detail: 'Send kind (sync or colour), and for colour reference and obs' }, 400);
+      if (S.calRun?.state === 'running') return answer({ detail: `A ${S.calRun.kind} calibration is already going on, started by ${S.calRun.by_name}` }, 409);
+      S.calRun = { id: Math.random().toString(16).slice(2, 14), kind: body.kind, state: 'running', step: 0, show: body.kind === 'sync' ? 'flash' : null, said: body.kind === 'sync' ? 'Measuring: keep the phone flashing where every camera sees it (about 15 seconds)' : 'Starting',
+        started: now(), ended: null, by_name: S.answers['/api/session']?.name || 'Morgan', answered: 0, result: null, problem: null, yours: true, obs: body.obs !== false, nextAt: now() + 0.5 };
+      save(); return answer(calibrateRead());
+    }
+    if (path === '/api/calibrate/shown') {
+      if (!S.calRun || S.calRun.id !== body.run) return answer({ detail: 'Not your calibration' }, 409);
+      S.calRun.answered = Math.max(S.calRun.answered, Number(body.step) || 0); save(); return answer({ ok: true });
+    }
+    if (path === '/api/calibrate/stop') {
+      if (S.calRun?.state === 'running') Object.assign(S.calRun, { state: 'stopped', problem: 'Stopped', show: null, ended: now() });
+      save(); return answer(calibrateRead());
     }
     if (path === '/api/explain') return explainPost(body);
     if (path === '/api/auto') return autoPost(body);

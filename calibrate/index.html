@@ -1,0 +1,52 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><script src="/demo.js?v=0f0c81d23041"></script><meta name="viewport" content="width=device-width,initial-scale=1"><title>Calibrate</title>
+<!-- The calibration pages, for a phone or tablet held in front of the cameras: at https://calibrate.mcvsaid.local
+     (webnames.py) and at /calibrate on the dashboard. Logged in as a setup tech or an operator, it drives Calibrate
+     (calibrate.py, calibrate.js): the manager measures sound and colour from what this page shows. Without a login,
+     the sync flash and the colour card still work on their own. -->
+<link rel="stylesheet" href="/calibrate.css">
+<body class="hub"><main>
+  <h1>Calibrate</h1>
+  <section id="manager" aria-labelledby="manager-title">
+    <h2 id="manager-title">With the manager</h2>
+    <form id="login" hidden>
+      <p>Log in as a setup tech or an operator, and the manager measures from this phone as you hold it up.</p>
+      <label>Your name <input id="username" type="text" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="40"></label>
+      <label>Password <input id="password" type="password" autocomplete="current-password" required></label>
+      <button>Log in</button>
+    </form>
+    <div id="actions" hidden>
+      <p id="who"></p>
+      <a class="choice" href="/sync-flash?manager=1">
+        <b>Calibrate sound</b>
+        <span>Flashes and beeps while the manager measures each camera’s sound against its picture and sets its lip
+        sync. Hold it where every camera sees and hears it, about 15 seconds.</span>
+      </a>
+      <div class="choice" id="colour">
+        <b>Calibrate colour</b>
+        <span>Shows a chart the manager finds in each camera by itself, then fits each camera’s colours. Hold it still,
+        facing the cameras, under the stage lights, about 30 seconds.</span>
+        <label>Match the cameras to <select id="reference"><option value="auto">the camera that sees the chart best</option><option value="chart">the chart’s own colours</option></select></label>
+        <label class="check"><input type="checkbox" id="obs" checked> Put the colour corrections in OBS</label>
+        <button id="start-colour">Start</button>
+      </div>
+      <p id="last" aria-live="polite"></p>
+      <button id="logout" class="quiet">Log out</button>
+    </div>
+    <p id="said" role="status"></p>
+  </section>
+  <h2>On their own</h2>
+  <a class="choice" href="/sync-flash">
+    <b>Sync flash</b>
+    <span>White flashes and beeps together, for <i>Calibrate sync</i> on the manager’s Sound page: each camera’s sound
+    lined up with its own picture.</span>
+  </a>
+  <a class="choice" href="/colour-card">
+    <b>Colour card</b>
+    <span>A 24-patch colour chart, an 18% grey, white, a grey scale and colour bars, for white balance and the
+    Colour page’s chart matching.</span>
+  </a>
+  <small>Turn the screen’s brightness up, and Night Shift, True Tone or any eye-comfort mode off, so every camera sees
+  the same colours.</small>
+</main>
+<div id="run" hidden><div id="area"></div><p id="step"></p><button id="stop" class="quiet">Stop</button></div>
+<script src="/calibrate.js"></script></body></html>

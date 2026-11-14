@@ -6,3 +6,4 @@
   #words { max-width: 30em; padding: 1em; }
   button { font: inherit; font-size: 1.4em; padding: 0.6em 1.4em; border-radius: 0.4em; border: 0; background: #2b6fd6; color: #fff; }
   small { display: block; margin-top: 1em; color: #888; }
+  a { color: #8ab4ff; }

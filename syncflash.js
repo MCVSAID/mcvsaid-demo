@@ -4,6 +4,35 @@
 const GAPS = [0.9, 1.3, 0.8, 1.6, 1.1, 0.75, 1.45, 1.0, 1.25, 0.85, 1.55, 1.15];
 const FLASH = 0.12, TONE = 2000;
 let audio = null, lock = null, next = 0, step = 0;
+// From the calibrate page logged in (?manager=1): the manager measures while it flashes (calibrate.py's sound run), and
+// it stops by itself when the manager has done, saying what was measured.
+const MANAGER = new URLSearchParams(location.search).get('manager') === '1';
+let csrf = '', watching = null;
+async function call(path, body) {
+  const response = await fetch(path, body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, body: JSON.stringify(body) });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.detail || `The manager answered ${response.status}`);
+  return data;
+}
+async function measure() {
+  try {
+    csrf = (await call('/api/session')).csrf;
+    await call('/api/calibrate/start', { kind: 'sync' });
+  } catch (error) { stop(error.message); return; }
+  document.getElementById('state').textContent = 'Flashing while the manager measures (about 15 seconds). Tap to stop.';
+  const look = async () => {
+    let run = null;
+    try { run = (await call('/api/calibrate')).run; } catch (error) { /* asked again */ }
+    if (!audio) return;
+    if (run && run.state !== 'running') {
+      const cameras = run.result?.calibration?.cameras || {};
+      stop(run.state === 'done' ? 'Measured. ' + Object.entries(cameras).map(([name, r]) => `${name}: ${r.set_ms != null ? `lip sync ${r.set_ms} ms` : `not measured (${r.why})`}`).join('; ') : (run.problem || run.state));
+      return;
+    }
+    watching = setTimeout(look, 1000);
+  };
+  watching = setTimeout(look, 1000);
+}
 async function start() {
   audio = new (window.AudioContext || window.webkitAudioContext)();
   await audio.resume();
@@ -13,6 +42,7 @@ async function start() {
   document.body.onclick = stop;
   next = audio.currentTime + 1.0;
   schedule();
+  if (MANAGER) measure();
 }
 function schedule() {
   if (!audio) return;
@@ -44,11 +74,18 @@ function flash(at) {
   };
   requestAnimationFrame(paint);
 }
-function stop() {
+function stop(said) {
+  const told = typeof said === 'string';
+  if (MANAGER && audio && !told) call('/api/calibrate/stop', {}).catch(() => {});     // tapped: the manager stops too
+  clearTimeout(watching);
   if (audio) audio.close(); audio = null;
   if (lock) lock.release(); lock = null;
   document.body.onclick = null; document.body.classList.remove('flash');
   document.getElementById('start').hidden = false;
-  document.getElementById('state').textContent = 'Stopped.';
+  document.getElementById('state').textContent = told ? said : 'Stopped.';
 }
 document.getElementById('start').onclick = (event) => { event.stopPropagation(); start(); };
+if (MANAGER) {
+  document.querySelector('#words p').textContent = 'Turn this device’s sound up, press Start, and hold the screen where every camera sees and hears it, about an arm’s length from the nearest. The manager measures while it flashes, and it stops by itself when done (about 15 seconds).';
+  document.getElementById('start').textContent = 'Start measuring';
+}

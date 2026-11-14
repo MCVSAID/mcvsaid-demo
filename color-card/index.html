@@ -1,0 +1,14 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><script src="/demo.js?v=0f0c81d23041"></script><meta name="viewport" content="width=device-width,initial-scale=1"><title>Colour card</title>
+<!-- The colour card (calibrate.html): a chart laid out like the X-Rite ColorChecker the Colour page fits a LUT from
+     (colour.py's CHART, from /colour-chart.json), an 18% grey and white for white balance, a grey scale for exposure
+     and colour bars. Needs no login. -->
+<link rel="stylesheet" href="/calibrate.css">
+<body class="card"><div id="bar">
+  <a href="/calibrate" aria-label="Back to Calibrate">‹</a>
+  <span id="modes" role="group" aria-label="What to show"></span>
+  <label><input type="checkbox" id="labels"> Names</label>
+  <button id="full">Full screen</button>
+</div>
+<div id="stage" aria-live="polite"></div>
+<small id="hint">Tap the card to hide these controls, and again to bring them back.</small>
+<script src="/colourcard.js"></script></body></html>

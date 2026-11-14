@@ -66,7 +66,7 @@ function draw() {
     if (pick.disabled) pick.title = 'The only administrator: make another administrator first';
     pick.onchange = async () => {
       const word = state.roles[pick.value];
-      const less = ['admin', 'operator', 'stage'].indexOf(pick.value) > ['admin', 'operator', 'stage'].indexOf(user.role);
+      const less = ['admin', 'operator', 'tech', 'stage'].indexOf(pick.value) > ['admin', 'operator', 'tech', 'stage'].indexOf(user.role);
       if (!await concert.sure(`Give ${who} the ${word} role?${less ? '\nThis takes away rights at once: wherever they are logged in, they are logged down, or out where the new role does not open that page.' : ''}`, { danger: less })) { pick.value = user.role; return; }
       await act(() => api(`/api/users/${user.id}`, { role: pick.value }), who);
       if (user.you && pick.value !== 'admin') location.reload();

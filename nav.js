@@ -4,6 +4,7 @@
 window.concert = {
   // Where things are, by what they are for: what is watched while live, what is set up for a show, the recordings (the
   // files and how they are made), and the administration. Each is [path, name, what it is for, who may see it, group, icon].
+  // Who: null for everyone who opens the dashboard, 'admin' for the administrator alone, 'tech' for a setup tech too (and nothing else is theirs).
   pages: [['/', 'Show', 'Readiness, what is on air, recording the programme', null, 'Show', 'show'],
           ['/recipe', 'Recipe', 'The recipe being cooked: its preparation and steps, what is on screen, spoken cues', null, 'Show', 'recipe'],
           ['/cameras', 'Cameras', 'Each phone: its state, its controls, what it shows', null, 'Show', 'camera'],
@@ -15,6 +16,7 @@ window.concert = {
           ['/stage-layout', 'Stage layout', 'Where the cameras and performers stand: placed from the wide shot or by hand, the room map, the set', null, 'Set up', 'layout'],
           ['/director', 'Director', 'How shots are chosen, timing', null, 'Set up', 'director'],
           ['/sound', 'Sound', 'Programme sound, lip sync and Calibrate sync, listening and voice calls', null, 'Set up', 'sound'],
+          ['/calibration', 'Calibrate', 'Sound and colour measured from a phone held up on stage: lip sync, a colour chart, the LUTs', 'tech', 'Set up', 'calibrate'],
           ['/power', 'Power', 'The smart plugs the chargers are on: switching them, and which gimbals and coolers each one charges', null, 'Set up', 'power'],
           ['/colour', 'Colour', 'White balance, exposure, chart calibration and LUTs', 'admin', 'Set up', 'colour'],
           ['/people', 'People', 'People on stage recognised with their consent (performers, speakers): stars, who each camera follows (Plus AI)', 'admin', 'Set up', 'people'],
@@ -105,7 +107,9 @@ window.concert = {
     bar.replaceChildren();
     const here = location.pathname.replace(/\/+$/, '') || '/', current = this.under[here] || here;
     const handy = this.handyIn[this.mode?.mode] || this.handy;
-    const visible = this.pages.filter(([path, , , who]) => (who !== 'admin' || role === 'admin') && (!this.onlyIn[path] || this.onlyIn[path] === this.mode?.mode));
+    // A setup tech (users.py) has Calibrate and nothing else: any other page sends them there.
+    if (role === 'tech' && here !== '/calibration') { location.replace('/calibration'); return; }
+    const visible = this.pages.filter(([path, , , who]) => (role === 'tech' ? who === 'tech' : who !== 'admin' || role === 'admin') && (!this.onlyIn[path] || this.onlyIn[path] === this.mode?.mode));
     const go = (link, path) => {
       if (!(pick && this.inPlace.includes(path.split('#')[0]))) return;
       link.onclick = event => { if (event.metaKey || event.ctrlKey || event.shiftKey) return; event.preventDefault(); this.menu(false); history.pushState(null, '', path); pick(path.split('#')[0]); this.nav(role, pick); };
@@ -146,9 +150,9 @@ window.concert = {
     const version = document.createElement('p'); version.id = 'version';
     const out = document.createElement('button'); out.type = 'button'; out.id = 'logout'; out.innerHTML = `${this.icon('logout')}<span class="label">Log out</span>`;
     // Who is logged in here, beside the way out.
-    const who = this.session && (this.session.name || ({ admin: 'Administrator', operator: 'Operator' })[role]);
+    const who = this.session && (this.session.name || ({ admin: 'Administrator', operator: 'Operator', tech: 'Setup tech' })[role]);
     const me = document.createElement('p'); me.id = 'who';
-    if (who) { me.textContent = this.session.name ? `${who} · ${({ admin: 'administrator', operator: 'operator' })[role] || role}` : who; out.setAttribute('aria-label', `Log out ${who}`); }
+    if (who) { me.textContent = this.session.name ? `${who} · ${({ admin: 'administrator', operator: 'operator', tech: 'setup tech' })[role] || role}` : who; out.setAttribute('aria-label', `Log out ${who}`); }
     out.onclick = async () => { try { await fetch('/api/logout', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': this.session?.csrf || '' } }); } catch (error) { /* gone either way */ } location.reload(); };
     foot.append(me, version, out); bar.append(foot);
     // A phone: the pages used during a show along the bottom, and More for the whole list.
@@ -308,7 +312,7 @@ window.concert = {
     this.latest = data; this.fedAt = Date.now(); this.show();
   },
   async poll() {
-    if (!this.session || Date.now() - this.fedAt < 4000) return;
+    if (!this.session || this.session.role === 'tech' || Date.now() - this.fedAt < 4000) return;     // a setup tech's page reads only /api/calibrate
     try {
       const { response, data, unreachable } = await this.fetchJson('/api/cameras');
       this.polled(!unreachable);
@@ -405,6 +409,7 @@ window.concert = {
       system: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.9 4.9 7 7M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1 7 17M17 7l2.1-2.1"/>',
       menu: '<path d="M4 6h16M4 12h16M4 18h16"/>',
       power: '<path d="M9 3v5M15 3v5"/><path d="M6 8h12v4a6 6 0 0 1-12 0z"/><path d="M12 18v3"/>',
+      calibrate: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/>',
       sound: '<path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/>',
       // The kinds of event: a note, a church, a microphone, a panel at a table, a stage's curtain, a pot on the heat.
       'mode-concert': '<path d="M9 18V5l11-2v13"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="17.5" cy="16" r="2.5"/>',

@@ -65,7 +65,7 @@
     // Calibrate sync (avsync.py): a phone or tablet flashes and beeps in front of the cameras; each one's sound is
     // measured against its own picture and set as its own lip sync.
     const calibrate = node('div', ''); calibrate.className = 'recipe-load-row';
-    const page = `${location.origin}${state.flash_page || '/sync-flash'}`;
+    const page = state.flash_url || `${location.origin}${state.flash_page || '/sync-flash'}`;     // the easy address (calibrate.<name>) once it is up
     const open = node('a', page); open.href = page; open.target = '_blank'; open.rel = 'noopener';
     const measure = document.createElement('button'); measure.textContent = 'Measure'; measure.disabled = busy;
     measure.onclick = () => send({}, '/api/sync/calibrate', 'Recording 12 s of the programme to measure: keep the sync page flashing…', 'Measured.');

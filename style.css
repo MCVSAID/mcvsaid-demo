@@ -391,3 +391,7 @@ button.on-air-now::before { content:'● '; }
 .camera-controls.stop { width:fit-content; max-width:100%; box-sizing:border-box; margin-top:14px; padding:6px 10px; border:1px solid #6b3a33; border-radius:10px; background:#1a1416; }
 details.card-more { margin-top:10px; } details.card-more > summary { min-height:32px; padding:7px 4px; font-weight:400; font-size:var(--text-sm); }
 details.card-more[open] > summary { font-weight:600; }
+/* Set up › Calibrate (calibration.html). */
+#calibration .bad { color:#ff9c8a; } #calibration img.qr { display:block; background:#fff; padding:8px; border-radius:6px; margin:8px 0; }
+#calibration table { border-collapse:collapse; margin:8px 0; } #calibration th, #calibration td { padding:4px 12px 4px 0; text-align:left; font-size:var(--text-sm); }
+#calibration section { background:#18232d; border-radius:8px; padding:4px 16px 12px; margin:16px 0; } #calibration .hint { color:#b7c6d4; font-size:var(--text-sm); } #calibration .lead { max-width:60em; }
