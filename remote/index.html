@@ -1,0 +1,19 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><script src="/demo.js?v=356e64116ff2"></script><meta name="viewport" content="width=device-width,initial-scale=1"><title>Remote · MCVSAID</title><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/remote.css">
+<body><noscript><style>#login{display:none}</style><p style="padding:24px;font:17px/1.5 sans-serif">This is the MCVSAID demo: the dashboard with six simulated cameras, run entirely in your browser. There is no server behind it and no login. Switch on JavaScript to try it.</p></noscript><header><h1>Remote</h1><p>One press each: a camera on air, a gimbal camera to a saved angle and zoom, or both in turn.</p></header>
+<form id="login"><label>Your name <input id="username" type="text" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="40"></label><label>Password <input id="password" type="password" autocomplete="current-password" required></label><button>Log in</button></form>
+<main id="remote" hidden>
+<p id="edit-hint" hidden>Choose a key to change it, or drag it to another place. Changes are kept as they are made.</p>
+<div id="keys" role="group" aria-label="Keys"></div>
+<p id="no-keys" hidden>No keys yet. <button id="per-camera" type="button" class="primary">Add a key for each camera</button> or choose <strong>Edit keys</strong> to set them out yourself.</p>
+<p id="remote-foot"><span id="address"></span><button id="edit" type="button" aria-pressed="false">Edit keys</button></p>
+<dialog id="key-editor" aria-labelledby="key-editor-title"><form method="dialog">
+  <h3 id="key-editor-title">Key</h3>
+  <label>Label <input id="key-label" maxlength="24" placeholder="What it shows, such as The pot"></label>
+  <fieldset id="key-colours"><legend>Colour</legend></fieldset>
+  <h4>Steps, done in turn</h4>
+  <ol id="key-steps"></ol>
+  <p><button id="add-step" type="button">Add step</button></p>
+  <p class="editor-buttons"><button id="move-earlier" type="button">Move earlier</button><button id="move-later" type="button">Move later</button></p>
+  <p class="editor-buttons"><button id="delete-key" type="button" class="danger">Delete key</button><span></span><button type="button" id="cancel-key">Cancel</button><button id="save-key" type="button" class="primary">Save key</button></p>
+</form></dialog>
+<pre id="result" aria-live="polite"></pre></main><script src="/nav.js"></script><script src="/remote.js"></script></body></html>

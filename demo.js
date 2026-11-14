@@ -868,6 +868,7 @@
     if (path === '/api/scene-chat' && a[path]) { chatActive(); return a[path]; }
     if (path === '/api/recipe' && a[path]) return recipeRead();
     if (path === '/api/voice') return voiceRead();
+    if (path === '/api/remote') return remoteRead();
     if (path === '/api/programme-sound') return programmeSound();
     if (path === '/api/calibrate') return calibrateRead();
     if (path === '/api/teleprompter') return promptRead();
@@ -1108,6 +1109,53 @@
       : whole ? 'In the demo the pictures are drawn. Live, the picture glides out to the whole of it and stays there until Auto zoom is on again.'
       : 'In the demo the pictures are drawn. Live, the crop in OBS holds where it is (or as you frame it by hand in OBS), and frames from there once switched on.');
     save(); return answer({ did: whole ? `${id === undefined ? 'Every camera' : named(id)}: whole picture; ${word} off for ${whom}` : `${word} ${body.on ? 'on' : 'off'} for ${whom}${still}`, auto });
+  }
+  // ---- remote keys (remotekeys.py): the keys set out are kept for the visit; pressing one does its steps here as the
+  // manager would, with the cameras and gimbal targets of the demo (a wait is not waited for). ---------------------------
+  function remoteRead() {
+    const base = S.answers['/api/remote']; if (!base) return null;
+    const cameras = cams().cameras.map(c => {
+      const t = c.gimbal?.targets ? targetState(c) : null;
+      return { id: c.id, name: c.name, slot: c.slot, online: c.online !== false, point: !!t, targets: t ? t.list.map(x => ({ id: x.id, name: x.name, stale: !!x.stale })) : [],
+               on_target: t?.away?.id || null, home: !!c.gimbal?.home?.set };
+    });
+    const d = director();
+    return { ...base, layout: S.remoteLayout || base.layout, cameras, on_air: d.pair ? null : d.on_air, auto: !!d.enabled,
+             mode_name: S.answers['/api/event-mode']?.modes?.find(m => m.id === mode())?.short || base.mode_name, address: null };
+  }
+  function remotePost(body) {
+    const l = body.layout, base = remoteRead();
+    if (!l || !base || !Array.isArray(l.keys) || l.keys.length > base.most_keys) return answer({ detail: `There are at most ${base?.most_keys} keys` }, 400);
+    for (const k of l.keys) {
+      if (!Array.isArray(k.steps) || !k.steps.length || k.steps.length > base.most_steps) return answer({ detail: `A key has 1 to ${base.most_steps} steps` }, 400);
+      k.id = k.id || Math.random().toString(16).slice(2, 10); k.label = String(k.label || '').trim().slice(0, 24);
+    }
+    S.remoteLayout = copy(l); save();
+    return answer(remoteRead());
+  }
+  function remotePress(body) {
+    const key = remoteRead()?.layout.keys.find(k => k.id === body.key);
+    if (!key) return answer({ detail: 'No such key: the keys were changed, so reload the page' }, 404);
+    const did = []; let failed = null;
+    for (const step of key.steps) {
+      const camera = step.camera ? cams().cameras.find(c => c.id === step.camera) : null;
+      if (step.camera && !camera) { failed = 'that camera is no longer paired'; break; }
+      if (step.do === 'take') { cutTo(step.camera, true); const d = director(); d.hold_until = d.enabled ? now() + 10 : null; did.push(`${camera.name} on air`); }
+      else if (step.do === 'target') {
+        const target = camera.gimbal?.targets ? targetState(camera).list.find(x => x.id === step.target) : null;
+        if (!target) { failed = `${camera.name} has no such target`; break; }
+        did.push(targetGo(camera, target, 'operator'));
+      } else if (step.do === 'back') { const back = camera.gimbal?.targets ? targetBack(camera) : null; if (!back) { failed = 'no camera is on a saved target or has a spot remembered'; break; } did.push(back); }
+      else if (step.do === 'home') {
+        if (!camera.gimbal?.home?.set) { failed = `${camera.name} to its home position: No home position yet: aim it, then Set home`; break; }
+        const g = camera.gimbal, h = g.home; for (const x of [camera.telemetry?.gimbal, g].filter(Boolean)) { x.follow = null; if (x.attitude) { x.attitude.pan = h.pan; x.attitude.tilt = h.tilt; } }
+        if (g.targets) { targetState(camera).away = null; g.targets = copy(targetState(camera)); }
+        did.push(`${camera.name} turning home`);
+      } else if (step.do === 'auto') { const d = director(); d.enabled = step.on === 'toggle' ? !d.enabled : !!step.on; S.nextCut = now() + 6; did.push(`automatic choosing ${d.enabled ? 'on' : 'off'}`); }
+    }
+    if (key.steps.some(s => s.do === 'target')) note('In the demo the gimbal says it has turned, but the pictures are drawn, so nothing moves.');
+    save();
+    return answer({ did, failed, remote: remoteRead() });
   }
   function gimbalTargetPost(id, body) {
     const camera = cams().cameras.find(c => c.id === id); if (!camera) return answer({ detail: 'No such camera' }, 404);
@@ -1487,6 +1535,8 @@
     if (path === '/api/power/plug' || path === '/api/power/login') { note('This is a demo: the plugs’ settings stay as they are, and no login is kept.'); return answer(cams().power); }
     if (path === '/api/keep-awake') { note('This is a demo: keeping the Mac awake is only shown, and the schedule stays as it is.'); return answer(cams().keep_awake || {}); }
     if (path === '/api/director') return directorPost(body);
+    if (path === '/api/remote') return remotePost(body);
+    if (path === '/api/remote/press') return remotePress(body);
     if (path === '/api/event-mode') return kindPost(body);
     if (path === '/api/scene-chat') return chatPost(body);
     if (path === '/api/voice') return voiceShotPost(body);
