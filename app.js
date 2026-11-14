@@ -2444,7 +2444,7 @@ async function drawAll() {
               };
               const aimed = node('p', 'Aim from the stage: ');
               const calibrate = node('button', stage.calibrated ? 'Set again' : 'Set: it points at centre stage'); calibrate.disabled = off || !stage.on_map;
-              calibrate.title = stage.on_map ? 'Aim it at the middle of the stage with the arrows first. The manager then turns it towards whoever the wide shot sees, when it has lost them or before the director needs it.' : 'Put this camera on the room map first (Stage Shots, Room map)';
+              calibrate.title = stage.on_map ? 'Aim it at the middle of the stage with the arrows first. The manager then turns it towards whoever the wide shot sees, when it has lost them or before the director needs it.' : 'Put this camera on the room map first (Stage layout)';
               calibrate.onclick = () => gimbalStage('calibrate', 'Set centre stage');
               aimed.append(calibrate);
               if (stage.calibrated) {
@@ -2453,7 +2453,7 @@ async function drawAll() {
                 const drop = node('button', 'Forget'); drop.className = 'danger'; drop.disabled = off; drop.onclick = () => gimbalStage('forget', 'Forget the calibration');
                 aimed.append(' ', centre, ' ', drop);
                 if (stage.why) aimed.append(node('span', ` · ${{ following: '', pointing: 'turning it to ', waiting: 'waiting: ', idle: '' }[stage.state] ?? ''}${stage.why}`));
-              } else if (!stage.on_map) aimed.append(node('small', ' Put this camera and the wide camera on the room map first (Stage Shots).'));
+              } else if (!stage.on_map) aimed.append(node('small', ' Put this camera and the wide camera on the room map first (Stage layout).'));
               turn.append(aimed);
               if (gimbal.attitude) turn.append(node('small', `The phone says its camera points at pan ${gimbal.attitude.pan}°, tilt ${gimbal.attitude.tilt}° (from its rotation sensor; the pan counts from wherever the sensor started, and is kept anchored from the wide shot while it follows someone).`));
             }

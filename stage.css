@@ -1,9 +1,11 @@
-/* Stage page. In a file of its own, not in the page: the manager's content security policy allows styling
+/* Stage Shots and Stage layout. In a file of its own, not in the page: the manager's content security policy allows styling
    only from its own files, and styling written into a page is silently dropped.
    Made to be read in a dark room: light text on dark, programme red, next green (as on a vision mixer's
-   multiviewer), the first of a split amber, and no control smaller than a fingertip outside Arrange. */
+   multiviewer), the first of a split amber, and no control smaller than a fingertip. */
 #bar { display:flex; flex-wrap:wrap; gap:8px 16px; align-items:center; margin:12px 0; } #bar button { min-height:44px; padding:10px 16px; } #bar button[aria-pressed=true] { background:#eef4f8; color:#101820; }
-#now { font-size:var(--text-lg); margin:8px 0; } #hint { color:#b7c6d4; margin:6px 0 10px; }
+#now { font-size:var(--text-lg); margin:8px 0; } #hint, .hint { color:#b7c6d4; margin:6px 0 10px; } #unset { margin:6px 0 10px; }
+/* Stage layout: its opening words, and its sections one under another. */
+.lead { max-width:70ch; margin:8px 0 14px; } #shots[data-page=layout] > h2 { margin:26px 0 4px; } .narrow { display:none; color:#b7c6d4; margin:6px 0 10px; }
 #stage { --least:112px; --tall:76px; display:flex; flex-direction:column; gap:10px; padding:10px; background:#141e27; border:1px solid #2c3e4f; border-radius:12px; user-select:none; -webkit-user-select:none; }
 /* Which side is which: the performers' left and right, with the audience's in smaller words beneath. */
 #sides { display:grid; grid-template-columns:1fr auto 1fr; align-items:end; gap:8px; color:#9fb4c6; font-size:var(--text-sm); letter-spacing:.06em; text-transform:uppercase; }
@@ -31,7 +33,7 @@
 .shot .cam { position:absolute; width:20px; height:20px; transform:translate(-50%,-50%); color:#ffffff; opacity:.9; pointer-events:none; z-index:1; }
 .shot .cam svg { display:block; width:100%; height:100%; fill:currentColor; filter:drop-shadow(0 0 1px #000); }
 /* What each camera on the room map sees, across the stage, under the buttons: faint and dashed, as on the map; the
-   camera on air (or, in Arrange, the one pressed) filled and solid. */
+   camera on air (or, on Stage layout, the one pressed) filled and solid. */
 #performers svg.views { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; z-index:0; border-radius:10px; }
 #performers svg.views .view { fill-opacity:.07; stroke-opacity:.55; stroke-width:1.5; stroke-dasharray:6 6; vector-effect:non-scaling-stroke; }
 #performers svg.views .view.live, #performers svg.views .view.chosen { fill-opacity:.2; stroke-opacity:.95; stroke-dasharray:none; stroke-width:2; }
@@ -40,21 +42,21 @@
 .shot .cam svg { overflow:visible; } .shot .cam .view { fill:currentColor; fill-opacity:.28; stroke:currentColor; stroke-opacity:.9; stroke-width:.9; stroke-linejoin:round; }
 .shot.on-air .cam { color:#ffd0d0; }
 .shot .corner { display:none; }
-/* Arrange: everything that can be dragged shows it, and is big enough to catch with a finger. */
-:is(#stage, #room.together).arranging #performers { background-image:linear-gradient(#ffffff0d 1px,transparent 1px),linear-gradient(90deg,#ffffff0d 1px,transparent 1px); background-size:10% 12.5%; }
-:is(#stage, #room.together).arranging .shot { cursor:grab; border-style:dotted; touch-action:none; } :is(#stage, #room.together).arranging .shot.dragging { cursor:grabbing; box-shadow:0 6px 18px #000a; z-index:3; }
-:is(#stage, #room.together).arranging .shot.selected { border-style:solid; border-color:#8fd3ff; box-shadow:0 0 0 3px #8fd3ff66; z-index:2; }
-:is(#stage, #room.together).arranging .shot .cam { width:34px; height:34px; opacity:1; pointer-events:auto; cursor:grab; border-radius:50%; background:#0d151cd0; outline:2px solid #8fd3ff; padding:5px; box-sizing:border-box; color:#8fd3ff; }
+/* Stage layout (stage.js sets .arranging there): everything that can be dragged shows it, and is big enough to catch with a finger. */
+#stage.arranging #performers { background-image:linear-gradient(#ffffff0d 1px,transparent 1px),linear-gradient(90deg,#ffffff0d 1px,transparent 1px); background-size:10% 12.5%; }
+#stage.arranging .shot { cursor:grab; border-style:dotted; touch-action:none; } #stage.arranging .shot.dragging { cursor:grabbing; box-shadow:0 6px 18px #000a; z-index:3; }
+#stage.arranging .shot.selected { border-style:solid; border-color:#8fd3ff; box-shadow:0 0 0 3px #8fd3ff66; z-index:2; }
+#stage.arranging .shot .cam { width:34px; height:34px; opacity:1; pointer-events:auto; cursor:grab; border-radius:50%; background:#0d151cd0; outline:2px solid #8fd3ff; padding:5px; box-sizing:border-box; color:#8fd3ff; }
 /* A mark from the room map is set there, so it does not catch the pointer here: dragging it moves the button. */
-:is(#stage, #room.together).arranging .shot.mapped .cam { pointer-events:none; outline-style:dashed; }
+#stage.arranging .shot.mapped .cam { pointer-events:none; outline-style:dashed; }
 /* A handle at each corner: a finger-sized catch around a small square drawn on the corner. */
-:is(#stage, #room.together).arranging .shot .corner { display:block; position:absolute; width:32px; height:32px; z-index:2; }
-:is(#stage, #room.together).arranging .shot .corner::after { content:''; position:absolute; top:50%; left:50%; width:12px; height:12px; transform:translate(-50%,-50%); background:#8fd3ff; border:2px solid #0d151c; border-radius:2px; }
-:is(#stage, #room.together).arranging .shot .corner[data-corner=nw] { top:-16px; left:-16px; cursor:nwse-resize; } :is(#stage, #room.together).arranging .shot .corner[data-corner=se] { bottom:-16px; right:-16px; cursor:nwse-resize; }
-:is(#stage, #room.together).arranging .shot .corner[data-corner=ne] { top:-16px; right:-16px; cursor:nesw-resize; } :is(#stage, #room.together).arranging .shot .corner[data-corner=sw] { bottom:-16px; left:-16px; cursor:nesw-resize; }
-/* The camera pressed in Arrange, and the administrator's default widths. */
+#stage.arranging .shot .corner { display:block; position:absolute; width:32px; height:32px; z-index:2; }
+#stage.arranging .shot .corner::after { content:''; position:absolute; top:50%; left:50%; width:12px; height:12px; transform:translate(-50%,-50%); background:#8fd3ff; border:2px solid #0d151c; border-radius:2px; }
+#stage.arranging .shot .corner[data-corner=nw] { top:-16px; left:-16px; cursor:nwse-resize; } #stage.arranging .shot .corner[data-corner=se] { bottom:-16px; right:-16px; cursor:nwse-resize; }
+#stage.arranging .shot .corner[data-corner=ne] { top:-16px; right:-16px; cursor:nesw-resize; } #stage.arranging .shot .corner[data-corner=sw] { bottom:-16px; left:-16px; cursor:nesw-resize; }
+/* The camera pressed on Stage layout, and the administrator's default widths. */
 #tools, #defaults { margin-top:12px; padding:14px 16px; background:#1e2c39; border-radius:12px; }
-#tools h2, #defaults h2 { margin:0 0 8px; font-size:var(--text-md); } #tools .field { margin:10px 0; }
+#tools h3, #defaults h3 { margin:0 0 8px; } #tools .field { margin:10px 0; }
 #tools label, #defaults label { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; margin:8px 0; }
 #tools input[type=range], #defaults input[type=range] { flex:1 1 220px; min-height:44px; margin:0; accent-color:#8fd3ff; }
 #tools output, #defaults output { min-width:3.5em; font-variant-numeric:tabular-nums; font-weight:700; }
@@ -80,7 +82,7 @@
 #room .mark:focus-visible .body { stroke:#fff; }
 #room .side { display:flex; flex-direction:column; gap:12px; }
 #room .details, #room .waiting:not(:empty) { padding:14px 16px; background:#1e2c39; border-radius:12px; }
-#room .details h2 { margin:0 0 8px; font-size:var(--text-md); } #room .details h2::before { content:''; display:inline-block; width:.8em; height:.8em; margin-right:.45em; border-radius:50%; background:var(--swatch); vertical-align:-.05em; }
+#room .details h3 { margin:0 0 8px; } #room .details h3::before { content:''; display:inline-block; width:.8em; height:.8em; margin-right:.45em; border-radius:50%; background:var(--swatch); vertical-align:-.05em; }
 #room .details p { margin:6px 0; } #room .details small { display:block; color:#b7c6d4; margin:4px 0; } #room .field { margin:12px 0; }
 #room label { display:flex; flex-wrap:wrap; align-items:center; gap:8px 10px; margin:8px 0; }
 #room input[type=range] { flex:1 1 160px; min-height:44px; margin:0; accent-color:#8fd3ff; } #room input[type=number] { width:5.5em; min-height:40px; font-variant-numeric:tabular-nums; }
@@ -94,29 +96,30 @@
 #room .over .shot { pointer-events:auto; padding:6px 8px 6px 10px; } #room .over .shot b { font-size:var(--text-md); } #room .over .shot > span:not(.cam):not(.corner), #room .over .shot em { font-size:var(--text-xs); }
 #room .over .shot .cam { display:none; }
 #room .over .shot::before { content:''; position:absolute; left:0; top:0; bottom:0; width:7px; border-radius:7px 0 0 7px; background:var(--swatch, transparent); }
-#room.together:not(.arranging) .mark .label { display:none; }
+#room.together .mark .label { display:none; }
 #room .over #performers { position:absolute; top:0; left:calc(var(--left) * 100%); width:calc((var(--right) - var(--left)) * 100%); height:calc(var(--front) * 100%);
   aspect-ratio:auto; min-height:0; background:none; border:0; }
 #room .over #performers::before, #room .over #performers::after { content:none; }
 #room .over .row { position:absolute; left:calc(var(--left) * 100%); width:calc((var(--right) - var(--left)) * 100%); }
 #room .over #wides { top:calc(var(--front) * 100% + 10px); } #room .over #crowds { top:calc((var(--front) + (1 - var(--front)) * 0.5) * 100%); }
 #room .over .row .label { display:none; }
-#room.together { grid-template-columns:minmax(0,1fr); } #room.together.arranging { grid-template-columns:minmax(0,1fr) 340px; }
-#room.together:not(.arranging) .side { display:none; } #room.together:not(.arranging) .mark { pointer-events:none; cursor:default; }
+#room.together { grid-template-columns:minmax(0,1fr); }
+#room.together .side { display:none; } #room.together .mark { pointer-events:none; cursor:default; }
 /* A tablet: a little less room. */
-@media (max-width:900px) { #stage { --least:100px; } #performers { aspect-ratio:4/3; } #room, #room.together.arranging { grid-template-columns:minmax(0,1fr); } }
+@media (max-width:900px) { #stage { --least:100px; } #performers { aspect-ratio:4/3; } #room { grid-template-columns:minmax(0,1fr); } }
 /* A phone held upright: a taller stage, so the buttons have room, and buttons a thumb can find without covering each other. */
 @media (max-width:640px) {
   body { padding:12px; } #stage { --least:92px; --tall:64px; padding:8px; gap:8px; } #performers { aspect-ratio:auto; height:max(46vh,340px); min-height:0; }
   .shot { padding:8px 8px 8px 10px; } .shot b { font-size:var(--text-md); } .shot > span:not(.cam):not(.corner), .shot em { font-size:var(--text-xs); }
   #sides { grid-template-columns:1fr 1fr; font-size:var(--text-xs); } #sides small { font-size:var(--text-xs); } #sides .back { display:none; } #performers::before, #performers::after { font-size:var(--text-md); }
   #bar { gap:6px; } #bar button { margin:0; padding:10px 12px; }
+  .narrow { display:block; }
 }
 
-/* Placing cameras from the wide shot (place.js): experimental. */
+/* Placing cameras from the wide shot (place.js), the first step of Stage layout: experimental. */
 #place { margin-top:12px; padding:14px 16px; background:#1e2c39; border-radius:12px; }
-#place h2 { margin:0 0 8px; font-size:var(--text-md); } #place label { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:8px 0; }
-#place select { min-height:40px; } #place button { min-height:44px; }
+#place h2 { margin:0 0 8px; } #place > p { max-width:80ch; } #place label { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:8px 0; }
+#place select { min-height:40px; max-width:100%; } #place button { min-height:44px; }
 #place .seen { position:relative; margin:12px 0; max-width:960px; } #place .seen img { display:block; width:100%; height:auto; border-radius:8px; }
 #place .seen svg { position:absolute; inset:0; width:100%; height:100%; overflow:visible; }
 #place .seen polygon { fill:none; stroke-width:3px; vector-effect:non-scaling-stroke; } #place .seen polygon.off { stroke-dasharray:6 6; opacity:.45; }

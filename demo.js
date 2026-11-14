@@ -1259,7 +1259,7 @@
     if (said && chat()) Object.assign(chat(), { examples: said.examples, mode: said.mode });
     tick(); save(); return answer(S.answers['/api/event-mode']);
   }
-  // Stage Shots: its layout and room map, a camera at a time and field by field, a field set to null going back to its
+  // Stage layout (and Stage Shots, which reads it): the layout and room map, a camera at a time and field by field, a field set to null going back to its
   // default (or, for x and y on the room map, taking the camera off it), as stageplot.arranged and roommap.arranged do.
   function stagePost(body) {
     const st = S.answers['/api/stage'];
@@ -1355,7 +1355,7 @@
     for (const c of S.answers['/api/stage'].cameras) if (c.id in given) c.instruments = (focus[c.id] || []).map(key => names[key] || key.replace(/^custom:/, ''));
   }
 
-  // Stage Shots' "Place from the wide shot" (experimental): a few seconds of looking, then what the demonstration
+  // Stage layout's "Place cameras from the wide shot" (experimental): a few seconds of looking, then what the demonstration
   // manager found from its wide camera (Centre Wide). Its answers change from one look to the next, as its director
   // zooms, so these are copied from its looks (2026-10-18), the picture they are drawn over is the one build.py's look
   // recorded, and anything else is the recording's. From another camera nothing was recorded.

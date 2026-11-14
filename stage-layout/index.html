@@ -1,0 +1,24 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><script src="/demo.js?v=6981c099e30a"></script><meta name="viewport" content="width=device-width,initial-scale=1"><title>Stage layout · MCVSAID</title><link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/stage.css">
+<body><noscript><style>#login{display:none}</style><p style="padding:24px;font:17px/1.5 sans-serif">This is the MCVSAID demo: the dashboard with six simulated cameras, run entirely in your browser. There is no server behind it and no login. Switch on JavaScript to try it.</p></noscript><header><h1>Stage layout</h1></header>
+<form id="login"><label>Your name <input id="username" type="text" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="40"></label><label>Password <input id="password" type="password" autocomplete="current-password" required></label><button>Log in</button></form>
+<main id="shots" data-page="layout" hidden>
+<p class="lead">Where the cameras and the people they show stand. <a href="/stage">Stage Shots</a> lays its buttons out from it, and a gimbal aimed from the stage turns by the room map. Set it up once for each place and each band: start from the wide shot, check what it found, then adjust by hand.</p>
+<section id="place" aria-label="Start from the wide shot (experimental)"></section>
+<h2 id="room-title">Room map</h2>
+<p id="roomhint" class="hint"></p>
+<p class="narrow">On a screen this narrow the map names only the camera you have chosen: choose one from the list under the map.</p>
+<section id="room" hidden aria-labelledby="room-title"><div class="map"></div><div class="side"><div class="details" aria-live="polite"></div><div class="waiting"></div></div></section>
+<h2 id="buttons-title">Arrange the buttons by hand</h2>
+<p id="hint" class="hint"></p>
+<div id="stage" aria-label="Cameras, laid out as they stand: the stage at the top, the audience at the bottom">
+<div id="sides" aria-hidden="true"><span class="left"><b>Stage right</b> <small>house left</small></span><span class="back">Back of stage</span><span class="right"><b>Stage left</b> <small>house right</small></span></div>
+<div id="performers" class="zone" role="group" aria-label="Performers, from the back of the stage to the front"></div>
+<div id="wides" class="row" role="group" aria-label="Wide shots"><span class="label">Wide shots</span></div>
+<div id="front" aria-hidden="true">Front of stage</div>
+<div id="crowds" class="row" role="group" aria-label="Audience"><span class="label">Audience</span></div>
+</div>
+<section id="tools" hidden></section>
+<section id="defaults" hidden></section>
+<section id="set" hidden aria-label="The set"></section>
+<pre id="result" aria-live="polite"></pre></main><script src="/nav.js"></script><script src="/stage.js"></script><script src="/room.js"></script><script src="/setmap.js"></script><script src="/place.js"></script></body></html>

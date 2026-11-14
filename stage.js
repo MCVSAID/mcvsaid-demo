@@ -1,18 +1,21 @@
 'use strict';
-// A picture of the stage with one button per camera, named for what that camera shows. Press one to put it on air; in
-// Arrange, drag them to where they stand, as monitors are dragged about in a computer's display settings.
+// A picture of the stage with one button per camera, named for what that camera shows. On Stage Shots (stage.html),
+// press one to put it on air. On Stage layout (stage-layout.html, under Set up) the same picture is arranged: drag the
+// buttons to where the cameras stand, as monitors are dragged about in a computer's display settings. Both pages load
+// this file; LAYOUT says which one it is, and `arranging` is true on Stage layout and nowhere else.
 //
 // It reads like a stage plot, from the stage outward: the performers and instruments at the top, from the back of the
 // stage to the front; under them the wide (whole band) shots, across the full width; at the bottom the audience, as it
 // sits in front of the stage. Left and right are the performers' (stage left is the right of the page), and each
 // button is as wide as its camera's framing: narrow for one performer, the whole width for the band or the crowd. A
 // small mark on each button's edge shows where its camera stands and which way it points: from the room map (room.js)
-// where the camera is on it, unless a mark is set here by hand.
-let csrf = '', state = null, arranging = false, splitting = false, picked = null, dragging = null, selected = null, shown = '', justMoved = false;
+// where the camera is on it, unless a mark is set by hand on Stage layout.
+const LAYOUT = document.querySelector('#shots').dataset.page === 'layout', arranging = LAYOUT;
+let csrf = '', state = null, splitting = false, picked = null, dragging = null, selected = null, shown = '', justMoved = false;
 const places = {}, sizes = {}, talls = {}, marks = {}, tiles = new Map();
 const stage = document.querySelector('#stage'), result = document.querySelector('#result'), hint = document.querySelector('#hint'), now = document.querySelector('#now');
 const zones = { single: document.querySelector('#performers'), wide: document.querySelector('#wides'), crowd: document.querySelector('#crowds') };
-const buttons = { auto: document.querySelector('#auto'), split: document.querySelector('#split'), arrange: document.querySelector('#arrange'),
+const buttons = { auto: document.querySelector('#auto'), split: document.querySelector('#split'),
   tracking: document.querySelector('#tracking'), autozoom: document.querySelector('#autozoom'), whole: document.querySelector('#wholepicture') };
 // Each camera's colour, by its slot: its wedge here and on the room map, and its outline when placing from the wide shot.
 const COLOURS = ['#4cc9f0', '#f4a261', '#90be6d', '#f78fb3', '#b5a1ff', '#ffd166', '#2ec4b6', '#ff7b72'];
@@ -51,7 +54,7 @@ const widthOf = camera => sizes[camera.id] ?? saved(camera.id).w ?? state.widths
 const heightOf = camera => talls[camera.id] ?? saved(camera.id).h ?? 1;
 const fromRoom = id => state.room?.derived?.[id];
 // A camera placed on the room map takes its mark from there: the map is where it stands and points, so a mark set
-// earlier in Arrange no longer applies (it is kept, and used again if the camera comes off the map).
+// earlier by hand no longer applies (it is kept, and used again if the camera comes off the map).
 const onMap = id => !!state.room?.map?.[id];
 const markOf = camera => marks[camera.id] || (onMap(camera.id) && fromRoom(camera.id)?.cam) || saved(camera.id).cam || { at: FRONT, aim: 0 };
 // How wide it sees, in degrees, as the room map draws it: set by the administrator, else from the lens in use.
@@ -97,34 +100,44 @@ const refresh = window.concert.single(async () => {
   draw();
 });
 
+// Until a layout exists (no button placed, nothing on the room map), one line that says so, with the way to the page
+// that sets it up. Buttons only sized, or given a mark, still stand in the default row.
+function unset() {
+  const line = document.querySelector('#unset');
+  if (line) line.hidden = !state.cameras.length || Object.values(state.layout).some(entry => entry.x !== undefined) || Object.keys(state.room?.map || {}).length > 0;
+}
+
 function draw() {
   const director = state.director, cameras = state.cameras, usable = new Set(director.usable || []), pair = director.pair || [];
   const named = id => { const camera = cameras.find(c => c.id === id); return camera ? `${shows(camera)} (${camera.name})` : id; };
-  const seconds = Date.now() / 1000, held = director.hold_until && director.hold_until > seconds ? Math.ceil(director.hold_until - seconds) : 0;
-  const solo = director.sound?.solo, soloName = solo && ((director.instruments || []).find(i => i[0] === solo.instrument)?.[1] || solo.instrument);
-  const said = window.concert ? window.concert.programme(director) : { word: 'On air', suffix: '', blank: false };
   // What is coming next, when the director has decided a cut and waits for its moment: the preview, in green.
-  const planned = director.planned ? (director.planned.pair || [director.planned.camera_id]) : [];
-  const nowText = `${said.word}: ${pair.length ? pair.map(named).join(' and ') + ' (split screen)' : director.on_air ? named(director.on_air) : director.scene || 'nothing known'}${said.suffix}`
-    + (planned.length ? ` · next: ${planned.map(named).join(' and ')}` : '')
-    + (director.enabled ? held ? ' · automatic resumes shortly' : ' · choosing automatically' : ' · automatic is off')
-    + (soloName ? ` · solo heard: ${soloName}` : '') + (director.problem ? ` · ${director.problem}` : '')
-    + (state.people_recognition ? ' · Performer recognition: ON' : '');
-  // A live region: written to only when its words change. The seconds to go ride in a part hidden from screen readers.
-  if (now.dataset.said !== nowText) { now.dataset.said = nowText; now.textContent = nowText; now.append(node('span', '')); now.lastChild.setAttribute('aria-hidden', 'true'); }
-  now.lastChild.textContent = held ? ` (${held} s)` : '';
-  buttons.auto.setAttribute('aria-pressed', String(!!director.enabled)); buttons.auto.textContent = director.enabled ? 'Automatic: on' : 'Automatic: off';
-  // Tracking and the zoom for every camera (autoswitch.py): at the dashboard only, for operators and administrators.
-  for (const [button, kind, word] of [[buttons.tracking, 'tracking', 'Tracking'], [buttons.autozoom, 'zoom', 'Auto zoom']]) {
-    const all = state.auto?.[kind]; button.hidden = !all;
-    if (all) { button.setAttribute('aria-pressed', String(all.all)); button.textContent = `${word}: ${all.all ? 'on' : 'off'}${all.all && all.off.length ? ` (${all.off.length} off)` : ''}`; }
+  const solo = director.sound?.solo, planned = director.planned ? (director.planned.pair || [director.planned.camera_id]) : [];
+  // What is on air and the show-time controls: Stage Shots only.
+  if (!LAYOUT) {
+    const seconds = Date.now() / 1000, held = director.hold_until && director.hold_until > seconds ? Math.ceil(director.hold_until - seconds) : 0;
+    const soloName = solo && ((director.instruments || []).find(i => i[0] === solo.instrument)?.[1] || solo.instrument);
+    const said = window.concert ? window.concert.programme(director) : { word: 'On air', suffix: '', blank: false };
+    const nowText = `${said.word}: ${pair.length ? pair.map(named).join(' and ') + ' (split screen)' : director.on_air ? named(director.on_air) : director.scene || 'nothing known'}${said.suffix}`
+      + (planned.length ? ` · next: ${planned.map(named).join(' and ')}` : '')
+      + (director.enabled ? held ? ' · automatic resumes shortly' : ' · choosing automatically' : ' · automatic is off')
+      + (soloName ? ` · solo heard: ${soloName}` : '') + (director.problem ? ` · ${director.problem}` : '')
+      + (state.people_recognition ? ' · Performer recognition: ON' : '');
+    // A live region: written to only when its words change. The seconds to go ride in a part hidden from screen readers.
+    if (now.dataset.said !== nowText) { now.dataset.said = nowText; now.textContent = nowText; now.append(node('span', '')); now.lastChild.setAttribute('aria-hidden', 'true'); }
+    now.lastChild.textContent = held ? ` (${held} s)` : '';
+    buttons.auto.setAttribute('aria-pressed', String(!!director.enabled)); buttons.auto.textContent = director.enabled ? 'Automatic: on' : 'Automatic: off';
+    // Tracking and the zoom for every camera (autoswitch.py): at the dashboard only, for operators and administrators.
+    for (const [button, kind, word] of [[buttons.tracking, 'tracking', 'Tracking'], [buttons.autozoom, 'zoom', 'Auto zoom']]) {
+      const all = state.auto?.[kind]; button.hidden = !all;
+      if (all) { button.setAttribute('aria-pressed', String(all.all)); button.textContent = `${word}: ${all.all ? 'on' : 'off'}${all.all && all.off.length ? ` (${all.off.length} off)` : ''}`; }
+    }
+    buttons.whole.hidden = !state.auto;
+    buttons.split.setAttribute('aria-pressed', String(splitting));
+    buttons.split.disabled = !Object.keys(director.splits || {}).length;
+    unset();
   }
-  buttons.whole.hidden = !state.auto;
-  buttons.split.setAttribute('aria-pressed', String(splitting)); buttons.arrange.setAttribute('aria-pressed', String(arranging));
-  buttons.split.disabled = arranging || !Object.keys(director.splits || {}).length;
-  buttons.arrange.textContent = arranging ? 'Done arranging' : 'Arrange';
   stage.classList.toggle('arranging', arranging);
-  hint.textContent = arranging ? 'Drag a camera to where it stands; drag a corner to resize it; drag the small camera mark round its edge to where the camera really is. Press one to set it exactly. Saved as you let go.'
+  hint.textContent = arranging ? 'Drag a button to where its camera’s subject stands; drag a corner to resize it; drag the small camera mark round its edge to where the camera really is. Press one to set it exactly. Saved as you let go.'
     : splitting ? (picked ? 'Now press the second camera for the split screen.' : 'Press the two cameras to show side by side; the first goes on the left.')
     : 'Press a camera to put it on air.';
   zones.crowd.querySelector('.label').textContent = capital(words().audience || 'audience'); zones.crowd.setAttribute('aria-label', capital(words().audience || 'audience'));
@@ -200,7 +213,7 @@ function size(tile, camera) {
 }
 // What each camera on the room map sees, drawn across the stage as on the map: the same wedge, only the part of it on
 // the stage. The stage here is the map's stage stretched to this picture's shape, so a wedge covers the same performers
-// here as there. The camera on air has the strongest; in Arrange, the one pressed.
+// here as there. The camera on air has the strongest; on Stage layout, the one pressed.
 function views() {
   const zone = zones.single, room = state.room;
   let svg = zone.querySelector('svg.views');
@@ -251,9 +264,10 @@ async function keep(id, entry) {
   return answer;
 }
 
-// In Arrange, for the camera pressed: its size, where it stands and which way it points, set exactly.
+// On Stage layout, for the camera pressed: its size, where it stands and which way it points, set exactly.
 function tools() {
   const panel = document.querySelector('#tools'), camera = arranging && state.cameras.find(c => c.id === selected);
+  if (!panel) return;
   panel.hidden = !camera;
   if (!camera) { panel.dataset.key = ''; return; }
   const kind = kindOf(camera), own = saved(camera.id).w, fallback = state.widths?.[kind] ?? 0.18, m = markOf(camera);
@@ -262,7 +276,7 @@ function tools() {
   if (panel.dataset.key === key) return;
   const focused = panel.contains(document.activeElement) ? document.activeElement.dataset.k : null;
   panel.dataset.key = key; panel.replaceChildren();
-  panel.append(node('h2', `${shows(camera)} (${camera.name})`));
+  panel.append(node('h3', `${shows(camera)} (${camera.name})`));
   const kindWord = { single: 'a single shot', wide: 'a wide shot', crowd: `the ${words().crowd} camera` }[kind];
   // Width: a share of the stage, as the camera's framing is a share of it.
   const width = node('div', undefined, 'field'), label = node('label', 'Width '), slider = document.createElement('input'), value = node('output', `${Math.round(widthOf(camera) * 100)}%`);
@@ -296,14 +310,14 @@ function tools() {
         const b = node('button', text); b.dataset.k = `turn${by}`; b.setAttribute('aria-label', says); b.onclick = () => turnTo(entry.aim + by); compass.append(b);
       }
       where.append(compass);
-      const open = node('button', 'Open the room map'); open.dataset.k = 'open-room'; open.onclick = () => document.querySelector('#roommap')?.click(); where.append(open);
+      const open = node('button', 'Show it on the room map'); open.dataset.k = 'open-room'; open.onclick = () => window.roomChoose?.(camera.id); where.append(open);
     } else where.append(node('p', 'Where it stands and points is changed on the room map, at the manager’s dashboard.'));
     panel.append(where);
     const done = node('button', 'Close'); done.dataset.k = 'close'; done.onclick = () => { selected = null; draw(); }; panel.append(done);
     if (focused) panel.querySelector(`[data-k="${CSS.escape(focused)}"]`)?.focus();
     return;
   }
-  where.append(node('p', `Its camera stands ${standsWord(m.at)}, pointing ${aimWord(m.aim)}, seeing about ${Math.round(fovOf(camera))}° across. Place it on the room map to have this follow where it really is.`));
+  where.append(node('p', `Its camera stands ${standsWord(m.at)}, pointing ${aimWord(m.aim)}, seeing about ${Math.round(fovOf(camera))}° across. Place it on the room map above to have this follow where it really is.`));
   const round = node('div', undefined, 'compass');
   for (const [text, step, says] of [['◀ Round', -1 / 16, 'Move the camera mark anticlockwise round the edge'], ['Round ▶', 1 / 16, 'Move the camera mark clockwise round the edge']]) {
     const b = node('button', text); b.dataset.k = text; b.setAttribute('aria-label', says);
@@ -331,11 +345,12 @@ function tools() {
 // The administrator's, on the manager's own dashboard: how wide each kind of shot is when a camera has no width of its own.
 function defaults() {
   const panel = document.querySelector('#defaults'), mine = arranging && state.remote && state.widths;
+  if (!panel) return;
   panel.hidden = !mine;
   if (!mine) { panel.dataset.key = ''; return; }
   const key = JSON.stringify([state.widths, words().crowd]);
   if (panel.dataset.key === key || panel.contains(document.activeElement) && document.activeElement.type === 'range') return;
-  panel.dataset.key = key; panel.replaceChildren(node('h2', 'Default widths'), node('p', 'For every camera of each kind that has no width of its own. A share of the stage’s width.'));
+  panel.dataset.key = key; panel.replaceChildren(node('h3', 'Default widths'), node('p', 'For every camera of each kind that has no width of its own. A share of the stage’s width.'));
   for (const [kind, text] of [['single', 'One performer or instrument'], ['wide', 'Whole band or wide shot'], ['crowd', `${capital(words().crowd)} camera`]]) {
     const label = node('label', `${text} `), slider = document.createElement('input'), value = node('output', `${Math.round(state.widths[kind] * 100)}%`);
     slider.type = 'range'; slider.min = '8'; slider.max = '100'; slider.step = '1'; slider.value = String(Math.round(state.widths[kind] * 100));
@@ -347,7 +362,8 @@ function defaults() {
 
 // Only on the manager's own dashboard: whether this page is also offered to a phone on the camera network.
 function offer() {
-  const panel = document.querySelector('#remote'), remote = state.remote;
+  const panel = document.querySelector('#remote'), remote = panel && state.remote;
+  if (!panel) return;
   panel.hidden = !remote; if (!remote || panel.contains(document.activeElement)) return;
   panel.replaceChildren();
   const label = node('label'), box = document.createElement('input'); box.type = 'checkbox'; box.checked = remote.wanted;
@@ -377,7 +393,7 @@ function offer() {
   if (shown) { const once = node('p', `Passcode: ${shown}. Write it down now: it is not kept anywhere and cannot be shown again. If it is lost, make a new one.`); once.className = 'recording-warning'; panel.append(once); }
 }
 
-// In Arrange: the button itself moves, a corner sizes it (the opposite corner staying put), its camera mark goes round its edge.
+// On Stage layout: the button itself moves, a corner sizes it (the opposite corner staying put), its camera mark goes round its edge.
 function wire(tile, id) {
   let start = null, moved = false, how = null;
   const camera = () => state.cameras.find(c => c.id === id);
@@ -452,10 +468,11 @@ function wire(tile, id) {
   });
 }
 
-buttons.auto.onclick = () => act('/api/director', { enabled: !state?.director.enabled });
-buttons.tracking.onclick = () => act('/api/auto', { kind: 'tracking', on: !state?.auto?.tracking.all });
-buttons.autozoom.onclick = () => act('/api/auto', { kind: 'zoom', on: !state?.auto?.zoom.all });
-buttons.whole.onclick = () => act('/api/auto', { kind: 'zoom', whole: true });
-buttons.split.onclick = () => { splitting = !splitting; picked = null; draw(); };
-buttons.arrange.onclick = () => { arranging = !arranging; splitting = false; picked = null; selected = null; draw(); };
+if (!LAYOUT) {
+  buttons.auto.onclick = () => act('/api/director', { enabled: !state?.director.enabled });
+  buttons.tracking.onclick = () => act('/api/auto', { kind: 'tracking', on: !state?.auto?.tracking.all });
+  buttons.autozoom.onclick = () => act('/api/auto', { kind: 'zoom', on: !state?.auto?.zoom.all });
+  buttons.whole.onclick = () => act('/api/auto', { kind: 'zoom', whole: true });
+  buttons.split.onclick = () => { splitting = !splitting; picked = null; draw(); };
+}
 window.addEventListener('resize', () => { if (state) draw(); });

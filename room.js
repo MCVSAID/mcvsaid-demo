@@ -1,20 +1,21 @@
 'use strict';
-// The room map, reached from Stage Shots' Arrange: the room from above, the stage at the top and the house below, with
-// each camera where it stands and a wedge for what it sees. Drag a camera to move it; drag the round handle in front
-// of it to turn it, or type the angle. Laid out once at setup: Stage Shots' camera marks follow from it (see
-// roommap.py), each with a wedge as wide as on the map. Uses stage.js's state and helpers: it is loaded after it,
-// on the manager's dashboard only.
+// The room map: the room from above, the stage at the top and the house below, with each camera where it stands and a
+// wedge for what it sees. On Stage layout (LAYOUT, see stage.js) it is always open, and there the cameras are moved:
+// drag one to move it; drag the round handle in front of it to turn it, or type the angle. Laid out once at setup:
+// Stage Shots' camera marks follow from it (see roommap.py), each with a wedge as wide as on the map. Uses stage.js's
+// state and helpers: it is loaded after it, on the manager's dashboard only.
 //
-// Room view puts the two together: the shot buttons stand on the map's stage where the performers are, the wide shots
-// in a row at the front of the stage and the audience out in the house, with each camera drawn where it stands.
-// Pressing a button puts it on air as ever; in Arrange both the buttons and the cameras can be dragged. stage.js's
-// own rows are moved onto the map for it and back again after, so everything it does with them goes on working. Not
-// offered on a screen too narrow for buttons a finger can press on a map that small.
+// Room view, on Stage Shots, puts the map and the buttons together: the shot buttons stand on the map's stage where
+// the performers are, the wide shots in a row at the front of the stage and the audience out in the house, with each
+// camera drawn where it stands. Pressing a button puts it on air as ever; nothing is moved there. stage.js's own rows
+// are moved onto the map for it and back again after, so everything it does with them goes on working. Not offered on
+// a screen too narrow for buttons a finger can press on a map that small.
 (() => {
   const NS = 'http://www.w3.org/2000/svg', W = 1000;
-  const panel = document.querySelector('#room'), button = document.querySelector('#roommap'), together = document.querySelector('#roomview');
+  const panel = document.querySelector('#room'), together = document.querySelector('#roomview'), roomHint = document.querySelector('#roomhint');
   const NARROWEST = 720;              // pixels across, below which Room view is not offered
-  let open = false, chosen = null, built = null, held = null, combined = false;
+  const open = LAYOUT;                // the map by itself, its cameras there to be moved
+  let chosen = null, built = null, held = null, combined = false;
   try { combined = localStorage.getItem('stage-room-view') === 'on'; } catch (error) { /* private window: not remembered */ }
   // stage.js's rows, moved onto the map in Room view, and where they go back to.
   const rows = ['#performers', '#wides', '#crowds'].map(selector => document.querySelector(selector)), home = document.querySelector('#front');
@@ -122,8 +123,8 @@
   // with Shift turn it instead.
   function wire(id, parts) {
     const point = event => { const m = built.root.getScreenCTM().inverse(), p = new DOMPoint(event.clientX, event.clientY).matrixTransform(m); return { x: p.x / W, y: p.y / H() }; };
-    // In Room view the cameras are there to be seen while shots are chosen: moved only in Arrange.
-    const still = () => panel.classList.contains('together') && !arranging;
+    // In Room view the cameras are there to be seen while shots are chosen: moved only on Stage layout.
+    const still = () => !open;
     parts.g.addEventListener('pointerdown', event => {
       if (still()) return;
       const how = event.target === parts.handle || event.target === parts.stem ? 'turn' : 'move', at = point(event), entry = spot(id);
@@ -180,7 +181,7 @@
     if (box.dataset.key === key) return;
     const focused = box.contains(document.activeElement) ? document.activeElement.dataset.k : null;
     box.dataset.key = key; box.replaceChildren();
-    const title = node('h2', `${shows(c)} (${c.name})`); title.style.setProperty('--swatch', colour(c)); box.append(title);
+    const title = node('h3', `${shows(c)} (${c.name})`); title.style.setProperty('--swatch', colour(c)); box.append(title);
     box.append(node('p', `Stands ${whereWords(entry)}, pointing ${aimWord(entry.aim)}.`));
     // The aim, exactly: a dial for the hand and a number for the keyboard.
     const aimField = node('div', undefined, 'field');
@@ -214,7 +215,7 @@
     if (derived) {
       const follows = node('div', undefined, 'field');
       follows.append(node('p', `In Stage Shots its button’s mark shows the camera ${standsWord(derived.cam.at)}, pointing ${aimWord(derived.cam.aim)}, with this wedge.`));
-      if (derived.w) follows.append(node('small', `It takes in about ${Math.round(derived.w * 100)}% of the ${c.kind === 'crowd' ? words().audience || 'audience' : 'stage'}’s width there: Arrange offers that as its button’s width.`));
+      if (derived.w) follows.append(node('small', `It takes in about ${Math.round(derived.w * 100)}% of the ${c.kind === 'crowd' ? words().audience || 'audience' : 'stage'}’s width there: its button below is offered that as its width.`));
       box.append(follows);
     }
     const off = node('button', 'Take it off the map'); off.dataset.k = 'off';
@@ -257,17 +258,15 @@
   }
 
   function draw() {
-    if (!window.concert || !room()) { button.hidden = true; together.hidden = true; return; }
-    const roomy = window.innerWidth >= NARROWEST, mixed = combined && roomy && !open;
-    together.hidden = !roomy || open; together.setAttribute('aria-pressed', String(mixed)); together.textContent = mixed ? 'Room view: on' : 'Room view';
-    button.hidden = !(arranging || open); button.setAttribute('aria-pressed', String(open)); button.textContent = open ? 'Back to the buttons' : 'Room map';
-    stage.hidden = open || mixed; panel.hidden = !(open || mixed);
-    panel.classList.toggle('together', mixed); panel.classList.toggle('arranging', arranging);
-    if (open) { document.querySelector('#tools').hidden = true; document.querySelector('#defaults').hidden = true; }
+    if (!room()) { if (together) together.hidden = true; panel.hidden = true; return; }
+    const roomy = window.innerWidth >= NARROWEST, mixed = !open && combined && roomy;
+    if (together) { together.hidden = !roomy; together.setAttribute('aria-pressed', String(mixed)); together.textContent = mixed ? 'Room view: on' : 'Room view'; }
+    if (!open) stage.hidden = mixed;
+    panel.hidden = !(open || mixed);
+    panel.classList.toggle('together', mixed);
     if (!open && !mixed) { if (built) seat(false); return; }
-    if (mixed) hint.textContent = arranging ? 'Drag a button to where its performer stands, or a camera to where it stands and its round handle to where it points. Press a button or a camera to set it exactly. Saved as you let go.'
-      : 'Press a camera’s button to put it on air. The room is seen from above: each dot is where a camera stands, its wedge what it sees.';
-    else hint.textContent = 'Drag each camera to where it stands and its round handle to where it points; the wedge is what it sees. Press one to set it exactly. Saved as you let go.';
+    if (mixed) hint.textContent = 'Press a camera’s button to put it on air. The room is seen from above: each dot is where a camera stands, its wedge what it sees.';
+    else if (roomHint) roomHint.textContent = window.setAsking || 'Drag each camera to where it stands and its round handle to where it points; the wedge is what it sees. Press one to set it exactly. Saved as you let go.';
     if (!built || built.key !== setKey()) { build(); drawn.clear(); }
     seat(mixed);
     // Each button striped in its camera's colour, to find its dot and wedge on the map by.
@@ -279,17 +278,17 @@
     // The chosen camera drawn last, over the others.
     const ids = state.cameras.map(c => c.id).filter(id => room().map[id]).sort((a, b) => (a === chosen) - (b === chosen));
     ids.forEach(id => { show(id); built.marks.append(drawn.get(id).g); });
-    // In Room view the list and the chosen camera's details are for arranging only: choosing shots needs the map alone.
-    if (mixed && !arranging) { chosen = null; return; }
+    // In Room view the list and the chosen camera's details are not shown: choosing shots needs the map alone.
+    if (mixed) { chosen = null; return; }
     details(); waiting();
   }
 
-  button.onclick = () => { open = !open; chosen = null; window.stageDraw(); };
-  together.onclick = () => {
+  if (together) together.onclick = () => {
     combined = !combined; chosen = null;
     try { localStorage.setItem('stage-room-view', combined ? 'on' : 'off'); } catch (error) { /* not remembered */ }
     window.stageDraw();
   };
-  buttons.arrange.addEventListener('click', () => { if (!arranging && open) { open = false; window.stageDraw(); } });
+  // From a button's own panel on Stage layout: its camera chosen on the map, and the map brought into view.
+  window.roomChoose = id => { if (!open || !room()?.map?.[id]) return; chosen = id; window.stageDraw(); panel.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); };
   window.roomDraw = () => { draw(); if (window.setDraw) window.setDraw(); };
 })();

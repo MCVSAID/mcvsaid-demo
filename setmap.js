@@ -1,7 +1,7 @@
 'use strict';
-// The set layout (setlayout.py), under the room map: what is drawn under the cameras for this kind of event, and the
-// panel below the map that changes it. Reached in Arrange, from Room map. Uses stage.js's state and helpers and
-// room.js's map: loaded after both, on the manager's dashboard only.
+// The set layout (setlayout.py), under the room map: what is drawn under the cameras for this kind of event, and, on
+// Stage layout, the panel (#set) that changes it. Stage Shots loads this too, for Room view to draw the set, and has
+// no panel. Uses stage.js's state and helpers and room.js's map: loaded after both, on the manager's dashboard only.
 //
 // A map from photos. Ordinary photos of the set (from a phone, or what a camera here sees now) are straightened into
 // a view from above through four points on the floor, each photo by a homography (a plane seen in perspective is the
@@ -152,7 +152,7 @@
   let drawnKey = '';
   function draw() {
     if (!layer || !layout()) return;
-    const L = layout(), { W, H } = view, editing = !panel.hidden && picking === null;
+    const L = layout(), { W, H } = view, editing = !!panel && !panel.hidden && picking === null;
     // Drawn afresh only when something in it changed: the page refreshes every second.
     const wanted = JSON.stringify([{ ...L, cameras: undefined }, local.shapes, editing, chosenShape, picking && picking.marks, set().targets, W, H, layer.isConnected]);
     if (wanted === drawnKey) return;
@@ -241,11 +241,13 @@
   const labelled = (text, input) => { const l = node('label', text); l.append(input); return l; };
   function input(type, value, attributes = {}) { const e = document.createElement('input'); e.type = type; if (value !== undefined) e.value = value; for (const [k, v] of Object.entries(attributes)) e.setAttribute(k, v); return e; }
   function choice(options, value) { const s = document.createElement('select'); for (const [v, t] of options) { const o = node('option', t); o.value = v; s.append(o); } if (value !== undefined) s.value = value; return s; }
+  // What is being asked for on the map, in the line above it (room.js leaves it there while it is being asked).
+  function say(text) { window.setAsking = text; const line = document.querySelector('#roomhint'); if (line && text) line.textContent = text; }
   // Asks for points on the map, one press each; `done` is given them.
   function pick(count, asking, done) {
     const marks = [];
-    picking = { marks, then: spot => { marks.push(spot); if (marks.length === count) { picking = null; done(marks); } else hint.textContent = asking(marks.length); draw(); } };
-    hint.textContent = asking(0); draw();
+    picking = { marks, then: spot => { marks.push(spot); if (marks.length === count) { picking = null; say(''); done(marks); } else say(asking(marks.length)); draw(); } };
+    say(asking(0)); draw(); document.querySelector('#room')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }
 
   function panelDraw() {
@@ -411,7 +413,7 @@
   }
 
   function shapesPart() {
-    const s = set(), box = section('Shapes', 'Drag a shape on the map to move it, its corner to size it. The main one is where the shots are: Stage Shots’ buttons stand on it and a gimbal is set on its middle.');
+    const s = set(), box = section('Shapes', 'Drag a shape on the room map to move it, its corner to size it. The main one is where the shots are: Stage Shots’ buttons stand on it and a gimbal is set on its middle.');
     const list = node('div', undefined, 'shapes');
     shapesNow().forEach(shape => {
       const row = node('div', undefined, 'row'); row.classList.toggle('chosen', chosenShape === shape.id);
@@ -470,10 +472,9 @@
   }
 
   window.setDraw = () => {
-    const open = !!window.concert && document.querySelector('#roommap')?.getAttribute('aria-pressed') === 'true' && !!set();
-    panel.hidden = !open;
-    if (!open) { picking = null; return; }
-    panelDraw();
+    const open = !!panel && !!set();
+    if (panel) panel.hidden = !open;
+    if (open) panelDraw(); else if (picking) { picking = null; say(''); }
     if (!held) draw();
   };
 })();
