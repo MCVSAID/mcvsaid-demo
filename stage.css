@@ -3,25 +3,25 @@
    Made to be read in a dark room: light text on dark, programme red, next green (as on a vision mixer's
    multiviewer), the first of a split amber, and no control smaller than a fingertip outside Arrange. */
 #bar { display:flex; flex-wrap:wrap; gap:8px 16px; align-items:center; margin:12px 0; } #bar button { min-height:44px; padding:10px 16px; } #bar button[aria-pressed=true] { background:#eef4f8; color:#101820; }
-#now { font-size:1.15rem; margin:8px 0; } #hint { color:#b7c6d4; margin:6px 0 10px; }
+#now { font-size:var(--text-lg); margin:8px 0; } #hint { color:#b7c6d4; margin:6px 0 10px; }
 #stage { --least:112px; --tall:76px; display:flex; flex-direction:column; gap:10px; padding:10px; background:#141e27; border:1px solid #2c3e4f; border-radius:12px; user-select:none; -webkit-user-select:none; }
 /* Which side is which: the performers' left and right, with the audience's in smaller words beneath. */
-#sides { display:grid; grid-template-columns:1fr auto 1fr; align-items:end; gap:8px; color:#9fb4c6; font-size:13px; letter-spacing:.06em; text-transform:uppercase; }
-#sides b { color:#dce8f2; font-weight:700; } #sides small { display:block; font-size:11px; color:#7f97ab; letter-spacing:.05em; }
+#sides { display:grid; grid-template-columns:1fr auto 1fr; align-items:end; gap:8px; color:#9fb4c6; font-size:var(--text-sm); letter-spacing:.06em; text-transform:uppercase; }
+#sides b { color:#dce8f2; font-weight:700; } #sides small { display:block; font-size:var(--text-xs); color:#7f97ab; letter-spacing:.05em; }
 #sides .right { text-align:right; } #sides .left b::before { content:'◀ '; } #sides .right b::after { content:' ▶'; } #sides .back { text-align:center; color:#7f97ab; }
 /* The performers: placed freely, each button by its middle. */
 #performers { position:relative; aspect-ratio:16/7; min-height:300px; background:#18232d; border:1px solid #2c3e4f; border-radius:10px; }
-#performers::before, #performers::after { position:absolute; top:50%; transform:translateY(-50%); color:#ffffff26; font-weight:800; font-size:22px; letter-spacing:.08em; pointer-events:none; }
+#performers::before, #performers::after { position:absolute; top:50%; transform:translateY(-50%); color:#ffffff26; font-weight:800; font-size:var(--text-lg); letter-spacing:.08em; pointer-events:none; }
 #performers::before { content:'SR'; left:8px; } #performers::after { content:'SL'; right:8px; }
 /* The wide shots and the audience: rows across the full width, in order from house left. */
 .row { display:flex; flex-wrap:wrap; gap:8px; align-items:stretch; }
-.row .label { flex:0 0 100%; order:-1; color:#9fb4c6; font-size:13px; letter-spacing:.06em; text-transform:uppercase; }
-#front { text-align:center; color:#9fb4c6; font-size:13px; letter-spacing:.08em; text-transform:uppercase; border-top:2px solid #3d5569; padding-top:6px; margin-top:2px; }
+.row .label { flex:0 0 100%; order:-1; color:#9fb4c6; font-size:var(--text-sm); letter-spacing:.06em; text-transform:uppercase; }
+#front { text-align:center; color:#9fb4c6; font-size:var(--text-sm); letter-spacing:.08em; text-transform:uppercase; border-top:2px solid #3d5569; padding-top:6px; margin-top:2px; }
 .shot { position:relative; box-sizing:border-box; min-height:var(--tall); min-width:var(--least); margin:0; padding:10px 12px 10px 14px; border-radius:10px; border:3px solid #547087; background:#245574; color:#fff; text-align:left; cursor:pointer; font:inherit; touch-action:manipulation; }
 #performers .shot { position:absolute; transform:translate(-50%,-50%); z-index:1; min-width:min-content; max-width:100%; }
 .shot[data-kind=wide] { background:#1f4d68; } .shot[data-kind=crowd] { background:#2f3f63; }
-.shot b { display:block; font-size:1.08rem; line-height:1.2; overflow-wrap:break-word; -webkit-hyphens:auto; hyphens:auto; } .shot > span:not(.cam):not(.corner) { display:block; font-size:.84rem; color:#d6e5f1; margin-top:3px; }
-.shot em { display:block; font-style:normal; font-size:.8rem; font-weight:800; letter-spacing:.08em; margin-top:4px; } .shot em:empty { display:none; }
+.shot b { display:block; font-size:var(--text-md); line-height:1.2; overflow-wrap:break-word; -webkit-hyphens:auto; hyphens:auto; } .shot > span:not(.cam):not(.corner) { display:block; font-size:var(--text-sm); color:#d6e5f1; margin-top:3px; }
+.shot em { display:block; font-style:normal; font-size:var(--text-xs); font-weight:800; letter-spacing:.08em; margin-top:4px; } .shot em:empty { display:none; }
 /* Programme red, next green, the first of a split amber. Never colour alone: each also says so in words. */
 .shot.on-air { border-color:#ff5c5c; background:#7a1f24; box-shadow:0 0 0 3px #ff5c5c66; } .shot.on-air em { color:#ffd0d0; }
 .shot.next { border-color:#4cd17a; box-shadow:0 0 0 3px #4cd17a55; } .shot.next em { color:#a9f0c0; }
@@ -54,12 +54,12 @@
 :is(#stage, #room.together).arranging .shot .corner[data-corner=ne] { top:-16px; right:-16px; cursor:nesw-resize; } :is(#stage, #room.together).arranging .shot .corner[data-corner=sw] { bottom:-16px; left:-16px; cursor:nesw-resize; }
 /* The camera pressed in Arrange, and the administrator's default widths. */
 #tools, #defaults { margin-top:12px; padding:14px 16px; background:#1e2c39; border-radius:12px; }
-#tools h2, #defaults h2 { margin:0 0 8px; font-size:1.1rem; } #tools .field { margin:10px 0; }
+#tools h2, #defaults h2 { margin:0 0 8px; font-size:var(--text-md); } #tools .field { margin:10px 0; }
 #tools label, #defaults label { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; margin:8px 0; }
 #tools input[type=range], #defaults input[type=range] { flex:1 1 220px; min-height:44px; margin:0; accent-color:#8fd3ff; }
 #tools output, #defaults output { min-width:3.5em; font-variant-numeric:tabular-nums; font-weight:700; }
 #defaults label { justify-content:space-between; }
-.compass { display:flex; flex-wrap:wrap; gap:6px; margin:6px 0; } .compass button { min-width:48px; min-height:48px; margin:0; font-size:1.15rem; }
+.compass { display:flex; flex-wrap:wrap; gap:6px; margin:6px 0; } .compass button { min-width:48px; min-height:48px; margin:0; font-size:var(--text-lg); }
 .compass button[aria-pressed=true] { background:#eef4f8; color:#101820; }
 /* The room map: the room from above, the stage a lighter platform at the top. Each camera a dot in its own colour
    with the wedge of what it sees; the one pressed drawn over the rest, its wedge stronger. Beside the map on a
@@ -80,18 +80,18 @@
 #room .mark:focus-visible .body { stroke:#fff; }
 #room .side { display:flex; flex-direction:column; gap:12px; }
 #room .details, #room .waiting:not(:empty) { padding:14px 16px; background:#1e2c39; border-radius:12px; }
-#room .details h2 { margin:0 0 8px; font-size:1.1rem; } #room .details h2::before { content:''; display:inline-block; width:.8em; height:.8em; margin-right:.45em; border-radius:50%; background:var(--swatch); vertical-align:-.05em; }
+#room .details h2 { margin:0 0 8px; font-size:var(--text-md); } #room .details h2::before { content:''; display:inline-block; width:.8em; height:.8em; margin-right:.45em; border-radius:50%; background:var(--swatch); vertical-align:-.05em; }
 #room .details p { margin:6px 0; } #room .details small { display:block; color:#b7c6d4; margin:4px 0; } #room .field { margin:12px 0; }
 #room label { display:flex; flex-wrap:wrap; align-items:center; gap:8px 10px; margin:8px 0; }
 #room input[type=range] { flex:1 1 160px; min-height:44px; margin:0; accent-color:#8fd3ff; } #room input[type=number] { width:5.5em; min-height:40px; font-variant-numeric:tabular-nums; }
-#room .compass button { min-width:64px; font-size:1rem; }
-#room .waiting h3 { margin:8px 0; font-size:1rem; } #room .waiting h3:first-child { margin-top:0; } #room .waiting button { display:block; width:100%; text-align:left; margin:6px 0; min-height:44px; }
+#room .compass button { min-width:64px; font-size:var(--text-md); }
+#room .waiting h3 { margin:8px 0; font-size:var(--text-md); } #room .waiting h3:first-child { margin-top:0; } #room .waiting button { display:block; width:100%; text-align:left; margin:6px 0; min-height:44px; }
 #room .placed button::before { content:''; display:inline-block; width:.8em; height:.8em; margin-right:.5em; border-radius:50%; background:var(--swatch); vertical-align:-.05em; }
 #room .placed button[aria-pressed=true] { background:#eef4f8; color:#101820; }
 /* Room view: the buttons on the room map's stage, the wide shots in a row at its front, the audience out in the house.
    The rows are laid over the map where the room's geometry puts them (--left, --right, --front: shares of the map). */
 #room .canvas { position:relative; } #room .over { --least:96px; --tall:60px; position:absolute; inset:0; pointer-events:none; }
-#room .over .shot { pointer-events:auto; padding:6px 8px 6px 10px; } #room .over .shot b { font-size:.98rem; } #room .over .shot > span:not(.cam):not(.corner), #room .over .shot em { font-size:.76rem; }
+#room .over .shot { pointer-events:auto; padding:6px 8px 6px 10px; } #room .over .shot b { font-size:var(--text-md); } #room .over .shot > span:not(.cam):not(.corner), #room .over .shot em { font-size:var(--text-xs); }
 #room .over .shot .cam { display:none; }
 #room .over .shot::before { content:''; position:absolute; left:0; top:0; bottom:0; width:7px; border-radius:7px 0 0 7px; background:var(--swatch, transparent); }
 #room.together:not(.arranging) .mark .label { display:none; }
@@ -108,14 +108,14 @@
 /* A phone held upright: a taller stage, so the buttons have room, and buttons a thumb can find without covering each other. */
 @media (max-width:640px) {
   body { padding:12px; } #stage { --least:92px; --tall:64px; padding:8px; gap:8px; } #performers { aspect-ratio:auto; height:max(46vh,340px); min-height:0; }
-  .shot { padding:8px 8px 8px 10px; } .shot b { font-size:.95rem; } .shot > span:not(.cam):not(.corner), .shot em { font-size:.74rem; }
-  #sides { grid-template-columns:1fr 1fr; font-size:11px; } #sides small { font-size:10px; } #sides .back { display:none; } #performers::before, #performers::after { font-size:16px; }
+  .shot { padding:8px 8px 8px 10px; } .shot b { font-size:var(--text-md); } .shot > span:not(.cam):not(.corner), .shot em { font-size:var(--text-xs); }
+  #sides { grid-template-columns:1fr 1fr; font-size:var(--text-xs); } #sides small { font-size:var(--text-xs); } #sides .back { display:none; } #performers::before, #performers::after { font-size:var(--text-md); }
   #bar { gap:6px; } #bar button { margin:0; padding:10px 12px; }
 }
 
 /* Placing cameras from the wide shot (place.js): experimental. */
 #place { margin-top:12px; padding:14px 16px; background:#1e2c39; border-radius:12px; }
-#place h2 { margin:0 0 8px; font-size:1.1rem; } #place label { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:8px 0; }
+#place h2 { margin:0 0 8px; font-size:var(--text-md); } #place label { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:8px 0; }
 #place select { min-height:40px; } #place button { min-height:44px; }
 #place .seen { position:relative; margin:12px 0; max-width:960px; } #place .seen img { display:block; width:100%; height:auto; border-radius:8px; }
 #place .seen svg { position:absolute; inset:0; width:100%; height:100%; overflow:visible; }
@@ -137,14 +137,15 @@
 #room .set .shape text { fill:#eef4f8; stroke:#0d151c; stroke-width:4; paint-order:stroke; font-weight:700; dominant-baseline:middle; pointer-events:none; }
 #room .set .shape.editable { cursor:grab; } #room .set .shape.chosen rect, #room .set .shape.chosen ellipse { stroke:#ffd166; }
 #room .set .shape .grip { fill:#8fd3ff; stroke:#0d151c; stroke-width:2; cursor:nwse-resize; }
-#room .set .target path { fill:#ffd166; stroke:#0d151c; stroke-width:2; } #room .set .target text { fill:#ffd166; stroke:#0d151c; stroke-width:4; paint-order:stroke; font-size:15px; font-weight:700; }
-#room .set .scalebar line { stroke:#eef4f8; stroke-width:4; } #room .set .scalebar text { fill:#eef4f8; stroke:#0d151c; stroke-width:4; paint-order:stroke; font-size:15px; }
+#room .set .target path { fill:#ffd166; stroke:#0d151c; stroke-width:2; } #room .set .target text { fill:#ffd166; stroke:#0d151c; stroke-width:4; paint-order:stroke; font-size:var(--text-sm); font-weight:700; }
+#room .set .scalebar line { stroke:#eef4f8; stroke-width:4; } #room .set .scalebar text { fill:#eef4f8; stroke:#0d151c; stroke-width:4; paint-order:stroke; font-size:var(--text-sm); }
 #room .set .catcher { fill:#8fd3ff14; cursor:crosshair; } #room .set .picked { fill:#ffd166; stroke:#0d151c; stroke-width:2; pointer-events:none; }
 #set { margin-top:12px; padding:14px 16px; background:#1e2c39; border-radius:12px; }
-#set h2 { margin:0 0 6px; font-size:1.15rem; } #set h3 { margin:0 0 6px; font-size:1rem; }
+#set h2 { margin:0 0 6px; font-size:var(--text-lg); } #set h3 { margin:0 0 6px; font-size:var(--text-md); }
 #set .part { padding:12px 0; border-top:1px solid #2c3e4f; } #set .quiet { color:#b7c6d4; margin:4px 0 8px; } #set .warn { color:#ffb4a8; } #set .step { font-weight:700; color:#ffd166; }
 #set .row { display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px; margin:6px 0; } #set label { display:inline-flex; align-items:center; gap:6px; }
 #set input[type=number] { width:6em; } #set input[type=text] { width:12em; max-width:100%; } #set select { max-width:100%; }
 #set .shapes .row { padding:2px 6px; border-radius:8px; } #set .shapes .row.chosen { outline:2px solid #ffd166; }
-#set .primary { background:#2e7d4f; border-color:#5fbf86; }
 #set .marker canvas { display:block; max-width:100%; max-height:70vh; height:auto; border-radius:8px; margin:8px 0; } #set .marker canvas.pressable { cursor:crosshair; }
+/* Headings for screen-reader users to jump between: the labels beside them already say it, so these are not drawn. */
+h2.sr { position:absolute; width:1px; height:1px; margin:-1px; padding:0; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0; }

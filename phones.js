@@ -1,5 +1,5 @@
 'use strict';
-// Setting up a phone plugged into this PC. The manager does the work and says how each step went; this page asks
+// Setting up a phone plugged into this computer. The manager does the work and says how each step went; this page asks
 // what the phone should become and shows the answer.
 const result = document.querySelector('#result'), list = document.querySelector('#phones'), trouble = document.querySelector('#trouble');
 const asked = {};                    // serial -> what has been chosen on its card, kept while the card is redrawn
@@ -55,7 +55,7 @@ function choices(phone, report) {
     about.append(node('small', `The app gives up being device owner, is removed and replaced by ${report.release.version_name}, and the phone is set up again as ${phone.camera.name} in slot ${phone.camera.slot}. Its settings on the phone (picture size, bitrate, lens) go back to the app’s own and are set again on its card afterwards. Do this with time to spare, not just before a show.`));
     if (phone.move.recordings) {
       const label = node('label'), tick = node('input'); tick.type = 'checkbox'; tick.checked = pick.leave; tick.onchange = () => { pick.leave = tick.checked; };
-      label.append(tick, ` It has ${phone.move.recordings} recording${phone.move.recordings === 1 ? '' : 's'} not yet copied to this PC. Leave ${phone.move.recordings === 1 ? 'it' : 'them'} on the phone: the manager will not be able to fetch ${phone.move.recordings === 1 ? 'it' : 'them'} afterwards.`);
+      label.append(tick, ` It has ${phone.move.recordings} recording${phone.move.recordings === 1 ? '' : 's'} not yet copied to this computer. Leave ${phone.move.recordings === 1 ? 'it' : 'them'} on the phone: the manager will not be able to fetch ${phone.move.recordings === 1 ? 'it' : 'them'} afterwards.`);
       about.append(label);
     }
     way('move', `stay ${phone.camera.name}, moved to the signed app published here`, true, about);

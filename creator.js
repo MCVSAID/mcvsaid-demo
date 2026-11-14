@@ -26,7 +26,7 @@
   const tick = (text, checked) => { const label = node('label', ''), box = document.createElement('input'); box.type = 'checkbox'; box.checked = !!checked; box.setAttribute('aria-label', text); label.append(box, node('span', ' ' + text)); return [label, box]; };
   const number = (value, min, max, step, label) => { const input = document.createElement('input'); input.type = 'number'; input.min = min; input.max = max; input.step = step; input.value = value; input.setAttribute('aria-label', label); return input; };
 
-  // -- face blur, only while experimental face blur is switched on (System › This PC): then every face with the
+  // -- face blur, only while experimental face blur is switched on (System › This computer): then every face with the
   // fail-safe is this kind of event's default (faceblur.py), set on the Director page. Off, Creator Studio neither
   // shows nor relies on it.
   function faces() {

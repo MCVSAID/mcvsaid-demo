@@ -164,7 +164,7 @@ function performers() {
       remove.onclick = () => act(() => api(`/api/people/${p.id}`, { remove_reference: n }));
       figure.append(img, remove, quality(r)); pictures.append(figure);
     });
-    const who = el('div'); who.append(el('h3', p.name), el('small', `${p.label}${p.instruments.length ? ' · ' + p.instruments.join(', ') : ''}`));
+    const who = el('div'); who.append(el('h3', p.name), el('small', `${p.label}${p.instruments.length ? ' · ' + p.instruments.map(i => i.replace(/_/g, ' ')).join(', ') : ''}`));
     top.append(pictures, who); card.append(top);
     for (const warning of p.advice || (p.references.length ? [] : ['No picture: they cannot be recognised. Add one above.'])) card.append(el('p', warning, 'warn'));
     const role = el('select'); for (const [value, text] of [['performer', 'Performer'], ['star', 'Star: priority on any camera']]) { const o = el('option', text); o.value = value; role.append(o); }
@@ -178,7 +178,7 @@ function performers() {
     }
     card.append(follow);
     // Face blur's "Blur only chosen people" (Director page): this performer's face is blurred wherever they are recognised.
-    // Experimental: shown only while an administrator has switched face blur on (System › This PC).
+    // Experimental: shown only while an administrator has switched face blur on (System › This computer).
     if (state.face_blur) {
       const blurLabel = el('label', null, 'check'); const blurBox = el('input'); blurBox.type = 'checkbox'; blurBox.checked = !!p.blur_face;
       blurBox.onchange = () => act(() => api(`/api/people/${p.id}`, { blur_face: blurBox.checked }));
@@ -192,7 +192,7 @@ function performers() {
     consent.append(' ', state.keep_days ? `Their data is deleted on ${day(p.expires)}.` : `Their data is deleted at the end of the show day, ${day(p.expires - 1)}.`);
     card.append(consent);
     const row = el('div', null, 'row');
-    const better = el('button', improve ? 'Withdraw improvement consent' : 'They agreed to help improve MCVSAID');
+    const better = el('button', improve ? 'Withdraw improvement consent' : 'Record their agreement to help improve MCVSAID');
     better.onclick = () => act(() => api(`/api/people/${p.id}`, improve ? { withdraw: 'improve' } : { consent: 'improve' }));
     const remove = el('button', 'Remove and delete their data', 'danger');
     remove.onclick = async () => { const ok = await window.concert.ask({ title: `Delete ${p.name}?`, text: 'Their pictures, appearance and consent record are deleted now, and anything kept to improve MCVSAID under their code. This cannot be undone.', fields: [], ok: 'Delete', danger: true }); if (ok) act(() => api(`/api/people/${p.id}`, { withdraw: 'show' })); };

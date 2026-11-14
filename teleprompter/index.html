@@ -1,4 +1,4 @@
-<!doctype html><html lang="en"><meta charset="utf-8"><script src="/demo.js?v=91b1eed5a681"></script><meta name="viewport" content="width=device-width,initial-scale=1"><title>Teleprompter</title><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/teleprompter.css">
+<!doctype html><html lang="en"><meta charset="utf-8"><script src="/demo.js?v=c450402d2d23"></script><meta name="viewport" content="width=device-width,initial-scale=1"><title>Teleprompter · MCVSAID</title><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/teleprompter.css">
 <body><noscript><style>#login{display:none}</style><p style="padding:24px;font:17px/1.5 sans-serif">This is the MCVSAID demo: the dashboard with six simulated cameras, run entirely in your browser. There is no server behind it and no login. Switch on JavaScript to try it.</p></noscript><header><h1>Teleprompter</h1><p>Scripts for whoever speaks to camera, on a tablet beside it: the word being said lit as it is said.</p></header>
 <form id="login"><label>Your name <input id="username" type="text" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="40"></label><label>Password <input id="password" type="password" autocomplete="current-password" required></label><button>Log in</button></form>
 <main id="prompter-edit" hidden>
@@ -6,7 +6,7 @@
   <p id="now-said"></p>
   <div class="row">
     <label>Script <select id="use" aria-label="Script on the teleprompter"></select></label>
-    <button id="d-back">⏮ Section</button><button id="d-line-back">▲ Line</button><button id="d-play">▶ Play</button><button id="d-line-next">▼ Line</button><button id="d-next">Section ⏭</button>
+    <button id="d-back">⏮ Section</button><button id="d-line-back">▲ Line</button><button id="d-play" class="primary">▶ Play</button><button id="d-line-next">▼ Line</button><button id="d-next">Section ⏭</button>
     <label><input type="checkbox" id="d-follow"> Follow the voice</label>
     <a id="full" href="/teleprompter/full" target="_blank" rel="noopener">Open full screen</a>
   </div>
@@ -20,7 +20,7 @@
   <textarea id="script-text" rows="18" spellcheck="true" aria-label="The script"></textarea>
   <small>Each section begins with a line <code>## Its title</code>. A section is read word by word; add <code>[lyrics]</code> after the title for a song
   (lit a line at a time) or <code>[notes]</code> for points to speak from (not followed: ▼ moves to the next point). Blank lines are kept.</small>
-  <div class="row"><button id="save">Save</button><button id="remove" class="danger">Remove</button></div>
+  <div class="row"><button id="save" class="primary">Save</button><button id="remove" class="danger">Remove</button></div>
 </section>
 <section id="tablet" hidden><h2>The tablet</h2><div id="tablet-panel"></div></section>
 </main>

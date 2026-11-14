@@ -32,38 +32,43 @@ async function start() {
   window.addEventListener('resize', () => { if (drawn) draw(drawn); });
   await load();
   // A period ending now keeps moving; a past run does not change.
-  refreshing = setInterval(async () => { if (view.value.startsWith('last:')) { await listRuns(); await load(); } }, 30000);
+  refreshing = setInterval(async () => { if (view.value === 'latest' || view.value.startsWith('last:')) { await listRuns(); await load(); } }, 30000);
 }
 
 async function listRuns() {
-  const chosen = view.value || 'last:3', against = compare.value;
+  const chosen = view.value || 'latest', against = compare.value;
   runs = (await api('/api/temperatures/runs')).runs;
   view.replaceChildren();
+  { const o = node('option', !runs.length ? 'the last 3 hours' : underway(runs[0]) ? 'the current run' : 'the most recent run'); o.value = 'latest'; view.append(o); }
   for (const [value, text] of [['last:1', 'the last hour'], ['last:3', 'the last 3 hours'], ['last:12', 'the last 12 hours'], ['last:24', 'the last 24 hours']]) { const o = node('option', text); o.value = value; view.append(o); }
   if (runs.length) { const group = document.createElement('optgroup'); group.label = 'A past run'; for (const run of runs) { const o = node('option', runName(run)); o.value = `run:${run.start}`; group.append(o); } view.append(group); }
-  view.value = [...view.options].some(o => o.value === chosen) ? chosen : 'last:3';
+  view.value = [...view.options].some(o => o.value === chosen) ? chosen : 'latest';
   listCompare(against);
 }
 
 function listCompare(keep) {
   const chosen = keep ?? compare.value;
-  compare.replaceChildren(Object.assign(node('option', view.value.startsWith('run:') ? 'nothing' : 'choose a past run under Show first'), { value: '' }));
-  compare.disabled = !view.value.startsWith('run:');
-  if (!compare.disabled) for (const run of runs) { if (`run:${run.start}` === view.value) continue; const o = node('option', runName(run)); o.value = `run:${run.start}`; compare.append(o); }
+  compare.replaceChildren(Object.assign(node('option', isRun() ? 'nothing' : 'choose a past run under Show first'), { value: '' }));
+  compare.disabled = !isRun();
+  if (!compare.disabled) for (const run of runs) { if (`run:${run.start}` === target()) continue; const o = node('option', runName(run)); o.value = `run:${run.start}`; compare.append(o); }
   compare.value = [...compare.options].some(o => o.value === chosen) ? chosen : '';
 }
 
+// "latest" is the newest run: the one under way, or the last one when none is. With no run on record it is the last 3 hours.
+function target() { return view.value === 'latest' ? (runs.length ? `run:${runs[0].start}` : 'last:3') : view.value; }
+function isRun() { return target().startsWith('run:'); }
+function underway(run) { return Date.now() / 1000 - run.end < 300; }
 function runOf(value) { return runs.find(run => `run:${run.start}` === value); }
 async function readings(from, to) { return api(`/api/temperatures?start=${from}&end=${to}`); }
 
 async function load() {
   try {
     const state = { compare: null };
-    if (view.value.startsWith('last:')) {
-      const now = Date.now() / 1000, from = now - Number(view.value.slice(5)) * 3600;
+    if (!isRun()) {
+      const now = Date.now() / 1000, from = now - Number(target().slice(5)) * 3600;
       state.main = await readings(from, now); state.mode = 'clock'; state.from = from; state.to = now; state.origin = 0;
     } else {
-      const run = runOf(view.value); if (!run) return;
+      const run = runOf(target()); if (!run) return;
       state.main = await readings(run.start - 60, run.end + 60); state.mode = 'elapsed'; state.origin = run.start; state.from = 0; state.to = run.end - run.start; state.run = run;
       const other = runOf(compare.value);
       if (other) { state.compare = await readings(other.start - 60, other.end + 60); state.compareOrigin = other.start; state.other = other; state.to = Math.max(state.to, other.end - other.start); }
@@ -101,7 +106,7 @@ function draw(state) {
     plot.append(shape('line', { x1: left, x2: width - right, y1: Y(v), y2: Y(v), stroke: 'var(--grid)', 'stroke-width': 1 }));
     const label = shape('text', { x: left - 8, y: Y(v) + 4, 'text-anchor': 'end' }); label.textContent = `${v}°`; plot.append(label);
   }
-  const span = (x1 - x0) / 60, stepX = [5, 10, 15, 30, 60, 120, 180, 360].find(m => span / m <= Math.max(3, Math.floor((width - left - right) / 90))) || 720;
+  const span = (x1 - x0) / 60, stepX = [1, 2, 5, 10, 15, 30, 60, 120, 180, 360].find(m => span / m <= Math.max(3, Math.floor((width - left - right) / 90))) || 720;
   if (state.mode === 'elapsed') { for (let m = 0; m * 60 <= x1; m += stepX) { const label = shape('text', { x: X(m * 60), y: height - 8, 'text-anchor': 'middle' }); label.textContent = elapsed(m * 60); plot.append(label); } }
   else { const first = new Date(x0 * 1000); first.setSeconds(0, 0); first.setMinutes(Math.ceil(first.getMinutes() / stepX) * stepX); for (let t = first.getTime() / 1000; t <= x1; t += stepX * 60) { if (t < x0) continue; const label = shape('text', { x: X(t), y: height - 8, 'text-anchor': 'middle' }); label.textContent = clock(t); plot.append(label); } }
   // The warning levels, named at the right-hand end.

@@ -25,7 +25,7 @@
     busy = false; paint(true);
   }
   const named = id => state?.cameras.find(c => c.id === id)?.name || id;
-  const when = seconds => seconds ? new Date(seconds * 1000).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : '';
+  const when = seconds => seconds ? new Date(seconds * 1000).toLocaleString([], { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
   const outcomeLine = cameras => Object.entries(cameras).map(([id, r]) => `${named(id)}: ${typeof r === 'string' ? r : r.problem ? r.problem : r.state ? `${r.state === 'SUCCEEDED' ? 'set' : r.state.toLowerCase()}${r.error ? ` (${r.error})` : ''}${r.note ? ` — ${r.note}` : ''}` : r.delta_e ? `ΔE ${r.delta_e.before.mean} → ${r.delta_e.after.mean} (worst ${r.delta_e.after.max})${r.reference ? ', the reference' : ''}${r.warnings?.length ? ` — ${r.warnings.join('; ')}` : ''}` : r.ok ? `picture ${r.width}×${r.height}` : r.problem || 'done'}`).join(' · ');
 
   function select(options, value, change, label) {
@@ -79,7 +79,7 @@
     status.replaceChildren();
     const table = document.createElement('table'); table.className = 'colour-table';
     const head = document.createElement('tr');
-    for (const title of ['Camera', 'White balance', 'Exposure', 'Can do', 'Calibration', 'LUT in OBS']) head.append(node('th', title));
+    for (const title of ['Camera', 'White balance', 'Exposure', 'Supports', 'Calibration', 'LUT in OBS']) head.append(node('th', title));
     table.append(head);
     for (const camera of state.cameras) {
       const row = document.createElement('tr'), c = camera.colour, a = c?.actual, s = camera.support;
@@ -155,9 +155,10 @@
       node('span', ' make them '),
       select([...(scene ? [] : [['chart', form.kind === 'chart' ? 'accurate: the chart’s own colours' : 'neutral at 18% grey']]), ...state.cameras.map(c => [c.id, `match ${c.name}`])], form.reference, v => { form.reference = v; }, 'Target'));
     calibration.append(choose);
-    calibration.append(node('small', scene
+    const how = document.createElement('details'); how.className = 'fold'; how.append(node('summary', 'How this works'), node('small', scene
       ? 'Point every camera at the same thing (the stage, as lit for the show, with some grey and some colour in it), set white balance and exposure above first, then take pictures. Box the view they share on each picture if they frame it differently. The cameras are made to look like the one chosen; nothing is made "accurate" without a chart. Its ΔE scores are rougher than a chart’s: a drop by half or more is a good match. Run it again whenever the light changes.'
       : 'Light the chart as the stage will be, point every camera at it (filling a fair part of the picture, with no glare), set white balance and exposure above first, then take pictures. Run it again whenever the light changes.'));
+    calibration.append(node('small', scene ? 'Point every camera at the same thing, set white balance and exposure above, then take pictures.' : 'Light the chart as the stage will be, point every camera at it, set white balance and exposure above, then take pictures.'), how);
     const take = node('button', 'Take pictures from OBS'); take.disabled = busy;
     take.onclick = () => ask('/api/colour/capture', { cameras: chosen.size ? [...chosen] : 'all' }, answer => {
       for (const camera of state.cameras) {

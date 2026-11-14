@@ -76,9 +76,9 @@ function draw() {
     const rename = el('button', user.name ? 'Rename' : 'Give a name'); rename.type = 'button';
     rename.onclick = async () => { const answer = await concert.ask({ title: `Name for ${who}`, fields: [{ name: 'name', label: 'Name', value: user.name }], ok: 'Save' }); if (answer) await act(() => api(`/api/users/${user.id}`, { name: answer.name }), answer.name); };
     const out = user.you ? 'Your other logins are logged out; this one stays.' : 'They are logged out everywhere.';
-    const reset = el('button', 'New password'); reset.type = 'button';
+    const reset = el('button', 'Generate password'); reset.type = 'button';
     reset.onclick = async () => { if (await concert.sure(`Make a new password for ${who}?\nIt is shown here once. The present one stops working. ${out}`, { ok: 'Make one' })) await act(() => api(`/api/users/${user.id}`, { password: 'new' }), who); };
-    const own = el('button', 'Set password…'); own.type = 'button';
+    const own = el('button', 'Type a password…'); own.type = 'button';
     own.onclick = async () => {
       const answer = await concert.ask({ title: `Password for ${who}`, text: `At least ${user.role === 'admin' ? 12 : 8} characters. ${out}`, fields: [{ name: 'password', label: 'Password', type: 'password', minLength: user.role === 'admin' ? 12 : 8 }], ok: 'Set' });
       if (answer && await act(() => api(`/api/users/${user.id}`, { password: answer.password }), who)) result.textContent = `Password set for ${who}.`;

@@ -1,6 +1,6 @@
 'use strict';
 // Face blur (faceblur.py), on the Director page: the administrator's only. EXPERIMENTAL: hidden, and nothing blurred,
-// until switched on in System › This PC (the switch is drawn here too). Then every face, or everyone but consenting
+// until switched on in System › This computer (the switch is drawn here too). Then every face, or everyone but consenting
 // performers, for the show and camera by camera; margin, strength, the fail-safe, and recordings. And, camera by camera,
 // every face blurred on the phone itself, before anything is recorded or sent (blurred for good).
 // Uses app.js's api(), node(), editing(), part, systemTab, role and csrf; nav.js's concert.sure().
@@ -92,7 +92,7 @@
     drawn = key;
     body.replaceChildren();
     body.append(node('p', 'Faces in the programme made unrecognisable, placed as OBS shows each moment: the manager finds them in each camera’s picture a few seconds before OBS shows it, on this computer. Off unless chosen here.'));
-    if (state.migrated) body.append(node('p', 'Switched on for you when the manager was updated, because face blur was already in use here: it was not stopped. Switch it off in System › This PC.'));
+    if (state.migrated) body.append(node('p', 'Switched on for you when the manager was updated, because face blur was already in use here: it was not stopped. Switch it off in System › This computer.'));
     const caveat = node('p', state.caveat); caveat.className = 'recording-warning'; body.append(caveat);
     body.append(row('For the show:', select(state.modes.map(m => [m.id, m.name]), state.mode, v => change({ mode: v }), 'Face blur for the show')));
     body.append(caution());
@@ -144,7 +144,7 @@
     }
     message.textContent = said; message.className = said && said !== 'Saving…' ? 'recording-warning' : '';
   }
-  // The switch (System › This PC): face blur exists only once an administrator switches it on.
+  // The switch (System › This computer): face blur exists only once an administrator switches it on.
   async function flip(on) {
     const question = on
       ? `Switch experimental face blur on?\n\n${state.experimental}\n\nIts settings then appear on the Director page; nothing is blurred until you choose it there.`

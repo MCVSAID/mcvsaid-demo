@@ -1,16 +1,16 @@
-<!doctype html><html lang="en"><meta charset="utf-8"><script src="/demo.js?v=91b1eed5a681"></script><meta name="viewport" content="width=device-width,initial-scale=1"><title>Karaoke</title><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/teleprompter.css">
+<!doctype html><html lang="en"><meta charset="utf-8"><script src="/demo.js?v=c450402d2d23"></script><meta name="viewport" content="width=device-width,initial-scale=1"><title>Karaoke · MCVSAID</title><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/teleprompter.css">
 <body><noscript><style>#login{display:none}</style><p style="padding:24px;font:17px/1.5 sans-serif">This is the MCVSAID demo: the dashboard with six simulated cameras, run entirely in your browser. There is no server behind it and no login. Switch on JavaScript to try it.</p></noscript><header><h1>Karaoke</h1><p>The night’s line of singers: guests sign up from their phones, and each song goes onto the screen facing the singer as they are called up.</p></header>
 <form id="login"><label>Manager password <input id="password" type="password" autocomplete="current-password" required></label><button>Log in</button></form>
 <main id="karaoke-page" hidden>
 <p id="not-karaoke" class="recording-warning" hidden>The kind of event is not Karaoke night: choose it under Event in the side bar for the line, sign-up and singer’s screen to work.</p>
 <section id="now"><h2>Singing now</h2>
   <p id="up-said"></p>
-  <div class="row"><button id="next-singer">🎤 Next singer</button><a href="/teleprompter">Teleprompter controls</a></div>
+  <div class="row"><button id="next-singer" class="primary">🎤 Next singer</button><a href="/teleprompter">Teleprompter controls</a></div>
   <small>Next singer puts their song on the singer’s screen from the top. The words are followed as they are sung; ▼ on the screen, or a page turner, moves on a line.</small>
 </section>
 <section id="line-section"><h2>The line</h2>
   <ol id="line"></ol>
-  <div class="row"><input id="add-name" type="text" maxlength="24" autocomplete="off" placeholder="First name" aria-label="Singer’s first name"><select id="add-song" aria-label="Song"></select><button id="add">Add to the line</button></div>
+  <div class="row"><input id="add-name" type="text" maxlength="24" autocomplete="off" placeholder="First name" aria-label="Singer’s first name"><select id="add-song" aria-label="Song"></select><button id="add" class="primary">Add to the line</button></div>
   <small id="done-said"></small>
 </section>
 <section id="signup"><h2>Signing up from phones</h2>

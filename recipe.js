@@ -117,7 +117,7 @@
     const row = node('p', ''); row.className = 'recipe-controls';
     const back = button('Back', () => go('back'), 'The step before'); back.disabled = busy || !p.current || p.current === 1;
     const next = button(p.next ? `Next: ${p.next.label} · ${p.next.caption}` : (p.step && p.steps.find(s => s.id === p.current_id)?.status === 'current' ? 'Mark this step done' : 'No more steps'), () => go('next'), 'Shortcut: S');
-    next.id = 'recipe-next'; next.disabled = busy || (!p.next && !(p.step && p.steps.find(s => s.id === p.current_id)?.status === 'current'));
+    next.id = 'recipe-next'; next.className = 'primary'; next.disabled = busy || (!p.next && !(p.step && p.steps.find(s => s.id === p.current_id)?.status === 'current'));
     const undo = button(p.undo ? `Undo: ${p.undo}` : 'Undo', () => step({ undo: true }), p.undo ? `Puts back: ${p.undo}` : 'Nothing to undo'); undo.disabled = busy || !p.undo;
     row.append(back, next, undo); box.append(row);
     const follow = document.createElement('select'); follow.setAttribute('aria-label', 'Who moves through the steps');
@@ -575,7 +575,7 @@
     box.append(line);
     const row = node('p', ''); row.className = 'recipe-controls';
     const back = button('Back', () => go('back'), 'The step before'); back.disabled = busy || !p.current || p.current === 1;
-    const next = button(p.next ? `Next: ${p.next.caption}` : 'Last step', () => go('next'), 'Shortcut: S'); next.id = 'recipe-next-show'; next.disabled = busy || !p.next;
+    const next = button(p.next ? `Next: ${p.next.caption}` : 'Last step', () => go('next'), 'Shortcut: S'); next.id = 'recipe-next-show'; next.className = 'primary'; next.disabled = busy || !p.next;
     row.append(back, next, link);
     box.append(row);
     const owed = Object.keys(p.needs || {});

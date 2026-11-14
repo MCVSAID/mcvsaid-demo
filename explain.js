@@ -43,7 +43,7 @@
       if (o.problem || o.quiet) where.className = 'recording-warning';
       parts.push(where);
     }
-    const recent = node('div', ''); recent.className = 'recipe-heard'; recent.append(node('h4', 'Last captions'));
+    const recent = node('div', ''); recent.className = 'recipe-heard'; recent.append(node('h3', 'Last captions'));
     if (!state.recent.length) recent.append(node('small', state.on ? 'None yet: the next cut makes one.' : 'Off.'));
     else {
       const list = document.createElement('ul');

@@ -66,7 +66,12 @@ rate.onchange = async () => {
 // camera took all six connections a browser keeps to an address, and nothing else the page asked for got through: on
 // a tablet, Arm reached the camera but the page never updated, and the controller hardly moved the gimbal.
 let socket = null, socketOpen = false, sent = '';
-const pictureUrls = new Map();
+const pictureUrls = new Map(), stalls = new Map();
+// No frame for 5 seconds: hide the last one and say it is being waited for.
+function stalled(id) {
+  const tile = tiles.get(id); if (!tile) return;
+  tile.querySelector('img').hidden = true; const line = tile.querySelector('.said'); line.hidden = false; line.textContent = 'Waiting for its picture…';
+}
 function pictures() {
   if (window.concertDemo?.feed) return;
   const wanted = () => JSON.stringify({ cameras: [...tiles.keys()] });
@@ -77,13 +82,14 @@ function pictures() {
   socket.onmessage = event => {
     if (typeof event.data === 'string') {
       const said = JSON.parse(event.data), tile = tiles.get(said.id);
-      if (tile) { const line = tile.querySelector('.said'); line.hidden = false; line.textContent = `No live picture: ${said.error}`; }
+      if (tile) { tile.querySelector('img').hidden = true; const line = tile.querySelector('.said'); line.hidden = false; line.textContent = `No live picture: ${said.error}`; }
       return;
     }
     const bytes = new Uint8Array(event.data), length = bytes[0], id = new TextDecoder().decode(bytes.subarray(1, 1 + length));
     const tile = tiles.get(id); if (!tile) return;
     const url = URL.createObjectURL(new Blob([bytes.subarray(1 + length)], { type: 'image/jpeg' }));
     tile.querySelector('img').src = url;
+    clearTimeout(stalls.get(id)); stalls.set(id, setTimeout(() => stalled(id), 5000));
     const before = pictureUrls.get(id); pictureUrls.set(id, url); if (before) URL.revokeObjectURL(before);
   };
   socket.onclose = () => { socket = null; socketOpen = false; setTimeout(pictures, 2000); };
@@ -123,15 +129,16 @@ function draw() {
     }));
   }
   // A tile for each camera shown; its picture is the live feed, set once so the stream is not restarted.
-  for (const [id, tile] of tiles) if (!shown.some(c => c.id === id)) { tile.querySelector('img').src = ''; tile.remove(); tiles.delete(id); }
+  for (const [id, tile] of tiles) if (!shown.some(c => c.id === id)) { tile.querySelector('img').src = ''; clearTimeout(stalls.get(id)); tile.remove(); tiles.delete(id); }
   for (const camera of shown) {
     let tile = tiles.get(camera.id);
     if (!tile) {
       tile = node('article', undefined, 'feed'); tile.dataset.id = camera.id;
       const picture = node('div', undefined, 'picture'), img = document.createElement('img'), said = node('div', 'Waiting for its picture…', 'said');
-      img.alt = `${camera.name}, live`; img.onload = () => { said.hidden = true; };
+      img.alt = `${camera.name}, live`; img.hidden = true;       // shown only once a frame has loaded: no broken-image icon
+      img.onload = () => { img.hidden = false; said.hidden = true; };
       if (window.concertDemo?.feed) {
-        img.onerror = () => { said.hidden = false; said.textContent = 'No live picture (is the camera streaming, and the relay on?). Trying again…'; setTimeout(() => { img.src = feed(camera.id, true); }, 3000); };
+        img.onerror = () => { img.hidden = true; said.hidden = false; said.textContent = 'No live picture (is the camera streaming, and the relay on?). Trying again…'; setTimeout(() => { img.src = feed(camera.id, true); }, 3000); };
         img.src = feed(camera.id);
       }
       picture.append(img, said);
@@ -170,11 +177,11 @@ function draw() {
     // Arming, streaming and recording, as on its card: only what fits the camera's state; stopping asks first.
     if (camera.online) buttons.append(...capture(camera, t));
     if (gimbal?.connected) {
-      const stop = node('button', 'Stop'); stop.onclick = () => send(camera.id, 'gimbal.stop');
+      const stop = node('button', 'Stop gimbal'); stop.title = 'Stop the gimbal moving (the stream carries on). Controller: press B'; stop.onclick = () => send(camera.id, 'gimbal.stop');
       buttons.append(stop);
       // Its home position (gimbal.point to angles kept here): set where it points now, and go back there.
       if (gimbal.home) {
-        const home = node('button', 'Home'); home.disabled = !gimbal.home.set || gimbal.home.stale;
+        const home = node('button', 'Go home'); home.disabled = !gimbal.home.set || gimbal.home.stale;
         home.title = !gimbal.home.set ? 'No home position yet: aim it, then Set home' : gimbal.home.stale ? 'The phone restarted since Set home: aim it and Set home again' : 'Turn it back to its home position (stops following). Controller: press the right stick';
         home.onclick = () => goHome(camera.id);
         const sethome = node('button', gimbal.home.set ? 'Set home again' : 'Set home'); sethome.title = 'Keep where it points now as its home position';

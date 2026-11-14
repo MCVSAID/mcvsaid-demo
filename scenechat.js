@@ -31,7 +31,7 @@
       <div class="chat-wishes" aria-label="Wishes in force"></div>
       <ol class="chat-log" role="log" aria-live="polite" aria-label="The show's chat with the director"></ol>
       <p class="chat-note" hidden></p>
-      <form class="chat-say"><textarea rows="3" maxlength="160" autocomplete="off" spellcheck="true" enterkeyhint="send" aria-label="A wish for the director (Enter sends, Shift+Enter for a new line)"></textarea><button>Send</button></form>`;
+      <form class="chat-say"><textarea rows="3" maxlength="160" autocomplete="off" spellcheck="true" enterkeyhint="send" aria-label="A wish for the director (Enter sends, Shift+Enter for a new line)"></textarea><button class="primary">Send</button></form>`;
     const toggle = el('button', null, 'chat-toggle'); toggle.type = 'button'; toggle.id = 'scene-chat-toggle';
     toggle.innerHTML = `${icon}<span class="label">Scene Chat</span><span class="badge" hidden></span>`;
     toggle.setAttribute('aria-controls', 'scene-chat');

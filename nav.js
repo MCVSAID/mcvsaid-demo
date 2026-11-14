@@ -17,8 +17,8 @@ window.concert = {
           ['/power', 'Power', 'The smart plugs the chargers are on: switching them, and which gimbals and coolers each one charges', null, 'Set up', 'power'],
           ['/colour', 'Colour', 'White balance, exposure, chart calibration and LUTs', 'admin', 'Set up', 'colour'],
           ['/people', 'People', 'People on stage recognised with their consent (performers, speakers): stars, who each camera follows (Plus AI)', 'admin', 'Set up', 'people'],
-          ['/offload', 'Recordings', 'On the phones and on this PC: the files, and how they are made', null, 'Library', 'recordings'],
-          ['/system', 'System', 'Cameras and devices, network, logins, locations, this PC', 'admin', 'Administration', 'system'],
+          ['/offload', 'Recordings', 'On the phones and on this computer: the files, and how they are made', null, 'Library', 'recordings'],
+          ['/system', 'System', 'Cameras, network, logins, locations, this computer', 'admin', 'Administration', 'system'],
           ['/users', 'Users', 'Who can log in, by name, and with what rights: add, remove, reset passwords, change roles', 'admin', 'Administration', 'people']],
   // On a phone, these are along the bottom; the rest are under More.
   handy: ['/', '/cameras', '/stage', '/director'],
@@ -30,7 +30,7 @@ window.concert = {
   inPlace: ['/', '/recipe', '/cameras', '/colour', '/director', '/sound', '/power', '/recordings', '/system', '/locations'],   // parts of the one main page: switched without loading anything
   // The tabs within Recordings, the same on its two pages, and System's sections: under their page in the side bar.
   recordingTabs: [['/offload', 'Local recordings (phones)'], ['/recordings', 'PC recordings']],
-  systemTabs: [['/system#devices', 'Cameras & devices'], ['/system#updates', 'Updates'], ['/system#network', 'Network'], ['/system#logins', 'Logins'], ['/system#locations', 'Locations & backups'], ['/system#pc', 'This PC']],
+  systemTabs: [['/system#devices', 'Cameras'], ['/system#updates', 'Updates'], ['/system#network', 'Network'], ['/system#logins', 'Logins'], ['/system#locations', 'Locations & backups'], ['/system#pc', 'This computer']],
   subCurrent: null,          // the section open within its page, as one of the addresses above
   latest: null, fedAt: 0,    // the last /api/cameras answer, for the status line and the counts beside the pages
   session: null,
@@ -55,7 +55,7 @@ window.concert = {
       }
       const row = document.createElement('p');
       const no = document.createElement('button'); no.type = 'button'; no.textContent = cancel; no.onclick = () => dialog.close('cancel');
-      const go = document.createElement('button'); go.type = 'submit'; go.value = 'ok'; go.textContent = ok; if (danger) go.className = 'danger';
+      const go = document.createElement('button'); go.type = 'submit'; go.value = 'ok'; go.textContent = ok; go.className = danger ? 'danger' : 'primary';
       if (cancel) row.append(no); row.append(go); form.append(row); dialog.append(form); document.body.append(dialog);
       dialog.addEventListener('close', () => {
         const answer = dialog.returnValue === 'ok' ? Object.fromEntries(Object.entries(inputs).map(([name, input]) => [name, input.value])) : null;
@@ -70,7 +70,7 @@ window.concert = {
 
   /** Asks yes or no in a dialog over the page: true for OK. In place of window.confirm, which browsers can stop showing
    * (Firefox's "don't allow this site to prompt you again", and those built into apps) and then answer "Cancel" by
-   * themselves, so that Stop SRT seemed to do nothing (2026-10-17). The first line is the heading, the rest the text. */
+   * themselves, so that Stop stream seemed to do nothing (2026-10-17). The first line is the heading, the rest the text. */
   async sure(question, { ok = 'OK', danger = false } = {}) {
     const [title, ...rest] = String(question).split('\n');
     return (await this.ask({ title, text: rest.join('\n').trim(), fields: [], ok, danger })) !== null;
@@ -88,7 +88,7 @@ window.concert = {
     return this.session;
   },
 
-  /** Draws the side bar: the pages in their groups, each page's sections under it, the show's status at its foot; on a
+  /** Draws the side bar: the pages in their groups, each page's sections under it; the show's status along the top of the page; on a
    * phone, the four pages used during a show along the bottom. `pick` is called instead of loading, for the parts of
    * the main page. */
   nav(role, pick) {
@@ -142,7 +142,6 @@ window.concert = {
       }
     }
     const foot = document.createElement('div'); foot.className = 'foot';
-    const status = document.createElement('div'); status.id = 'live'; status.setAttribute('aria-live', 'polite'); status.setAttribute('aria-label', 'The show now');
     const version = document.createElement('p'); version.id = 'version';
     const out = document.createElement('button'); out.type = 'button'; out.id = 'logout'; out.innerHTML = `${this.icon('logout')}<span class="label">Log out</span>`;
     // Who is logged in here, beside the way out.
@@ -150,7 +149,7 @@ window.concert = {
     const me = document.createElement('p'); me.id = 'who';
     if (who) { me.textContent = this.session.name ? `${who} · ${({ admin: 'administrator', operator: 'operator' })[role] || role}` : who; out.setAttribute('aria-label', `Log out ${who}`); }
     out.onclick = async () => { try { await fetch('/api/logout', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': this.session?.csrf || '' } }); } catch (error) { /* gone either way */ } location.reload(); };
-    foot.append(status, me, version, out); bar.append(foot);
+    foot.append(me, version, out); bar.append(foot);
     // A phone: the pages used during a show along the bottom, and More for the whole list.
     let bottom = document.querySelector('#bottom-bar');
     if (!bottom) { bottom = document.createElement('nav'); bottom.id = 'bottom-bar'; bottom.setAttribute('aria-label', 'Pages used during a show'); document.body.append(bottom); }
@@ -165,8 +164,9 @@ window.concert = {
     if (!handy.includes(current)) more.setAttribute('aria-current', 'page');
     more.onclick = () => this.menu(!document.body.classList.contains('menu-open'));
     bottom.append(more);
-    // Where the side bar is a strip or hidden, the show's state rides along the top of the page instead.
-    if (!document.querySelector('#live-top')) { const strip = document.createElement('div'); strip.id = 'live-top'; strip.setAttribute('aria-hidden', 'true'); document.querySelector('header')?.before(strip); }
+    // The show's state rides along the top of every page, at every width. (Until 2026-11-13 a wide screen had it at the
+    // foot of the side bar instead, out of the way of the eye.)
+    if (!document.querySelector('#live-top')) { const strip = document.createElement('div'); strip.id = 'live-top'; strip.setAttribute('aria-live', 'polite'); strip.setAttribute('aria-label', 'The show now'); document.querySelector('header')?.before(strip); }
     let shade = document.querySelector('#shade'); if (!shade) { shade = document.createElement('div'); shade.id = 'shade'; shade.onclick = () => this.menu(false); document.body.append(shade); }
     this.messages(); this.show();
   },
@@ -342,10 +342,10 @@ window.concert = {
     return { word: out ? 'On air' : 'Programme', blank, suffix: blank ? ' (no picture)' : '', kind: blank ? 'warn' : out ? 'air' : 'off' };
   },
 
-  /** The show in one line at the foot of the side bar (along the top on a phone), and a count or a dot beside the pages
+  /** The show in one line along the top of the page, and a count or a dot beside the pages
    * where something wants a look. */
   show() {
-    const data = this.latest, live = document.querySelector('#live'); if (!data || !live) return;
+    const data = this.latest, live = document.querySelector('#live-top'); if (!data || !live) return;
     if (data.event_mode) this.takeMode(data.event_mode);
     const cameras = data.cameras || [], director = data.director || {}, ready = data.ready;
     const named = id => cameras.find(c => c.id === id)?.name || id;
@@ -353,7 +353,7 @@ window.concert = {
     const item = (text, kind, title) => { const span = document.createElement('span'); span.className = `pill ${kind}`; span.textContent = text; if (title) span.title = title; return span; };
     const onAir = director.problem ? null : director.pair ? director.pair.map(named).join(' + ') : director.on_air ? named(director.on_air) : director.scene || null;
     const state = ready ? { ok: ['Ready', 'ok'], warn: ['Check', 'warn'], fail: ['Not ready', 'fail'] }[ready.state] : null;
-    const pills = () => [
+    const pills = [
       state && item(state[0], state[1], ready.state === 'ok' ? 'Ready for a show' : [...(ready.stopping || []), ...(ready.worth_checking || [])].join('\n')),
       onAir ? (said => item(`${said.word}: ${onAir}${said.suffix}`, said.kind, said.blank ? 'This camera is not sending a picture: the programme shows nothing until another camera is put on' : said.word === 'Programme' ? 'What OBS shows; it is neither streaming nor recording' : 'What OBS is streaming or recording'))(this.programme(director)) : item('Nothing on air', 'off'),
       director.recording && item(`REC ${clock(director.recording.seconds)}`, 'rec', 'The programme is being recorded'),
@@ -361,10 +361,9 @@ window.concert = {
       data.people_recognition && item('Performer recognition: ON', 'people', 'Consenting performers are being recognised for the show. Nobody else is identified.'),
       director.streaming && item(`LIVE ${clock(director.streaming.seconds)}`, director.streaming.reconnecting ? 'warn' : 'rec', 'OBS is streaming out'),
     ].filter(Boolean);
-    live.replaceChildren(...pills());
-    // Along the top of a phone's page, where the side bar is out of sight, the kind of event rides with the show's state.
+    // The kind of event rides with the show's state.
     const kind = this.mode && item(this.mode.short, 'mode', `Event: ${this.mode.name}`);
-    document.querySelector('#live-top')?.replaceChildren(...[kind, ...pills()].filter(Boolean));
+    live.replaceChildren(...[kind, ...pills].filter(Boolean));
     const version = document.querySelector('#version'); if (version && data.manager_version) version.textContent = `Manager ${data.manager_version}`;
     // Beside the pages.
     const online = cameras.filter(c => c.online).length, hot = cameras.filter(c => ['hot', 'critical'].includes(c.thermal?.level));

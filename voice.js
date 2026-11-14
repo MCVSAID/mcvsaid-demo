@@ -225,9 +225,12 @@ window.listenTo = (v, pick, disabled) => {
     const now = JSON.stringify([{ ...v, heard: v.heard.map(e => [e.at, e.text, e.did, e.why]), heard_at: null }, said, busy, Math.floor(Date.now() / 10000)]);
     if (!all && (editing(panel) || now === drawnFrom)) return;
     drawnFrom = now;
-    const intro = node('p', 'Say a camera’s shot aloud and the director puts it on air at once, then holds it as it does a camera chosen by hand' +
-      ` (${Math.round(s.hold_seconds)} s, Hold after a person chooses, under Director settings), so the automatic choosing does not cut straight away: “cut to the overhead”, “show the stove”, “back to the wide”, or just “Wide shot!”. A name in passing (“the stove is hot”), a question or “don’t cut to the stove” does nothing. Speech is recognised on this computer: nothing heard is sent anywhere, and what was heard is kept here only, for the last few phrases, never saved.`);
-    const parts = [node('h2', 'Voice shot calls'), intro];
+    const intro = node('p', 'Say a camera’s shot aloud and the director puts it on air at once.');
+    const how = document.createElement('details'); how.className = 'fold';
+    how.append(node('summary', 'How this works'), node('p', 'The director then holds the camera as it does one chosen by hand' +
+      ` (${Math.round(s.hold_seconds)} s, Hold after a person chooses, under Director settings), so the automatic choosing does not cut straight away: “cut to the overhead”, “show the stove”, “back to the wide”, or just “Wide shot!”. A name in passing (“the stove is hot”), a question or “don’t cut to the stove” does nothing.`));
+    const privacy = node('p', 'Speech is recognised on this computer: nothing heard is sent anywhere, and what was heard is kept here only, for the last few phrases, never saved.');
+    const parts = [node('h2', 'Voice shot calls'), intro, how, privacy];
     if (!v.allowed) { const need = node('p', 'Listening is part of the Standard and Plus AI levels: choose one in AI assistance on the Director page. You can still try a phrase below.'); need.className = 'recording-warning'; parts.push(need); }
     const sure = node('p', ''); sure.className = 'recipe-load-row';
     const pick = document.createElement('select'); pick.setAttribute('aria-label', 'How sure a call must be');

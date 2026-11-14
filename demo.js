@@ -1427,6 +1427,11 @@
     const path = url.pathname, query = url.search.slice(1);
     // What a camera sees now, for a map from photos: its recorded picture.
     const grabbed = method === 'GET' && path.match(/^\/api\/stage\/set\/grab\/([^/]+)$/); if (grabbed) return realFetch(`/api/colour/preview/${grabbed[1]}`);
+    // The Show page's programme picture: the recorded picture of the camera on air (of a split's first camera).
+    if (method === 'GET' && path === '/api/programme/picture') {
+      const d = cams().director, shown = d.on_air || (d.pair || [])[0];
+      return shown ? realFetch(`/api/colour/preview/${encodeURIComponent(shown)}`) : answer({ detail: 'No picture: nothing is on air' }, 409);
+    }
     if (method === 'GET') { const data = read(path, query); return data === null ? answer({ detail: 'Not in the demo' }, 404) : answer(data); }
     if (path === '/api/stage/set/background') return setBackgroundPost(init.body, url.searchParams);
     let body = {}; try { body = init.body ? JSON.parse(init.body) : {}; } catch (error) { body = {}; }

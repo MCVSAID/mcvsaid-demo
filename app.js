@@ -46,13 +46,13 @@ const PARTS = {
 };
 // System's own sections, each a tab: [address after the #, name, its panels]. Done once per installation, phone or venue.
 const SYSTEM = [
-  ['devices', 'Cameras & devices', ['#devices-setup', '#battery', '#silence']],
-  // This PC's manager and the phones' camera app, updated in one place (2026-10-25: "more intuitive").
+  ['devices', 'Cameras', ['#devices-setup', '#battery', '#silence']],
+  // This computer's manager and the phones' camera app, updated in one place (2026-10-25: "more intuitive").
   ['updates', 'Updates', ['#manager-update', '#release']],
   ['network', 'Network', ['#network']],
   ['logins', 'Logins', ['#access']],
   ['locations', 'Locations & backups', ['#locations', '#transfer']],
-  ['pc', 'This PC', ['#ai-system', '#relay-system', '#decoding', '#face-blur-system']],
+  ['pc', 'This computer', ['#ai-system', '#relay-system', '#decoding', '#face-blur-system']],
 ];
 // The tab an older link (/system#release, /locations) means.
 const systemTabOf = name => SYSTEM.find(([id, , panels]) => id === name || panels.includes(`#${name}`))?.[0] || 'devices';
@@ -72,7 +72,7 @@ function show(path) {
   if (part === '/system') {
     for (const [id, , panels] of SYSTEM) for (const panel of panels) document.querySelector(panel).hidden = id !== systemTab;
     window.concert.tabs(document.querySelector('#system-tabs'), SYSTEM.map(([id, name]) => [`#${id}`, name]), `#${systemTab}`, href => { history.pushState(null, '', `/system${href}`); show('/system'); });
-    // Setting a phone up by cable is done at this PC only.
+    // Setting a phone up by cable is done at this computer only.
     document.querySelector('#add-phone').hidden = !!window.concert.session?.away;
   }
   if (part === '/recordings') window.concert.tabs(document.querySelector('#recordings-tabs'), window.concert.recordingTabs, '/recordings');
@@ -157,8 +157,8 @@ function aimButton(camera, label, title, pan, tilt, off) {
 async function send(camera, command, parameters = {}, label = command) {
   if (busy.has(camera.id)) return;
   const warnings = {
-    'camera.disarm': 'Disarm stops the capture service. Remote Arm only works on a phone set up as device owner; otherwise someone must tap Arm on the phone. Stop SRT / Finalize local MP4 leave the camera armed and idle.',
-    'system.reboot': 'Reboot the phone? It reconnects by itself after starting. Local recording stays unavailable until the screen lock has been entered once.',
+    'camera.disarm': 'Disarm stops the capture service. Remote Arm only works on a phone set up as device owner; otherwise someone must tap Arm on the phone. Stop stream / Stop recording leave the camera armed and idle.',
+    'system.reboot': 'Reboot the phone? It reconnects by itself after starting. Recording stays unavailable until the screen lock has been entered once.',
     'stream.stop': 'This can interrupt capture.', 'stream.restart': 'This can interrupt capture.', 'recording.stop': 'This can interrupt capture.' };
   if (warnings[command] && !await concert.sure(`${label} on ${camera.name}?\n${warnings[command]}`, { ok: label, danger: true })) return;
   busy.add(camera.id);
@@ -211,9 +211,9 @@ function x3Block(camera, gimbal, off) {
       const label = `Roll to ${HANGS[to]}`;
       // The same picture rotation (or a camera that is not running): rolled as it is. Otherwise stopped, rolled, started.
       if (!capturing || o.rotation === ORIENT_ROTATION[to]) { send(camera, 'gimbal.orient', { to }, label); return; }
-      if (!await concert.sure(`${camera.name}: this stops its ${[streaming && 'stream', recording && 'local recording'].filter(Boolean).join(' and ')}, rolls the phone to ${HANGS[to]} (a few seconds), turns its picture to match, then starts ${recording && streaming ? 'them' : 'it'} again.${recording ? ' The current recording file is closed and a new one begins.' : ''}${to === 'portrait' || o.now === 'portrait' ? ' Its picture changes shape, so check its scene in OBS.' : ''}`, { ok: label })) return;
-      sequence(camera, [streaming && ['Stop SRT', 'stream.stop'], recording && ['Finalize local MP4', 'recording.stop'], ['Roll', 'gimbal.orient', { to }], ['Wait until it is there', () => rolled(camera, to)],
-        recording && ['Start local MP4', 'recording.start'], streaming && ['Start SRT', 'stream.start']].filter(Boolean), label);
+      if (!await concert.sure(`${camera.name}: this stops its ${[streaming && 'stream', recording && 'recording'].filter(Boolean).join(' and ')}, rolls the phone to ${HANGS[to]} (a few seconds), turns its picture to match, then starts ${recording && streaming ? 'them' : 'it'} again.${recording ? ' The current recording file is closed and a new one begins.' : ''}${to === 'portrait' || o.now === 'portrait' ? ' Its picture changes shape, so check its scene in OBS.' : ''}`, { ok: label })) return;
+      sequence(camera, [streaming && ['Stop stream', 'stream.stop'], recording && ['Stop recording', 'recording.stop'], ['Roll', 'gimbal.orient', { to }], ['Wait until it is there', () => rolled(camera, to)],
+        recording && ['Start recording', 'recording.start'], streaming && ['Start stream', 'stream.start']].filter(Boolean), label);
     };
     line.append(b, ' ');
   }
@@ -318,8 +318,8 @@ function heatPanel(camera) {
   // A battery charged to full adds heat: said beside a heat warning when this phone's charge is not limited.
   if (message && camera.online && h.battery_limited === false && h.battery_note) { const line = node('p', h.battery_note[0].toUpperCase() + h.battery_note.slice(1) + '.'); line.className = 'recording-warning'; box.append(line); }
   const outlook = heatOutlook(camera);
-  if (outlook) { const line = node('p', outlook.text); if (outlook.concern) line.className = 'recording-warning'; box.append(line); }
-  box.append(node('small', `Warning from ${h.warn_c} °C · local recording stops at ${h.stop_c} °C${h.phone_safeguard ? '' : ' once this phone has app 0.7.5'}`));
+  if (outlook) { const line = node('p', outlook.text); if (outlook.concern) line.className = 'recording-warning outlook'; box.append(line); }
+  box.append(node('small', `Warning from ${h.warn_c} °C · recording stops at ${h.stop_c} °C${h.phone_safeguard ? '' : ' once this phone has app 0.7.5'}`));
   return box;
 }
 // Starts the update on one camera and waits for it to come back on the new version.
@@ -327,8 +327,8 @@ function heatPanel(camera) {
 async function updateCamera(camera, release, stopCapture) {
   const t = camera.telemetry || {};
   const steps = [];
-  if (stopCapture && (t.streaming || t.capture?.streamRequested)) steps.push(['Stop SRT', 'stream.stop']);
-  if (stopCapture && t.recording) steps.push(['Finalize local MP4', 'recording.stop']);
+  if (stopCapture && (t.streaming || t.capture?.streamRequested)) steps.push(['Stop stream', 'stream.stop']);
+  if (stopCapture && t.recording) steps.push(['Stop recording', 'recording.stop']);
   steps.push(['Start update', 'app.update']);
   busy.add(camera.id);
   try {
@@ -361,31 +361,31 @@ const streamingNow = c => !!(c.telemetry?.streaming || c.telemetry?.capture?.str
 // Only a phone still on app 0.7.6 that was armed on its own screen starts a recording along with its stream.
 const recordsWithStream = c => !c.telemetry?.capabilities?.explicit_recording && c.telemetry?.armed === true && c.telemetry?.capture?.localRecordingWanted !== false && !c.telemetry?.recording;
 const FLEET = [
-  { label: 'Arm All Devices', command: 'camera.arm', step: 'arming', did: 'armed',
+  { label: 'Arm all cameras', command: 'camera.arm', step: 'arming', did: 'armed',
     // Arming never switches recording on. Phones on app 0.7.6 need to be told; 0.7.7 and later never record unasked.
     parameters: c => c.telemetry?.capabilities?.stream_only_arm ? { local_recording: false } : {},
     lead: n => `Arm ${n} camera${n === 1 ? '' : 's'}?`, tail: 'Arming leaves a camera idle. Streaming and local recording are separate steps; neither starts by itself.',
     targets: c => c.online && c.telemetry?.armed === false && c.telemetry?.capabilities?.device_owner,
     skipped: c => !c.online ? (c.telemetry?.armed ? null : 'offline') : c.telemetry?.armed === false && !c.telemetry?.capabilities?.device_owner ? 'not device owner, so it must be armed on the phone' : null },
-  { label: 'Start All Streams', command: 'stream.start', step: 'starting SRT', did: 'started streaming on', preflight: true,
-    lead: n => `Start the stream on ${n} camera${n === 1 ? '' : 's'}?`, tail: 'Each needs its OBS input listening. Starting a stream does not start local recording, except on a camera marked with a warning above.',
+  { label: 'Start all streams', command: 'stream.start', step: 'starting the stream', did: 'started streaming on', preflight: true,
+    lead: n => `Start the stream on ${n} camera${n === 1 ? '' : 's'}?`, tail: 'Each needs its OBS input listening. Starting a stream does not start recording on the phone, except on a camera marked with a warning above.',
     targets: c => armedNow(c) && !streamingNow(c),
     detail: c => recordsWithStream(c) ? 'WARNING: this one WILL ALSO START RECORDING; press Arm on its card first to turn that off' : null,
     skipped: c => !c.online ? 'offline' : c.telemetry?.armed === false ? 'not armed' : null },
-  { label: 'Stop All Streams', command: 'stream.stop', step: 'stopping SRT', did: 'stopped streaming on', danger: true,
+  { label: 'Stop all streams', command: 'stream.stop', step: 'stopping the stream', did: 'stopped streaming on', danger: true,
     lead: n => `Stop the stream on ${n} camera${n === 1 ? '' : 's'}?`, tail: 'Their pictures will stop in OBS. Local recordings keep running.',
     targets: c => c.online && streamingNow(c),
     skipped: c => !c.online && streamingNow(c) ? 'offline; was streaming when last heard from' : null },
-  { label: 'Start All Recordings', command: 'recording.start', step: 'starting local MP4', did: 'started recording on', preflight: true,
+  { label: 'Start all recordings', command: 'recording.start', step: 'starting recording', did: 'started recording on', preflight: true,
     lead: n => `Start local recording on ${n} camera${n === 1 ? '' : 's'}?`, tail: 'Recording and streaming together runs two encoders and makes phones hotter.',
     targets: c => armedNow(c) && !c.telemetry?.recording,
     skipped: c => !c.online ? 'offline' : c.telemetry?.armed === false ? 'not armed' : null },
-  { label: 'Stop All Recordings', command: 'recording.stop', step: 'finalizing local MP4', did: 'stopped recording on', danger: true,
-    lead: n => `Stop local recording on ${n} camera${n === 1 ? '' : 's'}?`, tail: 'Each file is finalized. Streams to OBS keep running.',
+  { label: 'Stop all recordings', command: 'recording.stop', step: 'stopping recording', did: 'stopped recording on', danger: true,
+    lead: n => `Stop local recording on ${n} camera${n === 1 ? '' : 's'}?`, tail: 'Each file is finalised. Streams to OBS keep running.',
     targets: c => c.online && !!c.telemetry?.recording,
     skipped: c => !c.online && c.telemetry?.recording ? 'offline; was recording when last heard from' : null },
-  { label: 'Disarm All Devices', command: 'camera.disarm', step: 'disarming', did: 'disarmed', danger: true,
-    lead: n => `Disarm ${n} camera${n === 1 ? '' : 's'}?`, tail: 'Disarming stops the capture service: any stream stops and any local recording is finalized. Unarmed cameras can take app updates. A camera that is not device owner must be armed again on the phone.',
+  { label: 'Disarm all cameras', command: 'camera.disarm', step: 'disarming', did: 'disarmed', danger: true,
+    lead: n => `Disarm ${n} camera${n === 1 ? '' : 's'}?`, tail: 'Disarming stops the capture service: any stream stops and any recording is finalised. Unarmed cameras can take app updates. A camera that is not device owner must be armed again on the phone.',
     targets: c => armedNow(c),
     detail: c => [streamingNow(c) ? 'streaming' : null, c.telemetry?.recording ? 'RECORDING' : null, c.telemetry?.capabilities?.device_owner ? null : 'cannot be re-armed from here'].filter(Boolean).join(', ') || null,
     skipped: c => !c.online && c.telemetry?.armed ? 'offline; was armed when last heard from' : null },
@@ -393,8 +393,8 @@ const FLEET = [
 // A camera not used at this location is set aside, kept paired; one no longer wanted at all is removed (administrator).
 function asideButton(camera) {
   const inUse = camera.in_use !== false;
-  const button = node('button', inUse ? 'Not used here' : 'Use here');
-  button.title = inUse ? 'Keep it paired, but leave it out of the shows at this location' : 'Use this camera at this location again';
+  const button = node('button', inUse ? 'Set aside' : 'Use here');
+  button.title = inUse ? 'Set it aside: it stays paired, but is left out of the shows at this location' : 'Use this camera at this location again';
   button.onclick = async () => {
     if (inUse && !await concert.sure(`Set ${camera.name} aside at this location?\n\nIt stays paired and keeps its settings, but the director never chooses it, “Start All” leaves it out, no OBS scenes are made for it and it is not checked for readiness. If it connects it is shown under “Not in use here”, and nothing more. Each location keeps its own cameras set aside: switching location brings back that location's.`)) return;
     try { await api(`/api/cameras/${encodeURIComponent(camera.id)}/in-use`, { method: 'POST', body: JSON.stringify({ in_use: !inUse }) }); } catch (error) { concert.fail(error); }
@@ -439,7 +439,7 @@ function removeButton(camera) {
   const t = camera.telemetry || {}, capturing = camera.online && (t.streaming || t.recording || t.capture?.streamRequested);
   const button = node('button', 'Remove camera…'); button.className = 'danger';
   button.disabled = !!capturing || busy.has(camera.id);
-  button.title = capturing ? 'Stop its stream and local recording first' : 'Unpair it for good';
+  button.title = capturing ? 'Stop its stream and recording first' : 'Unpair it for good';
   button.onclick = async () => {
     if (!await concert.sure(`Remove ${camera.name} (slot ${camera.slot}) for good?\n\nIt is unpaired: its credential stops working, so the phone can no longer connect${camera.online ? ' (it is disconnected now)' : ''}, and its slot is free. What is set for it here is cleared: what it shows, its place on the stage picture, its microphone, telephoto, decoding and colour. Its recordings stay, and a restore point is kept (System › Locations & backups).\n\nTo use the phone again it must be paired again. To keep it for another time, use “Not used here” instead.`)) return;
     try { const done = await api(`/api/cameras/${encodeURIComponent(camera.id)}`, { method: 'DELETE' }); result.textContent = `Removed ${done.removed}: slot ${done.slot} is free.`; } catch (error) { concert.fail(error); }
@@ -477,7 +477,8 @@ async function fleetAction(action, cameras) {
   result.textContent = fleetNote;
   refresh(); settle();
 }
-// Pre-flight: one line per camera saying whether it is ready, then anything that is not right.
+// Pre-flight: one line per camera saying whether it is ready, then anything that is not right. A camera with nothing to
+// look at says "Ready" and no more: the checks that passed are not listed.
 const notRight = camera => (camera.readiness?.checks || []).filter(check => check.status !== 'ok');
 const problems = camera => notRight(camera).map(check => `${check.label}: ${check.detail}`).join('; ');
 function readinessPanel(camera) {
@@ -486,7 +487,6 @@ function readinessPanel(camera) {
   const box = node('div', ''); box.className = `readiness ${report.overall}`;
   const issues = notRight(camera);
   box.append(node('strong', report.overall === 'ok' ? 'Ready' : report.overall === 'warn' ? `Ready, with ${issues.length} thing${issues.length === 1 ? '' : 's'} to check` : 'Not ready'));
-  if (report.overall === 'ok') box.append(node('span', ` · ${report.checks.map(check => check.label.toLowerCase()).join(', ')} all good`));
   for (const check of issues) {
     const line = node('p', `${check.status === 'fail' ? '✖' : '!'} ${check.label}: ${check.detail}`); line.className = check.status; box.append(line);
     if (check.id === 'clock') { const fix = clockFix(camera); if (fix) box.append(fix); }
@@ -681,7 +681,7 @@ function plugButtons(plug, power) {
 // On the Cameras page, once a plug is set up: each plug's state and its switches, in one panel.
 function drawPlugSwitches(power) {
   const panel = document.querySelector('#plug-switch');
-  panel.replaceChildren(node('h3', 'Power'));
+  panel.replaceChildren(node('h2', 'Power'));
   for (const plug of power.plugs.filter(p => p.configured)) {
     const row = node('div', ''); row.className = 'plug-row';
     const head = node('strong', plug.name || plug.address); const state = plugStateLine(plug, power);
@@ -711,7 +711,7 @@ async function powerSave(path, body, button) {
   catch (error) { concert.fail(error); if (button) button.disabled = false; return false; }
   finally { refresh(); }
 }
-// Keeping this Mac awake (keepawake.py), on the Power page: when (during shows, always, never), a few hours from now for
+// Keeping this computer awake (keepawake.py), on the Power page: when (during shows, always, never), a few hours from now for
 // setting up, the screen too or not, and a schedule of times to stay awake, weekly or on one date.
 const awakePanel = document.querySelector('#keep-awake');
 let awakeAdding = false;                  // the Add a time form open: kept open across refreshes
@@ -747,12 +747,12 @@ function awakeWindowForm(k, window = null) {
     if (await awakeSave({ window: body }, save)) awakeAdding = false;
   };
   form.append(label('Name', name), ' ', label('From', start), ' ', label('to', end), node('br', ''), onceLabel, ' ', weekly, onDate, node('br', ''), save, ' ', cancel,
-              node('small', ' An end before the start runs past midnight. Times are this Mac’s clock.'));
+              node('small', ' An end before the start runs past midnight. Times are this computer’s clock.'));
   return form;
 }
 function drawKeepAwake(k) {
   const panel = awakePanel;
-  panel.replaceChildren(node('h2', 'Keep this Mac awake'));
+  panel.replaceChildren(node('h2', 'Keep this computer awake'));
   if (!k.available) { panel.append(node('p', 'Only on a Mac: this computer is not one, so it sleeps as its own settings say.')); return; }
   const state = node('p', `${k.awake ? 'Awake: kept awake now.' : 'Not kept awake now.'} ${k.why}.`);
   state.className = k.awake ? 'awake-on' : '';
@@ -778,7 +778,7 @@ function drawKeepAwake(k) {
       const list = node('ul', '');
       for (const w of k.windows) {
         const item = node('li', `${w.name ? w.name + ': ' : ''}${w.words}${w.running ? ' (now)' : ''}${w.past ? ' (past)' : ''} `);
-        const remove = node('button', 'Remove'); remove.onclick = async () => { if (await concert.sure(`Remove ${w.name || w.words} from the schedule?`, { ok: 'Remove', danger: true })) awakeSave({ remove: w.id }); };
+        const remove = node('button', 'Remove'); remove.className = 'danger'; remove.onclick = async () => { if (await concert.sure(`Remove ${w.name || w.words} from the schedule?`, { ok: 'Remove', danger: true })) awakeSave({ remove: w.id }); };
         item.append(remove); list.append(item);
       }
       panel.append(list);
@@ -796,7 +796,7 @@ function drawKeepAwake(k) {
 function drawAwakeAlert(k) {
   const box = document.querySelector('#awake-alert');
   const live = k.live.length > 0;
-  const lines = !k.available ? [] : [...(live && !k.awake ? [`The show is live (${k.live.join(', ')}), but this Mac is not being kept awake (${k.mode === 'off' ? 'Keep awake is switched off' : k.problem || 'starting'}): it may sleep mid-show.`] : []),
+  const lines = !k.available ? [] : [...(live && !k.awake ? [`The show is live (${k.live.join(', ')}), but this computer is not being kept awake (${k.mode === 'off' ? 'Keep awake is switched off' : k.problem || 'starting'}): it may sleep mid-show.`] : []),
                                         ...((live || k.awake) ? k.warnings.filter(w => !w.startsWith('Not being kept awake')) : [])];
   box.replaceChildren(...lines.map(text => { const p = node('p', text); p.className = 'recording-warning'; return p; }));
   if (lines.length) { const more = document.createElement('a'); more.href = '/power'; more.textContent = 'Keep awake settings…'; box.append(more); }
@@ -810,7 +810,7 @@ function drawPower(power, operator) {
   if (!power.plugs.length) panel.append(node('p', operator ? 'No plug is set up yet: an administrator adds them here.' : 'No plug is set up yet: add one below.'));
   for (const plug of power.plugs) {
     const card = document.createElement('article'); card.className = 'plug';
-    card.append(node('h3', plug.name || `Plug at ${plug.address}`), plugStateLine(plug, power), plugButtons(plug, power));
+    card.append(node('h2', plug.name || `Plug at ${plug.address}`), plugStateLine(plug, power), plugButtons(plug, power));
     if (plug.devices.length) {
       card.append(node('p', 'On its charger:'));
       const list = node('ul', ''); for (const d of plug.devices) list.append(node('li', deviceWords(d))); card.append(list);
@@ -820,7 +820,7 @@ function drawPower(power, operator) {
   }
   if (power.unplaced.length) {
     const box = document.createElement('article');
-    box.append(node('h3', 'Not on any plug yet'), node('p', 'Gimbals and coolers the phones report that no plug is said to charge. They may be on batteries, or on a charger not listed here.'));
+    box.append(node('h2', 'Not on any plug yet'), node('p', 'Gimbals and coolers the phones report that no plug is said to charge. They may be on batteries, or on a charger not listed here.'));
     const list = node('ul', ''); for (const d of power.unplaced) list.append(node('li', deviceWords({ kind: d.kind, address: d.address, label: '', now: d }))); box.append(list);
     panel.append(box);
   }
@@ -829,7 +829,7 @@ function drawPower(power, operator) {
     const fold = powerFold('add', 'Add a plug', !power.plugs.length);
     const address = powerField(fold, `Address (as the ${power.brand} app or the router shows it)`, '', 18), name = powerField(fold, 'Name', '', 24);
     name.placeholder = 'Charger hub by the stage';
-    const add = node('button', 'Add and check the plug');
+    const add = node('button', 'Add and check the plug'); add.className = 'primary';
     add.onclick = async () => { if (await powerSave('/api/power/plug', { address: address.value.trim(), name: name.value.trim() }, add)) powerOpen.delete('add'); };
     fold.append(add, node('p', ''), node('small', 'Give it a fixed address on the router, so that it keeps the one it has here.'));
     panel.append(fold);
@@ -837,11 +837,11 @@ function drawPower(power, operator) {
   const login = powerFold('login', `${power.brand} login`, !(power.username_set && power.password_set));
   const username = powerField(login, `${power.brand} account email (${power.username_set ? 'one is saved; leave empty to keep it' : 'the account the plugs are in'})`, '', 28, 'email');
   const password = powerField(login, `${power.brand} password (${power.password_set ? 'one is saved; leave empty to keep it' : `the same as in the ${power.brand} app`})`, '', 20, 'password');
-  const save = node('button', 'Save and check the plugs'), forget = node('button', 'Forget the login');
+  const save = node('button', 'Save and check the plugs'), forget = node('button', 'Forget the login'); save.className = 'primary'; forget.className = 'danger';
   save.onclick = () => { const body = {}; if (username.value.trim()) body.username = username.value.trim(); if (password.value) body.password = password.value; if (!Object.keys(body).length) body.password = ''; powerSave('/api/power/login', body, save); };
   forget.onclick = async () => { if (await concert.sure(`Forget the ${power.brand} login saved for the plugs?`, { ok: 'Forget', danger: true })) powerSave('/api/power/login', { forget: true }); };
   forget.disabled = !(power.username_set || power.password_set);
-  login.append(save, ' ', forget, node('p', ''), node('small', `The manager switches the plugs itself, on this network, without ${power.brand}’s cloud. They want the account’s login even so: it is kept with this PC’s other secrets and is never shown again or exported. A ${power.brand} plug locks itself for a while after several wrong passwords, so a refused login is not tried again until it is saved again.`));
+  login.append(save, ' ', forget, node('p', ''), node('small', `The manager switches the plugs itself, on this network, without ${power.brand}’s cloud. They want the account’s login even so: it is kept with this computer’s other secrets and is never shown again or exported. A ${power.brand} plug locks itself for a while after several wrong passwords, so a refused login is not tried again until it is saved again.`));
   panel.append(login);
 }
 // A plug's settings, for an administrator: its address and name, and what is on its charger, ticked from the gimbals
@@ -860,7 +860,7 @@ function plugEditor(plug, power) {
   if (!choices.length) fold.append(node('small', 'No gimbal or cooler is reported by a phone just now that is not on another plug. '));
   const others = powerField(fold, 'Anything else on it (separated by commas)', plug.devices.filter(d => d.kind === 'other').map(d => d.label).join(', '), 36);
   others.placeholder = 'Spare phone batteries, a light';
-  const save = node('button', 'Save'), forget = node('button', 'Forget this plug');
+  const save = node('button', 'Save'), forget = node('button', 'Forget this plug'); forget.className = 'danger';
   save.onclick = () => {
     const devices = ticks.filter(([box]) => box.checked).map(([, d]) => ({ kind: d.kind, address: d.address, label: d.label || d.now?.name || '' }));
     for (const text of others.value.split(',').map(t => t.trim()).filter(Boolean)) devices.push({ kind: 'other', address: null, label: text.slice(0, 40) });
@@ -946,7 +946,7 @@ function autoSwitches(auto, camera, cameras) {
     row.append(label);
     if (kind === 'zoom') {
       // A crop gone wrong: back to the whole picture at once (gliding on air), and the zoom off so that it stays so.
-      const whole = node('button', camera ? 'Whole picture' : 'Every camera whole');
+      const whole = node('button', camera ? 'Whole picture' : 'Whole picture on every camera');
       whole.title = 'Show the whole picture now and stop the automatic zoom, for a zoom that has gone wrong. Switch Auto zoom on again to let it zoom.';
       whole.onclick = () => flip('zoom', false, true);
       row.append(whole);
@@ -956,6 +956,106 @@ function autoSwitches(auto, camera, cameras) {
   return row.childElementCount ? row : node('span', '');
 }
 
+// The Show page's pictures: the programme (what OBS is showing) large, and a small one of each camera, pressed to put
+// that camera on air. Stills from OBS, one request a second in turn (the programme every other second, a camera's
+// thumbnail in between) and only while the Show page is in front: enough to see what is on air and what each camera
+// has, for far less work than the Operate page's live pictures. The box is made once and put back at each redraw, so
+// its pictures are not asked for again every two seconds.
+const monitor = { box: null, programme: null, tag: null, said: null, strip: null, thumbs: new Map(), urls: new Map(), order: '', turn: 0, busy: false, soon: false };
+async function monitorPicture(key, path, img, said) {
+  try {
+    const response = await fetch(path);
+    if (!response.ok) { let why = `HTTP ${response.status}`; try { why = (await response.json()).detail || why; } catch (error) { /* not said */ } throw new Error(why); }
+    const url = URL.createObjectURL(await response.blob());
+    img.src = url; img.hidden = false; if (said) said.hidden = true;
+    const before = monitor.urls.get(key); monitor.urls.set(key, url); if (before) URL.revokeObjectURL(before);
+  } catch (error) {
+    // No stale picture is left standing as if it were what is on air now.
+    img.hidden = true; img.removeAttribute('src');
+    if (said) { said.hidden = false; said.textContent = /^No picture/.test(error.message) ? error.message : `No picture: ${error.message}`; }
+  }
+}
+const monitorThumb = id => monitorPicture(id, `/api/stage/set/grab/${encodeURIComponent(id)}?width=320`, monitor.thumbs.get(id).querySelector('img'));
+async function monitorTick() {
+  if (!csrf || part !== '/' || document.hidden || monitor.busy || !monitor.box?.isConnected) return;
+  monitor.busy = true;
+  try {
+    const wanted = [...monitor.thumbs].filter(([, thumb]) => thumb.dataset.picture === 'yes').map(([id]) => id);
+    if (monitor.soon || monitor.turn % 2 === 0 || !wanted.length) { monitor.soon = false; await monitorPicture('programme', '/api/programme/picture?width=960', monitor.programme, monitor.said); }
+    else await monitorThumb(wanted[((monitor.turn - 1) / 2) % wanted.length]);
+    monitor.turn += 1;
+  } finally { monitor.busy = false; }
+}
+setInterval(monitorTick, 1000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) monitor.soon = true; });
+/** The pictures as they stand, brought up to date with who is on air: returns the box to put on the page. */
+function showMonitor(cameras, director, said, named, direct) {
+  const m = monitor;
+  if (!m.box) {
+    m.box = node('div', ''); m.box.className = 'monitor';
+    const big = node('figure', ''); big.className = 'monitor-programme';
+    m.programme = document.createElement('img'); m.programme.hidden = true;
+    m.said = node('p', 'Waiting for the picture from OBS…'); m.tag = node('figcaption', '');
+    big.append(m.programme, m.said, m.tag);
+    m.strip = node('div', ''); m.strip.className = 'monitor-cameras'; m.strip.setAttribute('role', 'group'); m.strip.setAttribute('aria-label', 'Put a camera on air');
+    m.box.append(big, m.strip);
+    m.soon = true;
+  }
+  const what = director.pair ? `split screen, ${director.pair.map(named).join(' and ')}` : director.on_air ? named(director.on_air) : director.scene ? `scene “${director.scene}”` : '';
+  m.tag.textContent = what ? `${said.word}: ${what}${said.suffix}` : ''; m.tag.hidden = !what || !!director.problem; m.tag.className = said.kind;
+  m.programme.alt = what ? `What OBS is showing: ${what}` : 'What OBS is showing';
+  const members = director.pair || (director.on_air ? [director.on_air] : []);
+  for (const [id, thumb] of m.thumbs) if (!cameras.some(c => c.id === id)) { thumb.remove(); m.thumbs.delete(id); const url = m.urls.get(id); if (url) { URL.revokeObjectURL(url); m.urls.delete(id); } }
+  for (const camera of cameras) {
+    let thumb = m.thumbs.get(camera.id);
+    if (!thumb) {
+      thumb = node('button', ''); thumb.type = 'button'; thumb.className = 'monitor-camera';
+      const img = document.createElement('img'); img.alt = ''; img.hidden = true;
+      thumb.append(img, node('span', ''), node('strong', ''), node('em', ''));
+      m.thumbs.set(camera.id, thumb);
+    }
+    const usable = director.usable.includes(camera.id), alone = director.on_air === camera.id && !director.pair, shown = members.includes(camera.id);
+    const [img, none, name, tag] = thumb.children;
+    name.textContent = camera.name; tag.textContent = shown ? said.word : ''; tag.hidden = !shown;
+    none.textContent = usable ? '' : 'No picture'; none.hidden = usable;
+    thumb.className = `monitor-camera${shown ? ` shown ${said.kind}` : ''}`;
+    thumb.disabled = !usable && !shown; thumb.setAttribute('aria-pressed', String(alone));
+    thumb.title = alone ? `${said.word} now` : usable ? `Cut to ${camera.name}` : 'Not usable right now: offline, not streaming, or no picture in OBS (or no “Cam” scene for it)';
+    thumb.onclick = async () => { if (alone || !usable) return; await direct({ take: camera.id }); monitor.soon = true; };
+    // A camera OBS has no picture from is not asked for one; one that has just come back is asked at once.
+    const before = thumb.dataset.picture; thumb.dataset.picture = usable ? 'yes' : 'no';
+    if (!usable) { img.hidden = true; img.removeAttribute('src'); }
+    else if (before !== 'yes') monitorThumb(camera.id);
+  }
+  const order = cameras.map(c => c.id).join(' ');
+  if (order !== m.order) { m.order = order; m.strip.replaceChildren(...cameras.map(c => m.thumbs.get(c.id))); }
+  return m.box;
+}
+// The Cameras page's small picture on each card: the same stills from OBS as the Show page's thumbnails, one camera
+// every two seconds in turn, and only while that page is in front. Each picture is kept and put back into its card at
+// each redraw, so it is not asked for again every two seconds.
+const cardShots = { imgs: new Map(), turn: 0, busy: false };
+const cardShotFetch = id => monitorPicture(`card:${id}`, `/api/stage/set/grab/${encodeURIComponent(id)}?width=320`, cardShots.imgs.get(id));
+function cardShot(camera, usable) {
+  let img = cardShots.imgs.get(camera.id);
+  if (!img) { img = document.createElement('img'); img.hidden = true; cardShots.imgs.set(camera.id, img); }
+  img.alt = `What ${camera.name} sees`;
+  const box = node('figure', ''); box.className = 'card-shot'; box.append(img);
+  // A camera OBS has no picture from is not asked for one; one that has just come back is asked at once.
+  const before = img.dataset.picture; img.dataset.picture = usable ? 'yes' : 'no';
+  if (!usable) { img.hidden = true; img.removeAttribute('src'); box.append(node('span', 'No picture')); }
+  else if (before !== 'yes') cardShotFetch(camera.id);
+  return box;
+}
+setInterval(async () => {
+  if (!csrf || part !== '/cameras' || document.hidden || cardShots.busy) return;
+  const wanted = [...cardShots.imgs].filter(([, img]) => img.isConnected && img.dataset.picture === 'yes').map(([id]) => id);
+  if (!wanted.length) return;
+  cardShots.busy = true;
+  try { await cardShotFetch(wanted[cardShots.turn++ % wanted.length]); } finally { cardShots.busy = false; }
+}, 2000);
+// The Band and Power blocks come after the cameras' cards, which are what the Cameras page is opened for.
+document.querySelector('#bands').before(document.querySelector('#cameras'));
 async function drawAll() {
   let answer;
   try { answer = await api('/api/cameras'); } catch (error) { concert.polled(!error.unreachable); concert.fail(error); return; }
@@ -997,17 +1097,8 @@ async function drawAll() {
           + (director.enabled ? (director.hold_until ? ` · your choice is held for ${Math.max(0, Math.round(director.hold_until - nowSeconds))} s more` : director.ai?.enabled ? ' · the model is watching and cuts when another camera rates clearly better' : director.next_cut_at ? ` · next cut in about ${Math.max(0, Math.round(director.next_cut_at - nowSeconds))} s` : director.usable.length < 2 ? ' · fewer than two usable cameras, so nothing to cut to' : '') : ''));
       if (director.problem || said.blank) air.className = 'recording-warning';
       program.append(air);
-      const cutRow = node('p', 'Put on air: ');
-      for (const camera of cameras) {
-        const usable = director.usable.includes(camera.id);
-        const live = director.on_air === camera.id;
-        const button = node('button', camera.name); button.disabled = !usable && !live;
-        // The one on air looks on air, and is still read out: pressed and unavailable, not dimmed out of the row.
-        button.setAttribute('aria-pressed', String(live)); if (live) { button.className = 'on-air-now'; button.setAttribute('aria-disabled', 'true'); }
-        button.title = live ? 'On air now' : usable ? `Cut to ${camera.name}` : 'Not usable right now: offline, not streaming, or no picture in OBS (or no “Cam” scene for it)';
-        button.onclick = live ? null : () => direct({ take: camera.id }); cutRow.append(button);
-      }
-      program.append(cutRow);
+      // The pictures: the programme, and each camera's own to press for a cut (showMonitor), above the line that says it.
+      air.before(showMonitor(cameras, director, said, named, direct));
       const splitNames = Object.keys(director.splits || {});
       if (splitNames.length) {
         const splitRow = node('p', 'Split screen: ');
@@ -1023,7 +1114,8 @@ async function drawAll() {
       }
       const label = node('label', ''); const box = document.createElement('input'); box.type = 'checkbox'; box.checked = director.enabled;
       box.onchange = () => direct({ enabled: box.checked });
-      label.append(box, node('span', ` Choose shots automatically (only the model changes the shot: a camera stays on air for as long as it is rated best${director.max_stay_seconds ? `, up to ${director.max_stay_seconds} s` : ''}. Never shows a camera with no picture)`)); program.append(label);
+      label.append(box, node('span', ' Choose shots automatically')); program.append(label);
+      program.append(node('small', `Only the model changes the shot: a camera stays on air for as long as it is rated best${director.max_stay_seconds ? `, up to ${director.max_stay_seconds} s` : ''}. It never shows a camera with no picture.`));
       // Tracking and the zoom for every camera at once, switched live (autoswitch.py); each camera's own is on its card.
       if (auto) program.append(autoSwitches(auto, null, cameras));
       const fallback = node('label', 'Default shot, used when the model is not answering or the camera on air loses its picture ');
@@ -1130,9 +1222,9 @@ async function drawAll() {
       settings.append(stayRow, node('small', director.max_stay_seconds ? ` Then it cuts to the best other camera with a picture, unless the shot on air is the only one the model rates worth showing.` : ' 0: it stays on a shot until the model rates another clearly better, however long that takes.'));
       if (director.ai?.enabled && !director.cameras_told) { const untold = node('p', 'The model has not been told what any camera shows (Cameras page), so it rates them by your wishes alone and may find little worth cutting to.'); untold.className = 'recording-warning'; settings.append(untold); }
       const recording = director.recording;
-      const record = node('button', recording ? 'Stop Recording Programme' : 'Record Programme To File'); if (recording) record.className = 'danger';
+      const record = node('button', recording ? 'Stop recording programme' : 'Record programme to file'); record.className = recording ? 'danger' : 'primary';
       record.onclick = async () => { if (!recording || await concert.sure('Stop recording the programme? The file is finished and checked.', { ok: 'Stop recording', danger: true })) direct({ record: !recording }); };
-      const recordRow = node('p', ''); recordRow.append(record, node('span', recording ? ` Recording: ${clock(recording.seconds)} · ${(recording.bytes / 1048576).toFixed(0)} MiB · ${recording.cuts} shot(s) logged` : ` Saves what OBS is showing into ${director.folder}`));
+      const recordRow = node('p', ''); recordRow.append(record, node('span', recording ? ` Recording: ${clock(recording.seconds)} · ${(recording.bytes / 1048576).toFixed(0)} MiB · ${recording.cuts} shot${recording.cuts === 1 ? '' : 's'} logged` : ` Saves what OBS is showing into ${director.folder}`));
       if (recording) recordRow.className = 'activity running'; program.append(recordRow);
       if (recording && words().step && !director.recipe) {        // with a recipe loaded, its own Next step does this (recipe.js)
         // A step of the recipe, marked as it begins: "Step N: <text>" in the cut log, and markers in the edit (also the S key).
@@ -1145,7 +1237,7 @@ async function drawAll() {
         const stepRow = node('p', ''); stepRow.append(mark, node('span', steps ? ` Marked: ${steps}` : ' Mark each step as it begins: the editor finds it in the cut log and as markers beside the camera files.')); program.append(stepRow);
       }
       const last = director.finished[director.finished.length - 1];
-      if (last) { const line = node('p', last.ok ? `Last recording: ${last.file} · ${clock(last.seconds)} · ${(last.bytes / 1048576).toFixed(0)} MiB · ${last.video}${last.audio ? ` + ${last.audio} sound` : ' · NO SOUND TRACK'} · ${last.cuts} shot(s) in its cut log` : `Last recording has a problem: ${last.detail} (${last.file})`); line.className = last.ok && last.audio ? 'activity done' : 'recording-warning'; program.append(line); }
+      if (last) { const line = node('p', last.ok ? `Last recording: ${last.file} · ${clock(last.seconds)} · ${(last.bytes / 1048576).toFixed(0)} MiB · ${last.video}${last.audio ? ` + ${last.audio} sound` : ' · NO SOUND TRACK'} · ${last.cuts} shot${last.cuts === 1 ? '' : 's'} in its cut log` : `Last recording has a problem: ${last.detail} (${last.file})`); line.className = last.ok && last.audio ? 'activity done' : 'recording-warning'; program.append(line); }
       // A shot held a long while, said plainly with the director's reason.
       if (director.holding) {
         const h = director.holding, minutes = Math.floor(h.seconds / 60), seconds = h.seconds % 60;
@@ -1155,7 +1247,7 @@ async function drawAll() {
       // Each camera's own file of a recording, and the edit of them, are with the recordings.
       if (last) { const more = node('small', ' '); const link = document.createElement('a'); link.href = '/recordings'; link.textContent = `Programme recordings${last.camera_files ? ', with each camera’s own file and the edit (EDL)' : ''} →`; more.append(link); program.append(more); }
       const cut = director.cuts[director.cuts.length - 1];
-      if (cut) program.append(node('small', `Last cut ${new Date(cut.at * 1000).toLocaleTimeString()}: ${cut.pair ? `split of ${cut.pair.map(named).join(' and ')}` : cut.camera_id ? named(cut.camera_id) : `scene “${cut.scene}”`} (${cut.reason}${cut.by === 'ai' ? ', chosen by the model' : ''}).`));
+      if (cut) program.append(node('small', `Last cut ${new Date(cut.at * 1000).toLocaleTimeString()}, ${cut.pair ? `split of ${cut.pair.map(named).join(' and ')}` : cut.camera_id ? named(cut.camera_id) : `scene “${cut.scene}”`}: ${cut.reason}${cut.by === 'ai' && !/\bmodel\b/.test(cut.reason || '') ? ', chosen by the model' : ''}.`));
       const held = (director.stays || [])[(director.stays || []).length - 1];
       if (held && (!cut || held.at > cut.at)) program.append(node('small', `Last look ${new Date(held.at * 1000).toLocaleTimeString()}: ${held.reason}.`));
       if (director.ai?.enabled && director.looked) {
@@ -1172,9 +1264,9 @@ async function drawAll() {
       }
       // OBS's own outgoing stream, to whatever service is set up in OBS.
       const live = director.streaming;
-      const stream = node('button', live ? 'Stop OBS Stream' : 'Start OBS Stream'); if (live) stream.className = 'danger';
+      const stream = node('button', live ? 'Stop OBS stream' : 'Start OBS stream'); stream.className = live ? 'danger' : 'primary';
       stream.onclick = async () => { if (await concert.sure(live ? 'Stop OBS streaming? Viewers lose the programme.' : 'Start OBS streaming to the service set up in OBS? The programme goes out to its audience.', { ok: live ? 'Stop stream' : 'Start stream', danger: !!live })) direct({ stream: !live }); };
-      const streamRow = node('p', ''); streamRow.append(stream, node('span', live ? ` Streaming from OBS for ${clock(live.seconds)}${live.reconnecting ? ' · RECONNECTING' : ''} · ${live.dropped_frames} dropped frame(s)` : ' OBS is not streaming out'));
+      const streamRow = node('p', ''); streamRow.append(stream, node('span', live ? ` Streaming from OBS for ${clock(live.seconds)}${live.reconnecting ? ' · RECONNECTING' : ''} · ${live.dropped_frames} dropped frame${live.dropped_frames === 1 ? '' : 's'}` : ' OBS is not streaming out'));
       if (live) streamRow.className = live.reconnecting ? 'recording-warning' : 'activity running'; program.append(streamRow);
       // A vision model that advises on the next shot: any server that speaks the OpenAI chat format.
       const ai = director.ai;
@@ -1233,7 +1325,7 @@ async function drawAll() {
             try { const made = await api('/api/locations/export', { method: 'POST', body: JSON.stringify({ id: place.id, passphrase }) }); const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([JSON.stringify(made, null, 1)], { type: 'application/json' })); link.download = `concert-camera-location-${place.name.replace(/[^A-Za-z0-9]+/g, '-').toLowerCase()}-${new Date().toISOString().slice(0, 10)}.json`; document.body.append(link); link.click(); link.remove(); placeSaid = `“${place.name}” exported with ${made.cameras} cameras.`; } catch (error) { placeSaid = error.message; } refresh();
           };
           row.append(send);
-          if (!place.active) { const remove = node('button', 'Remove'); remove.className = 'danger'; remove.onclick = async () => { if (await concert.sure(`Remove “${place.name}” from this PC, with its ${place.cameras.length} cameras’ pairing and its restore points? Its phones would have to be paired again to be used. This cannot be undone; export it first if in doubt.`)) ask({ remove: place.id }); }; row.append(remove); }
+          if (!place.active) { const remove = node('button', 'Remove'); remove.className = 'danger'; remove.onclick = async () => { if (await concert.sure(`Remove “${place.name}” from this computer, with its ${place.cameras.length} cameras’ pairing and its restore points? Its phones would have to be paired again to be used. This cannot be undone; export it first if in doubt.`)) ask({ remove: place.id }); }; row.append(remove); }
           card.append(row); placesPanel.append(card);
         }
         if (places.connected > 0) placesPanel.append(node('small', `${places.connected} camera${places.connected === 1 ? ' is' : 's are'} connected, so the location cannot be switched now. Disarm and disconnect them, or switch when they are off.`));
@@ -1279,7 +1371,7 @@ async function drawAll() {
       exportSettings.onclick = async () => { try { save(`mcvsaid-settings-${stamp}.json`, await api('/api/transfer/settings')); tell('Settings exported.'); } catch (error) { tell(error.message, true); } };
       const settingsFile = document.createElement('input'); settingsFile.type = 'file'; settingsFile.accept = '.json,application/json'; settingsFile.setAttribute('aria-label', 'A settings file');
       const importSettings = node('button', 'Import settings');
-      importSettings.onclick = async () => { try { const file = await read(settingsFile); if (!await concert.sure('Load these settings over the ones here? The settings in the file replace this PC’s; nothing else is touched.')) return; const report = await api('/api/transfer/settings', { method: 'POST', body: JSON.stringify({ file }) }); tell(`${report.applied.length} settings loaded.${report.for_cameras_not_here.length ? ` ${report.for_cameras_not_here.length} left out because they are for cameras this location does not have.` : ''}`); settingsFile.value = ''; refresh(); } catch (error) { tell(error.message, true); } };
+      importSettings.onclick = async () => { try { const file = await read(settingsFile); if (!await concert.sure('Load these settings over the ones here? The settings in the file replace this computer’s; nothing else is touched.')) return; const report = await api('/api/transfer/settings', { method: 'POST', body: JSON.stringify({ file }) }); tell(`${report.applied.length} settings loaded.${report.for_cameras_not_here.length ? ` ${report.for_cameras_not_here.length} left out because they are for cameras this location does not have.` : ''}`); settingsFile.value = ''; refresh(); } catch (error) { tell(error.message, true); } };
       const settingsRow = node('div', ''); settingsRow.append(exportSettings, settingsFile, importSettings); transferPanel.append(settingsRow);
       transferPanel.append(node('small', 'A settings file carries no cameras. To move cameras to another PC, export the location above: it carries the cameras and their settings together, encrypted. Neither carries passwords and passcodes (each PC keeps its own), recordings and history, or OBS, which exports its own scenes and settings from its Scene Collection and Profile menus.'), said);
     });
@@ -1288,7 +1380,7 @@ async function drawAll() {
     await paint(updatePanel, !operator, async (updatePanel) => {
       let up = null; try { up = await api('/api/updates'); } catch (error) { up = null; }
       if (up) {
-        updatePanel.replaceChildren(node('h3', 'This manager'));
+        updatePanel.replaceChildren(node('h2', 'This manager'));
         const ask = async (body, button, doing) => { if (button) { button.disabled = true; button.textContent = doing; } try { await api('/api/updates', { method: 'POST', body: JSON.stringify(body) }); updateSaid = ''; } catch (error) { updateSaid = error.message; } refresh(); };
         const found = up.found, work = up.work, busy = work?.state === 'installing';
         updatePanel.append(node('p', `Running version ${up.installed}.${found && !found.problem ? (found.newer ? ` Version ${found.latest} is available.` : ' That is the newest.') : ''}${found ? ` Last looked ${new Date(found.checked * 1000).toLocaleTimeString()}.` : ''}`));
@@ -1318,7 +1410,7 @@ async function drawAll() {
     await paint(accessPanel, !operator, async (accessPanel) => {
       let access = null; try { access = await api('/api/access'); } catch (error) { access = null; }
       if (access) {
-        accessPanel.replaceChildren(node('h3', 'Who else can log in'));
+        accessPanel.replaceChildren(node('h2', 'Who else can log in'));
         const change = async body => { try { return await api('/api/access', { method: 'POST', body: JSON.stringify(body) }); } catch (error) { concert.fail(error); return null; } finally { refresh(); } };
         // The accounts themselves, each a name with its own password and role, are on the Users page.
         const accounts = node('p', access.operators ? `${access.operators} operator account${access.operators === 1 ? '' : 's'}. ` : 'No operator accounts, so only administrators can log in. ');
@@ -1327,10 +1419,10 @@ async function drawAll() {
         // The dashboard on the camera network, for a tablet.
         const net = access.network, offer = node('label', ''), box = document.createElement('input'); box.type = 'checkbox'; box.checked = net.wanted;
         box.onchange = () => change({ network: box.checked });
-        offer.append(box, node('span', ' Offer this dashboard to the camera network, for a tablet. Only an operator can log in from there; the administrator logs in at this PC.')); accessPanel.append(offer);
+        offer.append(box, node('span', ' Offer this dashboard to the camera network, for a tablet. Only an operator can log in from there; the administrator logs in at this computer.')); accessPanel.append(offer);
         if (net.wanted !== net.running) accessPanel.append(node('small', `Restart the manager to ${net.wanted ? 'start' : 'stop'} offering it.`));
         else if (net.running) {
-          accessPanel.append(node('small', `On the tablet, joined to the camera Wi-Fi, open ${net.addresses[0]}${net.addresses.length > 1 ? ` (or ${net.addresses.slice(1).join(', ')})` : ''}. If this PC has a firewall, open the port once: sudo ufw allow in ${net.interface ? `on ${net.interface} ` : ''}to any port ${net.port} proto tcp`));
+          accessPanel.append(node('small', `On the tablet, joined to the camera Wi-Fi, open ${net.addresses[0]}${net.addresses.length > 1 ? ` (or ${net.addresses.slice(1).join(', ')})` : ''}. If this computer has a firewall, open the port once: sudo ufw allow in ${net.interface ? `on ${net.interface} ` : ''}to any port ${net.port} proto tcp`));
           accessPanel.append(node('small', `To stop the tablet warning about the certificate: on the tablet open ${net.addresses[0]}authority.crt, install the profile it downloads, then switch on full trust for “MCVSAID (this installation)” (on an iPad: Settings › General › About › Certificate Trust Settings). This is done once; it covers this dashboard and Stage Shots.`));
           if (!access.operators) { const need = node('small', 'Nobody can log in from the network until there is an operator account (Users page).'); need.className = 'recording-warning'; accessPanel.append(need); }
         }
@@ -1340,14 +1432,14 @@ async function drawAll() {
         const gadget = text => /iPad/.test(text) ? 'iPad' : /iPhone/.test(text) ? 'iPhone' : /Android/.test(text) ? 'Android device' : /Macintosh/.test(text) ? 'Mac' : /Windows/.test(text) ? 'Windows PC' : /Linux/.test(text) ? 'Linux PC' : 'a browser';
         for (const person of access.logged_in) {
           const line = node('small', `${person.who ? `${person.who} (${person.what})` : person.what}, ${person.where}, ${gadget(person.device || '')}, since ${person.since ? new Date(person.since * 1000).toLocaleTimeString() : 'earlier'}, last active ${ago(person.seen)} `);
-          const mine = person.what === 'administrator' && person.where === 'this PC' && access.logged_in.filter(p => p.what === 'administrator').length === 1;
+          const mine = person.what === 'administrator' && person.where === 'this computer' && access.logged_in.filter(p => p.what === 'administrator').length === 1;
           if (!mine) { const end = node('button', 'Log out'); end.onclick = () => change({ end: person.id }); line.append(end); }
           accessPanel.append(line);
         }
         if (access.logged_in.length > 1) { const all = node('button', 'Log everyone else out'); all.onclick = async () => { if (await concert.sure('Log out every other device, including phones on Stage Shots?')) change({ end_all: true }); }; accessPanel.append(all); }
       }
     });
-    // The camera relay (System › This PC): it holds each camera's look-ahead as compressed video, where OBS would hold
+    // The camera relay (System › This computer): it holds each camera's look-ahead as compressed video, where OBS would hold
     // decoded pictures. On by default; switching it off is a troubleshooting step, so it is kept under Troubleshooting.
     const relaySystem = document.querySelector('#relay-system'), relayFiles = document.querySelector('#relay');
     const relay = !operator && (!relaySystem.hidden || !relayFiles.hidden) ? await api('/api/relay').catch(() => null) : null;
@@ -1359,10 +1451,10 @@ async function drawAll() {
     };
     const MEMORY = 'Measured on a Mac with 48 GB and six cameras at 4K (25 Mb/s, 5.5 s look-ahead): OBS used 11.0 GB with the relay off and 2.6 GB with it on, the relay itself 0.13 GB; the whole Mac 38.8 GB against 30.7 GB.';
     await paint(relaySystem, relay, async (relaySystem) => {
-      relaySystem.replaceChildren(node('h3', 'Camera relay: the look-ahead, held as video'));
-      relaySystem.append(node('p', 'Each camera’s stream passes through a relay on this PC on its way to OBS, unchanged. The relay holds the look-ahead (the seconds the programme runs behind the stage, so the director’s cuts land on time) as the compressed stream, about 12 MB for 4 s, where OBS would hold it as pictures, about 1.5-1.8 GB per 4K camera. The phones do no extra work.'));
+      relaySystem.replaceChildren(node('h2', 'Camera relay: the look-ahead, held as video'));
+      relaySystem.append(node('p', 'Each camera’s stream passes through a relay on this computer on its way to OBS, unchanged. The relay holds the look-ahead (the seconds the programme runs behind the stage, so the director’s cuts land on time) as the compressed stream, about 12 MB for 4 s, where OBS would hold it as pictures, about 1.5-1.8 GB per 4K camera. The phones do no extra work.'));
       if (relay.switched_on && relay.unavailable) {
-        const why = node('p', `The relay is switched on but cannot run on this PC: ${relay.unavailable}. The cameras go straight to OBS instead, which holds the look-ahead in memory. Put it right, then restart the manager (or switch the relay off and on again below).`);
+        const why = node('p', `The relay is switched on but cannot run on this computer: ${relay.unavailable}. The cameras go straight to OBS instead, which holds the look-ahead in memory. Put it right, then restart the manager (or switch the relay off and on again below).`);
         why.className = 'recording-warning'; relaySystem.append(why);
       } else if (relay.enabled) {
         const state = node('p', relay.running ? `The relay is running${relay.files ? ', and keeping each camera’s file of every programme recording' : ''}.` : `The relay is switched on but not running${relay.problem ? `: ${relay.problem}` : ''}. Pictures cannot reach OBS: switch it off and on again under Troubleshooting.`);
@@ -1411,8 +1503,8 @@ async function drawAll() {
       };
       label.append(box, node('span', ' Keep each camera’s own file of every programme recording')); relayFiles.append(label);
       if (!relay.enabled) {
-        const link = document.createElement('a'); link.href = '/system#pc'; link.textContent = 'System › This PC';
-        const need = node('small', relay.switched_on ? 'Camera files need the camera relay, which cannot run on this PC now: see ' : 'Camera files need the camera relay, which is off: switch it on in ');
+        const link = document.createElement('a'); link.href = '/system#pc'; link.textContent = 'System › This computer';
+        const need = node('small', relay.switched_on ? 'Camera files need the camera relay, which cannot run on this computer now: see ' : 'Camera files need the camera relay, which is off: switch it on in ');
         need.append(link, node('span', '.')); relayFiles.append(need);
       } else if (relay.files) relayFiles.append(node('small', ' Without a recording the relay keeps about ten minutes of each camera.'));
       else relayFiles.append(node('small', ' Off: the relay keeps only the last minute or so of each camera, and nothing for the length of a recording.'));
@@ -1422,7 +1514,7 @@ async function drawAll() {
     await paint(decodingPanel, !operator, async (decodingPanel) => {
       let d = null; try { d = await api('/api/decoding'); } catch (error) { d = null; }
       if (d) {
-        decodingPanel.replaceChildren(node('h3', 'Decoding: graphics card or processor'));
+        decodingPanel.replaceChildren(node('h2', 'Decoding: graphics card or processor'));
         decodingPanel.append(node('p', `OBS decodes every camera, on the graphics card's video decoder unless it is set to the processor. On the PC this was built on the processor did better: six 4K cameras took about 16% of it, while the graphics card, shared with the shot-choosing model, filled up at three. The suggestion below starts every camera on the processor and moves the largest to the graphics card only if the processor would be over half busy. Now: video decoder ${d.decoder_percent ?? '—'}% busy, processor ${d.processor_percent ?? '—'}%.`));
         const ask = async body => { try { await api('/api/decoding', { method: 'POST', body: JSON.stringify(body) }); } catch (error) { concert.fail(error); } refresh(); };
         for (const camera of d.cameras) {
@@ -1434,7 +1526,7 @@ async function drawAll() {
           decodingPanel.append(row);
         }
         const m = d.measurement, running = d.measuring?.running;
-        const measure = node('button', running ? `Measuring… ${d.measuring.step || ''}` : 'Measure this PC'); measure.disabled = running || d.cameras.some(c => c.streaming);
+        const measure = node('button', running ? `Measuring… ${d.measuring.step || ''}` : 'Measure this computer'); measure.disabled = running || d.cameras.some(c => c.streaming);
         measure.onclick = () => ask({ measure: true });
         decodingPanel.append(measure, node('small', d.cameras.some(c => c.streaming) ? ' Not while a camera is streaming: the measurement uses the same hardware as OBS.' : ' About two minutes. Decodes the real phone footage captured for the tests, on each, until they fall behind.'));
         if (d.measuring?.problem) { const said = node('p', `The measurement failed: ${d.measuring.problem}`); said.className = 'recording-warning'; decodingPanel.append(said); }
@@ -1455,14 +1547,14 @@ async function drawAll() {
             decodingPanel.append(line);
             if (differs) { const apply = node('button', 'Use the suggestion'); apply.onclick = async () => { if (await concert.sure('Change where the cameras are decoded as suggested? A camera\'s picture in OBS restarts as it changes; one on air changes once it is off air.')) ask({ apply: 'suggested' }); }; decodingPanel.append(apply); }
           }
-        } else decodingPanel.append(node('p', 'Not measured yet on this PC.'));
+        } else decodingPanel.append(node('p', 'Not measured yet on this computer.'));
       }
     });
     const networkPanel = document.querySelector('#network');
     await paint(networkPanel, !operator, async (networkPanel) => {
       let net = null; try { net = await api('/api/network'); } catch (error) { net = null; }
       if (net) {
-        networkPanel.replaceChildren(node('h3', 'How the phones find this manager'));
+        networkPanel.replaceChildren(node('h2', 'How the phones find this manager'));
         const change = async body => { try { await api('/api/network', { method: 'POST', body: JSON.stringify(body) }); } catch (error) { concert.fail(error); } refresh(); };
         const here = net.addresses.join(' and ');
         networkPanel.append(node('p', net.name ? `By name: ${net.name}, at ${here}. A phone paired to the name follows the manager if its address changes.` : `By address alone: ${here}. A phone paired this way has to be paired again if the address ever changes.`));
@@ -1470,20 +1562,20 @@ async function drawAll() {
         const pick = document.createElement('select'); pick.setAttribute('aria-label', 'How the phones find the manager');
         const saved = !net.name ? 'address' : net.name === net.suggested ? 'suggested' : net.kind === 'announced' ? 'local' : 'router';
         const kind = networkPicked?.kind ?? saved;
-        for (const [value, text] of [['address', 'its address alone'], ['suggested', `${net.suggested} (announced by this PC; nothing to set on the router)`], ['local', 'another name ending in .local (announced by this PC)'], ['router', 'a name I have given an address on the router']]) { const option = document.createElement('option'); option.value = value; option.textContent = text; option.selected = value === kind; pick.append(option); }
+        for (const [value, text] of [['address', 'its address alone'], ['suggested', `${net.suggested} (announced by this computer; nothing to set on the router)`], ['local', 'another name ending in .local (announced by this computer)'], ['router', 'a name I have given an address on the router']]) { const option = document.createElement('option'); option.value = value; option.textContent = text; option.selected = value === kind; pick.append(option); }
         const typed = document.createElement('input'); typed.type = 'text'; typed.autocomplete = 'off'; typed.spellcheck = false; typed.setAttribute('aria-label', 'The name');
         typed.value = networkPicked ? networkPicked.text : net.name && saved !== 'suggested' ? net.name : ''; typed.hidden = !['local', 'router'].includes(pick.value);
         typed.oninput = () => { networkPicked = { kind: pick.value, text: typed.value }; };
         const note = node('small', '');
         const explain = () => {
           typed.hidden = !['local', 'router'].includes(pick.value); typed.placeholder = pick.value === 'local' ? 'for example stage-cameras.local' : 'for example cameras.myvenue.com';
-          note.textContent = pick.value === 'address' ? 'Nothing is announced. Give this PC a fixed address on the router (a DHCP reservation), because every phone is tied to it.'
-            : pick.value === 'router' ? `On the router, add a local name record (often under “DNS”, “Hostnames” or “Static leases”) giving this name the address ${net.addresses[0]}, and give this PC a fixed address there. The phones must use the router for looking names up, which is the usual arrangement. Avoid a name ending in a public ending you do not own (.camera, .com and so on): on a network with internet it could lead to someone else’s server.`
+          note.textContent = pick.value === 'address' ? 'Nothing is announced. Give this computer a fixed address on the router (a DHCP reservation), because every phone is tied to it.'
+            : pick.value === 'router' ? `On the router, add a local name record (often under “DNS”, “Hostnames” or “Static leases”) giving this name the address ${net.addresses[0]}, and give this computer a fixed address there. The phones must use the router for looking names up, which is the usual arrangement. Avoid a name ending in a public ending you do not own (.camera, .com and so on): on a network with internet it could lead to someone else’s server.`
             : 'Nothing to set on the router, and no fixed address needed: the name follows the PC. The network must let the phones hear the PC’s announcements: on the Wi-Fi, switch off “client isolation” (also called “AP isolation”) and any “multicast” or “mDNS filtering”.';
         };
         pick.onchange = () => { networkPicked = { kind: pick.value, text: typed.value }; explain(); }; explain();
         const set = node('button', 'Use this');
-        set.onclick = () => { const name = pick.value === 'address' ? null : pick.value === 'suggested' ? net.suggested : typed.value.trim(); if (pick.value !== 'address' && !name) { result.textContent = 'Type the name first.'; return; } if (pick.value === 'local' && !name.toLowerCase().endsWith('.local')) { result.textContent = 'A name this PC announces has to end in .local'; return; } networkPicked = null; set.disabled = true; set.textContent = 'Setting…'; change({ name }); };
+        set.onclick = () => { const name = pick.value === 'address' ? null : pick.value === 'suggested' ? net.suggested : typed.value.trim(); if (pick.value !== 'address' && !name) { result.textContent = 'Type the name first.'; return; } if (pick.value === 'local' && !name.toLowerCase().endsWith('.local')) { result.textContent = 'A name this computer announces has to end in .local'; return; } networkPicked = null; set.disabled = true; set.textContent = 'Setting…'; change({ name }); };
         const row = node('label', 'Phones find it by '); row.append(pick, typed, set); networkPanel.append(row, note);
         // The adapter whose address the manager follows: a replacement router handing out another range is then followed.
         const port = document.createElement('select'); port.setAttribute('aria-label', 'Camera network adapter');
@@ -1515,9 +1607,9 @@ async function drawAll() {
           : 'Pick the adapter the camera switch is plugged into, so that a replacement router handing out another range does not strand the manager. Phones paired by name follow it.'));
         if (networkPicked && kind !== saved) { const pending = node('small', 'Not set yet: press “Use this” to make the change.'); pending.className = 'recording-warning'; networkPanel.append(pending); }
         if (net.name) {
-          const ok = net.leads_here, line = node('p', ok ? `Checked from this PC: ${net.name} leads to ${net.looked_up.join(', ')}, which is here.${net.kind === 'announced' ? ' It is being announced.' : ''}`
-            : net.looked_up.length ? `${net.name} leads to ${net.looked_up.join(', ')}, which is not this PC (${here}). ${net.kind === 'router' ? 'Correct the record on the router.' : 'Something else on the network is using this name: choose another.'}`
-            : net.kind === 'router' ? `${net.name} does not lead anywhere yet: the record on the router is missing, or this PC does not look names up there.` : `${net.name} cannot be looked up from this PC${net.problem ? `: ${net.problem}` : ' yet; it can take a few seconds after being set'}.`);
+          const ok = net.leads_here, line = node('p', ok ? `Checked from this computer: ${net.name} leads to ${net.looked_up.join(', ')}, which is here.${net.kind === 'announced' ? ' It is being announced.' : ''}`
+            : net.looked_up.length ? `${net.name} leads to ${net.looked_up.join(', ')}, which is not this computer (${here}). ${net.kind === 'router' ? 'Correct the record on the router.' : 'Something else on the network is using this name: choose another.'}`
+            : net.kind === 'router' ? `${net.name} does not lead anywhere yet: the record on the router is missing, or this computer does not look names up there.` : `${net.name} cannot be looked up from this computer${net.problem ? `: ${net.problem}` : ' yet; it can take a few seconds after being set'}.`);
           if (!ok) line.className = 'recording-warning'; networkPanel.append(line);
           const byName = net.cameras.filter(c => c.reaches_manager_at === net.name), movable = net.cameras.filter(c => c.online && c.can_be_moved && c.reaches_manager_at !== net.name), stuck = net.cameras.filter(c => c.reaches_manager_at !== net.name && !c.can_be_moved);
           networkPanel.append(node('p', `${byName.length} of ${net.cameras.length} cameras reach the manager by this name${byName.length ? `: ${byName.map(c => c.name).join(', ')}` : ''}.`));
@@ -1585,12 +1677,12 @@ async function drawAll() {
       readyPanel.replaceChildren(); readyPanel.className = `ready-${ready.state}`;
       const count = ready.worth_checking.length;
       readyPanel.append(node('strong', ready.state === 'ok' ? 'Ready for a show' : ready.state === 'warn' ? `Ready, with ${count} thing${count === 1 ? '' : 's'} worth a look` : 'Not ready'));
-      readyPanel.append(node('span', ready.state === 'ok' ? ` · this PC ${ready.cameras ? `and ${ready.cameras === 1 ? 'its camera' : `all ${ready.cameras} cameras`} ` : ''}checked${clocks_set_automatically ? ', clocks kept set' : ''}${ready.cameras ? '' : ' · no cameras paired yet'}` : ''));
+      readyPanel.append(node('span', ready.state === 'ok' ? ` · this computer ${ready.cameras ? `and ${ready.cameras === 1 ? 'its camera' : `all ${ready.cameras} cameras`} ` : ''}checked${clocks_set_automatically ? ', clocks kept set' : ''}${ready.cameras ? '' : ' · no cameras paired yet'}` : ''));
       for (const item of ready.stopping) { const line = node('p', `✖ ${item}`); line.className = 'fail'; readyPanel.append(line); }
       if (ready.worth_checking.length) {
         const shown = ready.state === 'fail' || readyOpen;
         for (const item of shown ? ready.worth_checking : []) { const line = node('p', `! ${item}`); line.className = 'warn'; readyPanel.append(line); }
-        if (ready.state !== 'fail') { const more = node('button', readyOpen ? 'Hide' : 'Show what'); more.onclick = () => { readyOpen = !readyOpen; refresh(); }; readyPanel.append(more); }
+        if (ready.state !== 'fail') { const more = node('button', readyOpen ? 'Hide' : `See the ${count}`); more.onclick = () => { readyOpen = !readyOpen; refresh(); }; readyPanel.append(more); }
       }
       // A camera OBS has no source for is put right from here.
       if ([...ready.stopping, ...ready.worth_checking].some(item => item.includes('Stream target'))) readyPanel.append(scenesButton());
@@ -1600,57 +1692,29 @@ async function drawAll() {
     const fleet = document.querySelector('#fleet');
     await paint(fleet, true, async (fleet) => {
       fleet.replaceChildren(node('h2', 'All cameras'));
-      // Starting and stopping apart, the stops in red on a row of their own, so that one is not pressed for the other.
+      const online = cameras.filter(c => c.online);
+      // Starting and stopping apart, so that one is not pressed for the other: the starts first and larger, then how the
+      // cameras stand, then the stops in red in a box of their own further down.
       for (const [heading, actions] of [['Start', FLEET.filter(a => !a.danger)], ['Stop', [...FLEET.filter(a => a.danger)].sort((a, b) => FLEET.indexOf(b) - FLEET.indexOf(a))]]) {
         const row = node('div', ''); row.className = `fleet-row ${heading.toLowerCase()}`; row.setAttribute('role', 'group'); row.setAttribute('aria-label', `${heading} on every camera`);
         row.append(node('span', heading));
+        let next = true;      // the filled button: the first start, in the order they are done, that a camera is waiting for
         for (const action of actions) {
           const count = cameras.filter(action.targets).length;
           const button = node('button', count ? `${action.label} (${count})` : action.label);
           if (action.danger) button.className = 'danger';
+          else if (count && next) { button.className = 'primary'; next = false; }
           button.disabled = !count || fleetBusy;
           button.title = count ? cameras.filter(action.targets).map(c => c.name).join(', ') : 'No camera needs this right now';
           button.onclick = () => fleetAction(action, cameras);
           row.append(button);
         }
         fleet.append(row);
-      }
-      const online = cameras.filter(c => c.online);
-      fleet.append(node('p', fleetBusy ? (fleetNote || 'Working…') : `${online.length} of ${cameras.length} cameras online · armed ${online.filter(armedNow).length} · streaming ${online.filter(streamingNow).length} · recording ${online.filter(c => c.telemetry?.recording).length}`));
-      // Coolers, all at once: forget them all, or let every phone go of its own and give each cooler to the phone that hears
-      // it loudest (the one it is clamped to). The work is the manager's; this shows how it goes and what it did.
-      const cooled = cameras.filter(c => c.telemetry?.capabilities?.cooler);
-      if (role === 'admin' && cooled.length) {
-        try { coolerJob = await api('/api/coolers/job'); } catch (error) { /* the last one known stands */ }
-        const running = coolerJob?.state === 'running';
-        const row = node('div', ''); row.className = 'fleet-row coolers'; row.setAttribute('role', 'group'); row.setAttribute('aria-label', 'Coolers on every camera');
-        row.append(node('span', 'Coolers'));
-        const start = async (action, question) => {
-          if (!await concert.sure(question, { ok: action === 'repair' ? 'Re-pair' : 'Forget all', danger: action === 'forget' })) return;
-          try { coolerJob = await api(`/api/coolers/${action}`, { method: 'POST', body: '{}' }); } catch (error) { concert.fail(error); }
-          refresh();
-        };
-        const repair = node('button', 'Re-pair all coolers'); repair.disabled = running;
-        repair.title = 'Every phone lets go of its cooler and looks for 10 s; each cooler then goes to the phone that hears it loudest. Phones streaming or recording keep theirs.';
-        repair.onclick = () => start('repair', `Re-pair all coolers?\n\nEvery phone that is not streaming or recording lets go of its cooler and looks for 10 seconds. Each cooler then goes to the phone that hears it loudest, which is the one it is clamped to. It takes about half a minute.\n\nSwitch every cooler on and close the Black Shark app on the phones first.`);
-        const forget = node('button', 'Forget all coolers'); forget.className = 'danger'; forget.disabled = running;
-        forget.title = 'Every phone lets go of its cooler (an offline one, when it is next connected).';
-        forget.onclick = () => start('forget', `Forget all coolers?\n\nEvery phone lets go of its cooler; one that is offline does when it is next connected. A phone does not take back the cooler it let go of.`);
-        row.append(repair, forget);
-        fleet.append(row);
-        if (coolerJob?.state) {
-          const word = coolerJob.kind === 'repair' ? 'Re-pairing coolers' : 'Forgetting coolers';
-          const lines = [running ? `${word}: ${coolerJob.step || 'working'}…` : `${word}: ${coolerJob.state === 'done' ? 'done' : 'failed'}`];
-          for (const d of coolerJob.done || []) lines.push(d.cooler ? `${d.camera}: ${d.name || 'cooler'} ${d.cooler.slice(-5)} (${d.how})` : coolerJob.kind === 'repair' ? `${d.camera}: no cooler heard` : `${d.camera}: let go`);
-          for (const s of coolerJob.skipped || []) lines.push(`Left as it was: ${s}`);
-          for (const f of coolerJob.failed || []) lines.push(`FAILED: ${f}`);
-          if (coolerJob.unclaimed?.length) lines.push(`Heard but given to no phone: ${coolerJob.unclaimed.join(', ')}`);
-          const note = node('pre', lines.join('\n')); note.className = coolerJob.failed?.length ? 'recording-warning' : 'activity done'; fleet.append(note);
-        }
+        if (heading === 'Start') fleet.append(node('p', fleetBusy ? (fleetNote || 'Working…') : `${online.length} of ${cameras.length} cameras online · armed ${online.filter(armedNow).length} · streaming ${online.filter(streamingNow).length} · recording ${online.filter(c => c.telemetry?.recording).length}`));
       }
       if (fleetNote && !fleetBusy) { const note = node('p', fleetNote); note.className = fleetNote.includes('FAILED') || fleetNote.includes('Not included') ? 'recording-warning' : 'activity done'; fleet.append(note); }
     });
-    // The recordings on this PC: the programme, each camera's own file of it with the edit, and the colour LUTs that go with them.
+    // The recordings on this computer: the programme, each camera's own file of it with the edit, and the colour LUTs that go with them.
     const pcPanel = document.querySelector('#pc-recordings');
     await paint(pcPanel, director, async (pcPanel) => {
       let colour = null;
@@ -1658,13 +1722,13 @@ async function drawAll() {
       const clock = seconds => `${Math.floor(seconds / 3600) ? `${Math.floor(seconds / 3600)}:` : ''}${String(Math.floor(seconds / 60) % 60).padStart(Math.floor(seconds / 3600) ? 2 : 1, '0')}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`;
       pcPanel.replaceChildren(node('h2', 'Programme recordings'));
       const where = node('p', `OBS records the programme into ${director.folder}. Recording is started and stopped on the `); const showLink = document.createElement('a'); showLink.href = '/'; showLink.textContent = 'Show page'; where.append(showLink, node('span', '.')); pcPanel.append(where);
-      if (director.recording) { const now = node('p', `Recording now: ${clock(director.recording.seconds)} · ${(director.recording.bytes / 1048576).toFixed(0)} MiB · ${director.recording.cuts} shot(s) logged`); now.className = 'activity running'; pcPanel.append(now); }
+      if (director.recording) { const now = node('p', `Recording now: ${clock(director.recording.seconds)} · ${(director.recording.bytes / 1048576).toFixed(0)} MiB · ${director.recording.cuts} shot${director.recording.cuts === 1 ? '' : 's'} logged`); now.className = 'activity running'; pcPanel.append(now); }
       const finished = [...(director.finished || [])].reverse();
       if (!finished.length) pcPanel.append(node('p', 'No programme has been recorded since the manager last started. The last five are listed here.'));
       for (const done of finished) {
         const item = node('article', ''); item.className = 'recording-item';
         item.append(node('h3', (done.file || '').split('/').pop() || 'Recording'));
-        const summary = node('p', done.ok ? `${done.stopped ? `${new Date(done.stopped * 1000).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })} · ` : ''}${clock(done.seconds || 0)} · ${((done.bytes || 0) / 1048576).toFixed(0)} MiB · ${done.video}${done.audio ? ` + ${done.audio} sound` : ' · NO SOUND TRACK'} · ${done.cuts} shot(s) in its cut log` : `This recording has a problem: ${done.detail}`);
+        const summary = node('p', done.ok ? `${done.stopped ? `${new Date(done.stopped * 1000).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })} · ` : ''}${clock(done.seconds || 0)} · ${((done.bytes || 0) / 1048576).toFixed(0)} MiB · ${done.video}${done.audio ? ` + ${done.audio} sound` : ' · NO SOUND TRACK'} · ${done.cuts} shot${done.cuts === 1 ? '' : 's'} in its cut log` : `This recording has a problem: ${done.detail}`);
         summary.className = done.ok && done.audio ? 'activity done' : 'recording-warning'; item.append(summary, node('small', done.file));
         if (done.cut_log) item.append(node('small', `Cut log: ${done.cut_log}`));
         const files = done.camera_files;
@@ -1700,8 +1764,8 @@ async function drawAll() {
         if (!g.allowed) return 'not allowed yet: run its set-up again over USB';
         if (g.error) return `failed: ${g.error}`;
         if (g.effect === 'not_holding') return `on, but still charging past ${g.limit_percent}%`;
-        const how = `${g.method}${g.verified ? '' : ', unconfirmed on this Android'}`;
-        return g.on === true ? `on (${how})${g.effect === 'holding' ? ', holding' : ''}` : g.on_power ? `switching on (${how})` : `can (${how}); not charging now`;
+        const how = `using the phone’s ${g.method === 'protect_battery' ? 'battery protection' : g.method === 'charge_optimization_mode' ? 'charge optimisation' : 'own setting'}${g.verified ? '' : ', not confirmed on this phone'}`;
+        return g.on === true ? `on, ${how}${g.effect === 'holding' ? ', holding the charge back' : ''}` : g.on_power ? `switching on, ${how}` : `can be switched on, ${how}; not charging now`;
       };
       if (paired.length) { const list = node('ul', ''); for (const c of paired) list.append(node('li', `${c.name}: ${said(c)}`)); batteryPanel.append(list); }
     });
@@ -1728,14 +1792,14 @@ async function drawAll() {
     // charger, switched from here and nowhere else. Set up by an administrator; switched by operators too, here and
     // from the Cameras page once a plug is set up.
     if (power && !powerDirty) drawPower(power, operator);          // not under something typed or ticked and not yet saved
-    // This Mac kept awake through a show (keepawake.py): on the Power page, and a word on the Show page when it matters.
+    // This computer kept awake through a show (keepawake.py): on the Power page, and a word on the Show page when it matters.
     if (keep_awake && !editing(awakePanel) && !awakeAdding) drawKeepAwake(keep_awake);   // not under a time being added
     if (keep_awake) drawAwakeAlert(keep_awake);
     if (power?.plugs.some(p => p.configured)) drawPlugSwitches(power); else document.querySelector('#plug-switch').hidden = true;
     // Which app version the manager offers, and whether cameras take it by themselves.
     const panel = document.querySelector('#release');
     await paint(panel, true, async (panel) => {
-      panel.replaceChildren(node('h3', 'Camera app'));
+      panel.replaceChildren(node('h2', 'Camera app'));
       if (release === undefined) { /* manager not yet restarted with update support */ }
       else if (!release) {
         panel.append(node('p', 'App updates: no release published. Bring the newest build from GitHub below, or publish a file with the manager’s “release” command.'));
@@ -1745,7 +1809,7 @@ async function drawAll() {
       }
       else {
         const behind = cameras.filter(c => c.app?.update_available).length;
-        panel.append(node('p', `App release offered to cameras: ${release.version_name} · ${behind ? `${behind} camera(s) not on it yet` : 'all paired cameras are on it'}`));
+        panel.append(node('p', `App release offered to cameras: ${release.version_name} · ${behind ? `${behind} camera${behind === 1 ? '' : 's'} not on it yet` : 'all paired cameras are on it'}`));
         const odd = cameras.filter(c => versionOf(c, release).mismatch);
         if (odd.length) { const warn = node('p', `App version mismatch: ${odd.map(c => `${c.name} is on ${c.app?.version_name || 'an older, unreported version'}`).join('; ')}. Published: ${release.version_name}.`); warn.className = 'recording-warning'; panel.append(warn); }
         const label = node('label', ''); const box = document.createElement('input'); box.type = 'checkbox'; box.checked = !!app_auto_update;
@@ -1754,14 +1818,14 @@ async function drawAll() {
         // Update now: every camera that can take the release without interrupting a stream or recording.
         const ready = cameras.filter(c => c.online && c.app?.can_update), waiting = cameras.filter(c => c.app?.update_available && !(c.online && c.app?.can_update));
         const all = node('button', ready.length ? `Update ${ready.length} camera${ready.length === 1 ? '' : 's'} now` : 'Update cameras now');
-        all.disabled = !ready.length || updatingAll;
+        all.disabled = !ready.length || updatingAll; all.className = 'primary';
         all.onclick = async () => {
           if (!await concert.sure(`Update ${ready.map(c => c.name).join(', ')} to ${release.version_name} now, one after another? Each disarms, disconnects for about half a minute and comes back unarmed.`)) return;
           updatingAll = true; refresh();
           const failures = [];
           for (const camera of ready) { const failure = await updateCamera(camera, release, false); if (failure) { failures.push(`${camera.name}: ${failure}`); break; } }
           updatingAll = false;
-          result.textContent = failures.length ? `Update stopped. ${failures.join('; ')}` : `Updated ${ready.length} camera(s) to ${release.version_name}.`;
+          result.textContent = failures.length ? `Update stopped. ${failures.join('; ')}` : `Updated ${ready.length} camera${ready.length === 1 ? '' : 's'} to ${release.version_name}.`;
           refresh();
         };
         panel.append(all);
@@ -1839,12 +1903,49 @@ async function drawAll() {
       if (!paired.length) pairedPanel.append(node('p', 'No cameras are paired at this location yet.'));
       for (const camera of paired) {
         const row = node('div', ''); row.className = 'paired-camera';
-        row.append(node('span', `${camera.name} · slot ${camera.slot} · ${camera.online ? 'connected' : 'offline'}${camera.in_use === false ? ' · not in use here' : ''}`));
+        row.append(node('span', `${camera.name} · slot ${camera.slot} · ${camera.online ? 'connected' : 'offline'}${camera.in_use === false ? ' · set aside here' : ''}`));
         if (role === 'admin') row.append(renameButton(camera), asideButton(camera), removeButton(camera));
         pairedPanel.append(row);
       }
       pairedPanel.append(node('small', 'A camera this location does not use is set aside: it stays paired, for another location or another time. Removing a camera unpairs it for good; its recordings stay.'));
     });
+    // On System › Cameras (they were on the Show page until 2026-11-13: setting-up work, not a show's).
+    if (pairedPanel && role === 'admin' && part === '/system' && systemTab === 'devices') {
+      // Coolers, all at once: forget them all, or let every phone go of its own and give each cooler to the phone that hears
+      // it loudest (the one it is clamped to). The work is the manager's; this shows how it goes and what it did.
+      const cooled = cameras.filter(c => c.telemetry?.capabilities?.cooler);
+      let box = document.querySelector('#coolers-all');
+      if (!box) { box = node('article', ''); box.id = 'coolers-all'; pairedPanel.after(box); }
+      box.hidden = !cooled.length;
+      if (cooled.length) {
+        box.replaceChildren(node('h3', 'Coolers'), node('p', 'Every camera\'s cooler at once, for setting up or packing away. One camera\'s cooler is on its card (Cameras page).'));
+        try { coolerJob = await api('/api/coolers/job'); } catch (error) { /* the last one known stands */ }
+        const running = coolerJob?.state === 'running';
+        const row = node('div', ''); row.className = 'fleet-row coolers'; row.setAttribute('role', 'group'); row.setAttribute('aria-label', 'Coolers on every camera');
+        const start = async (action, question) => {
+          if (!await concert.sure(question, { ok: action === 'repair' ? 'Re-pair' : 'Forget all', danger: action === 'forget' })) return;
+          try { coolerJob = await api(`/api/coolers/${action}`, { method: 'POST', body: '{}' }); } catch (error) { concert.fail(error); }
+          refresh();
+        };
+        const repair = node('button', 'Re-pair all coolers'); repair.disabled = running;
+        repair.title = 'Every phone lets go of its cooler and looks for 10 s; each cooler then goes to the phone that hears it loudest. Phones streaming or recording keep theirs.';
+        repair.onclick = () => start('repair', `Re-pair all coolers?\n\nEvery phone that is not streaming or recording lets go of its cooler and looks for 10 seconds. Each cooler then goes to the phone that hears it loudest, which is the one it is clamped to. It takes about half a minute.\n\nSwitch every cooler on and close the Black Shark app on the phones first.`);
+        const forget = node('button', 'Forget all coolers'); forget.className = 'danger'; forget.disabled = running;
+        forget.title = 'Every phone lets go of its cooler (an offline one, when it is next connected).';
+        forget.onclick = () => start('forget', `Forget all coolers?\n\nEvery phone lets go of its cooler; one that is offline does when it is next connected. A phone does not take back the cooler it let go of.`);
+        row.append(repair, forget);
+        box.append(row);
+        if (coolerJob?.state) {
+          const word = coolerJob.kind === 'repair' ? 'Re-pairing coolers' : 'Forgetting coolers';
+          const lines = [running ? `${word}: ${coolerJob.step || 'working'}…` : `${word}: ${coolerJob.state === 'done' ? 'done' : 'failed'}`];
+          for (const d of coolerJob.done || []) lines.push(d.cooler ? `${d.camera}: ${d.name || 'cooler'} ${d.cooler.slice(-5)} (${d.how})` : coolerJob.kind === 'repair' ? `${d.camera}: no cooler heard` : `${d.camera}: let go`);
+          for (const s of coolerJob.skipped || []) lines.push(`Left as it was: ${s}`);
+          for (const f of coolerJob.failed || []) lines.push(`FAILED: ${f}`);
+          if (coolerJob.unclaimed?.length) lines.push(`Heard but given to no phone: ${coolerJob.unclaimed.join(', ')}`);
+          const note = node('pre', lines.join('\n')); note.className = coolerJob.failed?.length ? 'recording-warning' : 'activity done'; box.append(note);
+        }
+      }
+    }
     const grid = document.querySelector('#cameras');
     window.studioCameras = cameras;                  // for Creator Studio's preview (creator.js)
     if (document.activeElement !== document.querySelector('#camera-capacity')) document.querySelector('#camera-capacity').value = camera_capacity;
@@ -1854,10 +1955,17 @@ async function drawAll() {
       try {
       const camera = paired.find(c => c.slot === slot);
       if (camera?.in_use === false) continue;              // set aside here: in the short list below, not a card
-      const card = node('article', '');
-      card.append(node('h2', camera ? camera.name : `Camera ${slot} — not paired`));
-      // What is needed during a show stays in view; the rest is folded into groups, each opened when wanted.
+      const card = node('article', ''); card.className = 'camera-card';
+      // The card is a summary: name, a chip per fact, temperature, battery and storage, whether it is ready, anything
+      // wrong, and the next step. Everything else is under "Controls and settings", in groups, each opened when wanted.
       const key = camera ? camera.id : `slot-${slot}`;
+      const head = node('div', ''), titled = node('div', ''), chips = node('p', ''), facts = node('p', ''), alerts = node('div', ''), actions = node('div', '');
+      head.className = 'card-head'; chips.className = 'chips'; facts.className = 'facts'; alerts.className = 'card-alerts'; actions.className = 'card-actions';
+      titled.append(node('h2', camera ? camera.name : `Camera ${slot} — not paired`), chips); head.append(titled); card.append(head);
+      const chip = (text, kind = '') => { const made = node('span', text); made.className = `chip ${kind}`; chips.append(made); return made; };
+      const more = fold(`${key}:more`, 'Controls and settings'); more.classList.add('card-more');
+      // A line that warns is said on the summary, never folded away; the same line when all is well goes under the fold.
+      const put = line => (line.classList.contains('recording-warning') ? alerts : more).append(line);
       const shots = fold(`${key}:shows`, 'What it shows'), picture = fold(`${key}:picture`, 'Picture & stream'), upkeep = fold(`${key}:upkeep`, 'Maintenance');
       if (camera && director?.event_mode?.mode === 'creator') {
         // Creator Studio: which framing it leads with, for anyone (shows.js, as on the Operate page); then the rest of its
@@ -1881,37 +1989,64 @@ async function drawAll() {
         shots.append(...made.element.childNodes);
         // The folded group says what is set, so it need not be opened to know.
         shots.querySelector('summary').append(node('span', ` · ${made.summary}`));
-        if (made.urgent) card.append(made.urgent);
+        if (made.urgent) alerts.append(made.urgent);
       }
       if (camera) {
         const t = camera.telemetry || {};
-        // Its state in one line, then what it is doing and whether it is ready.
-        const state = node('p', `${camera.online ? 'Online' : 'Offline (last reported state)'} · ${t.camera_state || 'Unknown'}${t.armed ? ' · armed' : ''}${t.streaming || t.capture?.streamRequested ? ' · streaming' : ''}${t.recording ? ' · RECORDING' : ''}`);
-        state.className = `camera-state ${camera.online ? 'online' : 'offline'}`; card.append(state);
-        // This camera's own tracking and zoom switches (autoswitch.py), in view during a show.
-        if (auto) card.append(autoSwitches(auto, camera, cameras));
+        const sending = !!(t.streaming || t.capture?.streamRequested);
+        // Its picture, small, beside its name (OBS's still of it, as on the Show page).
+        head.prepend(cardShot(camera, !!director?.usable?.includes(camera.id)));
+        // One chip per fact. An offline camera's are what it last reported.
+        if (!camera.online) chip('Offline', 'bad').title = 'Not connected: what follows is what it last reported';
+        if (t.armed) chip('Armed');
+        if (sending) chip('Streaming', 'on');
+        if (t.recording) chip('Recording', 'rec');
+        if (camera.online && !t.armed && !sending && !t.recording) chip('Not armed', 'quiet');
+        if (t.camera_state && !['UNARMED', 'ARMED', 'STREAMING', 'RECORDING'].includes(t.camera_state)) chip(capital(String(t.camera_state).toLowerCase().replace(/_/g, ' ')), 'quiet');
+        if (!camera.online) for (const made of [...chips.children].slice(1)) made.classList.add('stale');
+        // Temperature and where it is heading, battery, and room left with the recording time that is.
+        const storage = camera.storage || {}, warmth = heatOf(camera);
+        const fact = (text, kind = '') => { const made = node('span', text); made.className = `fact ${kind}`; facts.append(made); return made; };
+        if (warmth && warmth.temperature_c != null) {
+          const pace = warmth.trend_c_per_minute;
+          const trend = !camera.online || pace == null ? '' : Math.abs(pace) < 0.1 ? ' → steady' : pace > 0 ? ` ↗ rising ${pace.toFixed(1)}°/min` : ` ↘ falling ${Math.abs(pace).toFixed(1)}°/min`;
+          fact(`${warmth.temperature_c.toFixed(1)} °C${trend}`, warmth.level === 'ok' || warmth.level === 'unknown' ? '' : 'warn').title = 'Temperature, and where it is heading';
+        }
+        if (t.battery_percent != null) fact(`Battery ${t.battery_percent}%${t.battery_charging === false ? ', not charging' : ''}`, t.battery_charging === false ? 'warn' : '');
+        if (Number.isFinite(storage.free_bytes)) fact(`${bytes(storage.free_bytes)} free${Number.isFinite(storage.estimated_seconds_to_full) ? ` · ${duration(storage.estimated_seconds_to_full)} of recording` : ''}`);
+        if (!facts.childElementCount) fact('No readings from it yet.');
+        card.append(facts);
+        // Whether it is ready: a chip when it is, the things to look at when it is not.
+        const ready = readinessPanel(camera);
+        if (ready && camera.readiness.overall === 'ok' && ready.childElementCount === 1) chip('Ready', 'ok'); else if (ready) card.append(ready);
+        card.append(alerts);
         const line = node('p', ''); line.className = 'activity'; line.dataset.camera = camera.id; line.hidden = true; card.append(line);
-        const ready = readinessPanel(camera); if (ready) card.append(ready);
-        // Anything wrong is said on the card itself, never folded away.
-        if (t.recording_warning) { const warning = node('p', t.recording_warning); warning.className = 'recording-warning'; card.append(warning); }
-        if (t.last_error) card.append(node('p', t.last_error));
-        if (Math.abs(t.clock_skew_ms ?? 0) > 30000) { const skew = node('p', `Phone clock differs from this computer by ${Math.round(t.clock_skew_ms / 1000)} s. Recording timestamps will be off; correct the phone date/time.`); skew.className = 'recording-warning'; card.append(skew); }
-        if (t.locked_since_boot) { const locked = node('p', 'Phone has not been unlocked since it started: streaming can be controlled, local recording and offload wait for the screen lock.'); locked.className = 'recording-warning'; card.append(locked); }
+        card.append(actions);
+        // This camera's own tracking and zoom switches (autoswitch.py).
+        if (auto) more.append(autoSwitches(auto, camera, cameras));
+        // Anything wrong is said on the summary itself, never folded away.
+        if (t.recording_warning) { const warning = node('p', t.recording_warning); warning.className = 'recording-warning'; alerts.append(warning); }
+        if (t.last_error) { const failed = node('p', t.last_error); failed.className = 'recording-warning'; alerts.append(failed); }
+        if (Math.abs(t.clock_skew_ms ?? 0) > 30000) { const skew = node('p', `Phone clock differs from this computer by ${Math.round(t.clock_skew_ms / 1000)} s. Recording timestamps will be off; correct the phone date/time.`); skew.className = 'recording-warning'; alerts.append(skew); }
+        if (t.locked_since_boot) { const locked = node('p', 'Phone has not been unlocked since it started: streaming can be controlled, recording and offload wait for the screen lock.'); locked.className = 'recording-warning'; alerts.append(locked); }
         // Each camera must send to its own OBS input. A phone first armed from here, before
         // ever being armed on its own screen, used the first camera's port until app 0.7.4.
         const sendingTo = t.capture?.srtPort;
-        if (Number.isInteger(sendingTo) && sendingTo > 0 && sendingTo !== camera.srt_port) { const wrong = node('p', `This camera is sending to UDP ${sendingTo}, but its OBS input is UDP ${camera.srt_port}. Press “Send to UDP ${camera.srt_port}” under Picture & stream.`); wrong.className = 'recording-warning'; card.append(wrong); }
-        if (recordsWithStream(camera)) { const auto = node('p', 'Start SRT would also start a local recording on this camera, because it was armed on the phone with app 0.7.6. Press Arm to turn that off.'); auto.className = 'recording-warning'; card.append(auto); }
-        const heat = heatPanel(camera); if (heat) card.append(heat);
-        const storage = camera.storage || {};
+        if (Number.isInteger(sendingTo) && sendingTo > 0 && sendingTo !== camera.srt_port) { const wrong = node('p', `This camera is sending to UDP ${sendingTo}, but its OBS input is UDP ${camera.srt_port}. Press “Send to UDP ${camera.srt_port}” under Picture & stream.`); wrong.className = 'recording-warning'; alerts.append(wrong); }
+        if (recordsWithStream(camera)) { const auto = node('p', 'Start stream would also start recording on this camera, because it was armed on the phone with app 0.7.6. Press Arm to turn that off.'); auto.className = 'recording-warning'; alerts.append(auto); }
+        // The temperature in full is under the fold; what it warns of is said on the summary too (where it is heading only
+        // once: the readiness lines say it when they have a temperature line of their own).
+        const heat = heatPanel(camera), heatSaid = notRight(camera).some(check => check.id === 'heat');
+        if (heat) { for (const warned of heat.querySelectorAll('.recording-warning')) if (!(heatSaid && warned.classList.contains('outlook'))) alerts.append(warned.cloneNode(true)); more.append(heat); }
         // At a glance: what it sends, its battery, its network and its room; what it has not said is left out.
         const glance = [t.resolution, t.encoder_fps != null && `${Math.round(t.encoder_fps)} fps`, t.video_bitrate_mbps != null && `${t.video_bitrate_mbps} Mbps`,
           t.battery_percent != null && `battery ${t.battery_percent}%${t.battery_charging === false ? ' (not charging)' : ''}`,
           t.network === 'ethernet' ? 'wired Ethernet' : t.wifi_rssi_dbm != null && `Wi-Fi ${t.wifi_rssi_dbm} dBm`,
           Number.isFinite(storage.free_bytes) && `${bytes(storage.free_bytes)} free${Number.isFinite(storage.estimated_seconds_to_full) ? `, about ${duration(storage.estimated_seconds_to_full)} of recording` : ''}`].filter(Boolean);
-        card.append(node('p', glance.length ? glance.join(' · ') : 'No readings from it yet.'));
-        // The capture controls, in the order they are used; the ones that interrupt are last and red.
-        const controls = node('div', ''); controls.className = 'camera-controls';
+        more.append(node('p', glance.length ? glance.join(' · ') : 'No readings from it yet.'));
+        // The capture controls, in the order they are used; the ones that interrupt are apart, last and red.
+        const controls = node('div', ''), stops = node('div', ''); controls.className = 'camera-controls'; stops.className = 'camera-controls stop';
+        controls.setAttribute('role', 'group'); controls.setAttribute('aria-label', `Start on ${camera.name}`); stops.setAttribute('role', 'group'); stops.setAttribute('aria-label', `Stop on ${camera.name}`);
         const capturing = t.recording || t.streaming || t.capture?.streamRequested;
         const command = (label, command, danger) => {
           const button = node('button', label); button.disabled = !camera.online || busy.has(camera.id); if (danger) button.className = 'danger';
@@ -1920,11 +2055,22 @@ async function drawAll() {
             : send(camera, command, command === 'camera.arm' && t.capabilities?.stream_only_arm ? { local_recording: false } : {}, label);
           return button;
         };
-        controls.append(command('Arm', 'camera.arm'), command('Start SRT', 'stream.start'), command('Start local MP4', 'recording.start'),
-          command('Finalize local MP4', 'recording.stop', true), command('Stop SRT', 'stream.stop', true), command('Disarm', 'camera.disarm', true));
-        card.append(controls);
+        const nextStep = !camera.online ? null : !t.armed ? 'camera.arm' : !sending ? 'stream.start' : !t.recording ? 'recording.start' : null;   // the filled button
+        controls.append(command('Arm', 'camera.arm'), command('Start stream', 'stream.start'), command('Start recording', 'recording.start'));
+        if (nextStep) controls.children[['camera.arm', 'stream.start', 'recording.start'].indexOf(nextStep)].className = 'primary';
+        stops.append(command('Stop recording', 'recording.stop', true), command('Stop stream', 'stream.stop', true), command('Disarm', 'camera.disarm', true));
+        more.append(controls, stops);
+        // On the summary: the next step to start, and (apart, to the right) the one that undoes the last. Each asks as it
+        // does under the fold. An offline camera can be told nothing, so it has neither.
+        if (camera.online) {
+          const next = !t.armed ? ['Arm', 'camera.arm'] : !sending ? ['Start stream', 'stream.start'] : !t.recording ? ['Start recording', 'recording.start'] : null;
+          const undo = t.recording ? ['Stop recording', 'recording.stop'] : sending ? ['Stop stream', 'stream.stop'] : t.armed ? ['Disarm', 'camera.disarm'] : null;
+          const first = next ? command(...next) : node('span', ''); if (next) first.className = 'primary';
+          actions.append(first);
+          if (undo) actions.append(command(...undo, true));
+        }
         // Local recording is a deliberate step: say so.
-        if (t.armed && !t.recording && !recordsWithStream(camera)) card.append(node('small', 'Not recording locally. Recording starts only when you press “Start local MP4”.'));
+        if (t.armed && !t.recording && !recordsWithStream(camera)) more.append(node('small', 'The phone is not recording. Recording starts only when you press “Start recording”.'));
 
         // Picture & stream: how it captures and sends.
         const latency = document.createElement('select');
@@ -1935,7 +2081,7 @@ async function drawAll() {
         latency.disabled = !camera.online || busy.has(camera.id) || capturing || (t.armed !== false && !t.capabilities?.idle_settings);
         latency.onchange = () => send(camera, 'settings.update', { latency_ms: Number(latency.value) }, 'Change latency');
         const latencyRow = node('label', 'Latency '); latencyRow.append(latency);
-        picture.append(latencyRow, node('small', 'Stop SRT and local recording to change latency, then match the OBS listener.'));
+        picture.append(latencyRow, node('small', 'Stop the stream and recording to change latency, then match the OBS listener.'));
         // Stream picture size. Larger pictures cost heat on the phone and Wi-Fi for everyone.
         if (t.capabilities?.video_heights) {
           const sizes = { 1080: ['1080p · 7 Mbps', 7], 1440: ['1440p · 12 Mbps', 12], 2160: ['4K · 25 Mbps', 25] };
@@ -1944,14 +2090,14 @@ async function drawAll() {
           size.disabled = !camera.online || busy.has(camera.id) || capturing;
           size.onchange = async () => {
             const height = Number(size.value);
-            // What this PC would make of it, from what is measured now: the video decoder and the memory OBS needs.
+            // What this computer would make of it, from what is measured now: the video decoder and the memory OBS needs.
             let said = null; try { said = await api('/api/capacity/estimate', { method: 'POST', body: JSON.stringify({ camera_id: camera.id, video_height: height }) }); } catch (error) { said = null; }
-            const ahead = said?.warnings?.length ? `\n\nOn this PC: ${said.warnings.join('; ')}.` : said?.decoder_percent != null ? `\n\nOn this PC the video decoder would be about ${said.decoder_percent}% busy.` : '';
+            const ahead = said?.warnings?.length ? `\n\nOn this computer: ${said.warnings.join('; ')}.` : said?.decoder_percent != null ? `\n\nOn this computer the video decoder would be about ${said.decoder_percent}% busy.` : '';
             if ((height > 1080 || said?.warnings?.length) && !await concert.sure(`${camera.name}: switch its stream to ${sizes[height][0]}? Larger pictures make the phone run hotter and use more of the network. It applies the next time the stream starts.${ahead}`)) { refresh(); return; }
             send(camera, 'settings.update', { video_height: height, video_bitrate_mbps: sizes[height][1] }, `Set stream to ${sizes[height][0]}`);
           };
           const sizeRow = node('label', 'Stream size '); sizeRow.append(size);
-          picture.append(sizeRow, node('small', 'Stream picture size at 30 fps. Stop SRT and local recording to change it.'));
+          picture.append(sizeRow, node('small', 'Stream picture size at 30 fps. Stop the stream and recording to change it.'));
         }
         // The picture turned round, for a phone mounted upside down (with a gimbal or without). Portrait is set on the phone.
         if (t.capabilities?.picture_turn && (t.rotation ?? 0) % 180 === 0) {
@@ -1962,9 +2108,9 @@ async function drawAll() {
             const rotation = turnBox.checked ? 180 : 0, label = rotation ? 'Turn picture 180°' : 'Picture the right way up';
             if (!capturing) { send(camera, 'settings.update', { rotation }, label); return; }
             const streaming = t.streaming || t.capture?.streamRequested, recording = t.recording;
-            if (!await concert.sure(`${camera.name}: this stops its ${[streaming && 'stream', recording && 'local recording'].filter(Boolean).join(' and ')} for a few seconds, turns the picture ${rotation ? 'round 180°' : 'the right way up'}, then starts ${recording && streaming ? 'them' : 'it'} again.${recording ? ' The current recording file is closed and a new one begins.' : ''}`, { ok: label })) { turnBox.checked = !turnBox.checked; return; }
-            sequence(camera, [streaming && ['Stop SRT', 'stream.stop'], recording && ['Finalize local MP4', 'recording.stop'], [label, 'settings.update', { rotation }],
-              recording && ['Start local MP4', 'recording.start'], streaming && ['Start SRT', 'stream.start']].filter(Boolean), label);
+            if (!await concert.sure(`${camera.name}: this stops its ${[streaming && 'stream', recording && 'recording'].filter(Boolean).join(' and ')} for a few seconds, turns the picture ${rotation ? 'round 180°' : 'the right way up'}, then starts ${recording && streaming ? 'them' : 'it'} again.${recording ? ' The current recording file is closed and a new one begins.' : ''}`, { ok: label })) { turnBox.checked = !turnBox.checked; return; }
+            sequence(camera, [streaming && ['Stop stream', 'stream.stop'], recording && ['Stop recording', 'recording.stop'], [label, 'settings.update', { rotation }],
+              recording && ['Start recording', 'recording.start'], streaming && ['Start stream', 'stream.start']].filter(Boolean), label);
           };
           turnRow.append(turnBox, node('span', ' Turn picture 180° (phone mounted upside down)'));
           picture.append(turnRow, node('small', capturing ? 'Changing it stops this camera for a few seconds and starts it again: the phone turns its picture as its camera starts.'
@@ -1991,7 +2137,7 @@ async function drawAll() {
             const zoomSet = node('button', 'Set zoom'); zoomSet.disabled = !camera.online || busy.has(camera.id);
             zoomSet.onclick = () => { const times = Number(zoom.value); if (!(times >= least && times <= most)) { result.textContent = `${camera.name} zooms from ${least} to ${most}.`; return; } send(camera, 'camera.lens', { zoom_percent: Math.round(times * 100) }, `Zoom ${times.toFixed(1)}×`); };
             row.append(node('span', 'Zoom '), zoom, node('span', '× '), zoomSet); picture.append(row);
-            if (t.lens_error) { const failed = node('p', t.lens_error); failed.className = 'recording-warning'; card.append(failed); }
+            if (t.lens_error) { const failed = node('p', t.lens_error); failed.className = 'recording-warning'; alerts.append(failed); }
             picture.append(node('small', `Zooming on the sensor keeps real detail up to about ${t.video_height === 2160 ? '1.0' : t.video_height === 1440 ? '1.5' : '2.1'}× at this stream size; beyond that the picture is enlarged.${least < 1 ? ` Below 1× this phone hands over to its ultrawide lens.` : ''}${lenses.length > 1 ? ' A lens change is best made while the camera is off air.' : ''}`));
         }
         // White balance and exposure, as set on the Colour page (administrator), and what the phone is doing.
@@ -2000,38 +2146,38 @@ async function drawAll() {
           const line = node('p', `Colour: white balance ${c.wb_mode === 'kelvin' ? `${c.wb_kelvin} K` : c.wb_mode === 'preset' ? `${(c.wb_preset || '').replace('_', ' ')} preset` : c.wb_mode === 'lock' ? 'locked' : 'automatic'}${c.actual?.kelvin_estimate ? ` (at about ${c.actual.kelvin_estimate} K)` : ''} · exposure ${c.ae_mode === 'manual' ? `1/${Math.round(1e6 / c.exposure_us)} s, ISO ${c.iso}` : c.ae_mode === 'lock' ? 'locked' : 'automatic'}${c.ae_mode !== 'manual' && c.ae_compensation ? ` ${c.ae_compensation > 0 ? '+' : ''}${c.ae_compensation}` : ''}`);
           line.className = c.error ? 'app-version recording-warning' : 'app-version'; if (c.error) line.textContent += ` — ${c.error}`;
           if (role === 'admin') { const link = document.createElement('a'); link.href = '/colour'; link.textContent = ' Set on the Colour page'; line.append(link); }
-          (c.error ? card : picture).append(line);
+          (c.error ? alerts : picture).append(line);
         }
         // One press: stop what is running, set the port, and start the same things again.
         const port = node('button', `Send to UDP ${camera.srt_port} (its OBS input)`); port.title = 'Stops this camera briefly, points it at its assigned OBS port, then restarts what was running';
         port.disabled = !camera.online || busy.has(camera.id);
         port.onclick = async () => {
           const streaming = t.streaming || t.capture?.streamRequested, recording = t.recording;
-          if (capturing && !await concert.sure(`${camera.name}: this stops its ${[streaming && 'stream', recording && 'local recording'].filter(Boolean).join(' and ')} for a few seconds, sets UDP ${camera.srt_port}, then starts ${recording && streaming ? 'them' : 'it'} again. The current recording file is closed and a new one begins.`)) return;
-          sequence(camera, [streaming && ['Stop SRT', 'stream.stop'], recording && ['Finalize local MP4', 'recording.stop'], [`Set UDP ${camera.srt_port}`, 'settings.update', { srt_port: camera.srt_port }],
-            recording && ['Start local MP4', 'recording.start'], streaming && ['Start SRT', 'stream.start']].filter(Boolean), `Send to UDP ${camera.srt_port}`);
+          if (capturing && !await concert.sure(`${camera.name}: this stops its ${[streaming && 'stream', recording && 'recording'].filter(Boolean).join(' and ')} for a few seconds, sets UDP ${camera.srt_port}, then starts ${recording && streaming ? 'them' : 'it'} again. The current recording file is closed and a new one begins.`)) return;
+          sequence(camera, [streaming && ['Stop stream', 'stream.stop'], recording && ['Stop recording', 'recording.stop'], [`Set UDP ${camera.srt_port}`, 'settings.update', { srt_port: camera.srt_port }],
+            recording && ['Start recording', 'recording.start'], streaming && ['Start stream', 'stream.start']].filter(Boolean), `Send to UDP ${camera.srt_port}`);
         };
         picture.append(port);
 
         // Maintenance: its app, its timing in OBS, its storage, and the commands used when something is wrong.
-        if (camera.app) { const version = versionOf(camera, release); const tag = node('p', `App ${version.text}${camera.online ? '' : ' (last reported)'}`); tag.className = version.mismatch ? 'app-version recording-warning' : 'app-version'; (version.mismatch ? card : upkeep).append(tag); }
+        if (camera.app) { const version = versionOf(camera, release); const tag = node('p', `App ${version.text}${camera.online ? '' : ' (last reported)'}`); tag.className = version.mismatch ? 'app-version recording-warning' : 'app-version'; (version.mismatch ? alerts : upkeep).append(tag); }
         const aligned = sync?.cameras?.[camera.id];
         if (aligned && camera.online) {
-          const text = aligned.latency_ms != null ? `OBS sync: ${aligned.status}${aligned.error_ms ? ` (${Math.abs(aligned.error_ms)} ms ${aligned.error_ms < 0 ? 'early' : 'late'})` : ''} · picture ${(aligned.latency_ms / 1000).toFixed(2)} s behind · held back ${aligned.delay_ms} ms` : `OBS sync: ${aligned.status}`;
+          const text = aligned.latency_ms != null ? `OBS sync: ${aligned.status}${aligned.error_ms ? ` (${Math.abs(aligned.error_ms)} ms ${aligned.error_ms < 0 ? 'early' : 'late'})` : ''} · picture ${(aligned.latency_ms / 1000).toFixed(2)} s behind · held back ${(aligned.delay_ms / 1000).toFixed(2)} s` : `OBS sync: ${aligned.status}`;
           const bad = aligned.status === 'out of sync' || aligned.status.startsWith('fell behind') || aligned.status.startsWith('no picture');
-          const tag = node('p', text); tag.className = bad ? 'app-version recording-warning' : 'app-version'; (bad ? card : upkeep).append(tag);
+          const tag = node('p', text); tag.className = bad ? 'app-version recording-warning' : 'app-version'; (bad ? alerts : upkeep).append(tag);
         }
         const app = camera.app;
         if (app) {
-          if (app.updating) { const going = node('p', ''); going.className = 'activity running'; going.append(document.createElement('progress'), node('span', `Updating: ${app.status || 'starting'}. The camera disconnects briefly and returns on the new version.`)); card.append(going); }
+          if (app.updating) { const going = node('p', ''); going.className = 'activity running'; going.append(document.createElement('progress'), node('span', `Updating: ${app.status || 'starting'}. The camera disconnects briefly and returns on the new version.`)); alerts.append(going); }
           else if (app.status && (app.update_available || app.status.startsWith('Update failed'))) upkeep.append(node('small', `Last update: ${app.status}`));
           if (release && !app.updating) {
             // Always shown, so it is clear where updating happens; greyed out with the reason when it cannot run.
-            const capturingNow = app.update_available && (app.blocked_reason || '').startsWith('Stop SRT');
-            const update = node('button', app.update_available ? `Update now to ${release.version_name}` : 'Update now (up to date)');
-            update.disabled = !camera.online || busy.has(camera.id) || updatingAll || !(app.can_update || capturingNow);
+            const capturingNow = app.update_available && (app.blocked_reason || '').startsWith('Stop stream');
+            const update = node('button', app.update_available ? `Update now to ${release.version_name}` : 'Up to date');
+            update.disabled = !app.update_available || !camera.online || busy.has(camera.id) || updatingAll || !(app.can_update || capturingNow);
             update.onclick = async () => {
-              if (await concert.sure(capturingNow ? `Update ${camera.name} to ${release.version_name}? This STOPS its stream and local recording first. It then disconnects for about half a minute and comes back unarmed; you start it again afterwards.`
+              if (await concert.sure(capturingNow ? `Update ${camera.name} to ${release.version_name}? This STOPS its stream and recording first. It then disconnects for about half a minute and comes back unarmed; you start it again afterwards.`
                 : `Update ${camera.name} to ${release.version_name}? It disarms, disconnects for about half a minute and comes back unarmed.`)) updateCamera(camera, release, capturingNow);
             };
             upkeep.append(update);
@@ -2040,10 +2186,10 @@ async function drawAll() {
           }
         }
         upkeep.append(node('p', `UDP ${camera.srt_port} · queue ${t.queue_depth ?? '—'} · dropped ${t.frames_dropped ?? '—'} · SRT RTT ${t.srt_rtt_ms ?? 'unavailable'} · last contact ${camera.last_contact ? new Date(camera.last_contact * 1000).toLocaleTimeString() : 'never'}`));
-        upkeep.append(node('p', `Device storage: ${bytes(storage.free_bytes)} free${storage.total_bytes ? ` / ${bytes(storage.total_bytes)} total` : ''}`));
+        upkeep.append(node('p', `Camera storage: ${bytes(storage.free_bytes)} free${storage.total_bytes ? ` / ${bytes(storage.total_bytes)} total` : ''}`));
         upkeep.append(node('p', `Estimated local recording time to full: ${duration(storage.estimated_seconds_to_full)}${t.recording ? '' : ' (if recording starts)'}`));
         upkeep.append(node('small', `${storage.estimate_basis || 'No storage telemetry'}; approximate, not a safe-stop guarantee.`));
-        if (Number.isFinite(storage.estimated_seconds_to_recording_stop)) card.append(node('p', `Estimated time until recording safety stop: ${duration(storage.estimated_seconds_to_recording_stop)}`));
+        if (Number.isFinite(storage.estimated_seconds_to_recording_stop)) more.append(node('p', `Estimated time until recording safety stop: ${duration(storage.estimated_seconds_to_recording_stop)}`));
         if (t.capabilities) upkeep.append(node('small', `Remote arm/reboot: ${t.capabilities.device_owner ? 'available (device owner)' : 'unavailable until the phone is set up as device owner'}`));
         // On the camera Wi-Fi but unable to reach this computer, the phone dropped and rejoined it (in the last hour).
         if (camera.wifi_rejoined) { const line = node('p', camera.wifi_rejoined); line.className = 'app-version'; upkeep.append(line); }
@@ -2076,12 +2222,12 @@ async function drawAll() {
           const moving = moveHere(camera, 'gimbal', paired); if (moving) upkeep.append(moving);
         }
         const tools = node('div', ''); tools.className = 'camera-controls';
-        tools.append(command('Status', 'status.get'), command('Telemetry', 'metrics.get'), command('Restart SRT', 'stream.restart'), command('Reboot phone', 'system.reboot', true));
+        tools.append(command('Status', 'status.get'), command('Telemetry', 'metrics.get'), command('Restart stream', 'stream.restart'), command('Reboot phone', 'system.reboot', true));
         upkeep.append(tools);
         if (role === 'admin') { const manage = node('div', ''); manage.className = 'camera-controls'; manage.append(renameButton(camera), asideButton(camera), removeButton(camera)); upkeep.append(manage); }
       } else if (role === 'admin' && !window.concert.session?.away) {
         // An empty slot is where a new camera goes: say how.
-        const add = document.createElement('a'); add.href = '/phones'; add.className = 'button'; add.textContent = 'Add a phone…';
+        const add = document.createElement('a'); add.href = '/phones'; add.className = 'button primary'; add.textContent = 'Add a phone…';
         card.append(node('p', 'No phone is paired in this slot.'), add);
       }
       // A Black Shark cooler on the phone: what it is doing stays in view, its fan is in a fold. Nothing for a phone without one.
@@ -2089,13 +2235,13 @@ async function drawAll() {
       if (camera?.cooler) {
         const cooler = camera.cooler, off = !camera.online || busy.has(camera.id);
         const set = (parameters, label) => send(camera, 'cooler.settings', parameters, label);
-        if (cooler.summary) { const line = node('p', cooler.summary); line.className = cooler.address && (!cooler.connected || cooler.fan_refused || cooler.asking_to_pair) ? 'app-version recording-warning' : 'app-version'; card.append(line); }
+        if (cooler.summary) { const line = node('p', cooler.summary); line.className = cooler.address && (!cooler.connected || cooler.fan_refused || cooler.asking_to_pair) ? 'app-version recording-warning' : 'app-version'; put(line); }
         // Since when it has been on or off, and why it last dropped (Manager.observe_cooler).
         const h = cooler.history;
         if (h && cooler.address) {
           const since = new Date(h.since * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
           const lasted = s => s == null ? '' : s >= 3600 ? `${Math.round(s / 360) / 10} h` : s >= 60 ? `${Math.round(s / 60)} min` : `${s} s`;
-          card.append(node('small', h.connected ? `Cooler connected since ${since}${h.after_seconds != null ? ` (off ${lasted(h.after_seconds)} before)` : ''}.` :
+          more.append(node('small', h.connected ? `Cooler connected since ${since}${h.after_seconds != null ? ` (off ${lasted(h.after_seconds)} before)` : ''}.` :
             `Cooler off since ${since}${h.after_seconds != null ? `, after ${lasted(h.after_seconds)} on` : ''}${h.why ? ` (${h.why})` : ''}. If it stays off, press its button to switch it on; once connected, the phone switches its Auto Shutdown off.`));
         }
         if (cooler.address) {
@@ -2129,7 +2275,7 @@ async function drawAll() {
           other.title = 'Lets go of this one and looks for coolers near the phone. Not while streaming or recording.';
           other.onclick = async () => { if (await concert.sure(`${camera.name}: let go of this cooler and look for another? Switch the new one on near the phone first.`, { ok: 'Look' })) set({ address: '', look: true }, 'Pair a different cooler'); };
           chill.append(other);
-          const forget = node('button', 'Forget this cooler'); forget.disabled = off;
+          const forget = node('button', 'Forget this cooler'); forget.className = 'danger'; forget.disabled = off;
           forget.onclick = async () => { if (await concert.sure(`${camera.name}: forget its cooler? The phone lets go of it and looks for coolers nearby again.`, { ok: 'Forget' })) set({ address: '' }, 'Forget cooler'); };
           chill.append(node('p', `${cooler.name || 'Cooler'} ${cooler.address}${cooler.firmware ? ` · firmware ${cooler.firmware}` : ''}`), forget);
           // Which cooler is it? Its lights flash a few times, then go off again (app 0.9.47).
@@ -2165,16 +2311,16 @@ async function drawAll() {
       }
       // Which lens makes the picture now, and the zoom: the phone's own report each frame with app 0.9.38, which hands
       // over between lenses as it zooms; before that, the lens chosen.
-      if (camera?.lens_now) { const lensLine = node('p', ''); lensLine.className = 'app-version'; lensLine.append(window.lensChip(camera.lens_now)); card.append(lensLine); }
+      if (camera?.lens_now) { const lensLine = node('p', ''); lensLine.className = 'app-version'; lensLine.append(window.lensChip(camera.lens_now)); more.append(lensLine); }
       // A Hohem gimbal holding the phone: hold an arrow to turn it. Nothing for a phone without one.
       const turn = fold(`${key}:gimbal`, 'Gimbal');
       if (camera?.gimbal) {
         const gimbal = camera.gimbal, off = !camera.online || busy.has(camera.id);
         const set = (parameters, label) => send(camera, 'gimbal.settings', parameters, label);
-        if (gimbal.summary) { const line = node('p', gimbal.summary); line.className = gimbal.address && !gimbal.connected ? 'app-version recording-warning' : 'app-version'; card.append(line); }
+        if (gimbal.summary) { const line = node('p', gimbal.summary); line.className = gimbal.address && !gimbal.connected ? 'app-version recording-warning' : 'app-version'; put(line); }
         // The director keeps a camera whose gimbal lost its person off air until it is following again (director.gimbal_out).
         const keptOut = director?.gimbal_out?.[camera.id];
-        if (keptOut) { const kept = node('p', `Off air for now: ${keptOut}. The director cuts back once it is following again.`); kept.className = 'app-version recording-warning'; card.append(kept); }
+        if (keptOut) { const kept = node('p', `Off air for now: ${keptOut}. The director cuts back once it is following again.`); kept.className = 'app-version recording-warning'; alerts.append(kept); }
         if (gimbal.address) {
           if (gimbal.connected) {
             // An MT3's AI tracker steers it too while it tracks: the arrows still work, but say they will fight it.
@@ -2304,7 +2450,7 @@ async function drawAll() {
               if (stage.calibrated) {
                 const centre = node('button', 'Centre stage'); centre.disabled = off; centre.title = 'Turn it back to the middle of the stage, to check the calibration';
                 centre.onclick = () => gimbalStage('centre', 'Centre stage');
-                const drop = node('button', 'Forget'); drop.disabled = off; drop.onclick = () => gimbalStage('forget', 'Forget the calibration');
+                const drop = node('button', 'Forget'); drop.className = 'danger'; drop.disabled = off; drop.onclick = () => gimbalStage('forget', 'Forget the calibration');
                 aimed.append(' ', centre, ' ', drop);
                 if (stage.why) aimed.append(node('span', ` · ${{ following: '', pointing: 'turning it to ', waiting: 'waiting: ', idle: '' }[stage.state] ?? ''}${stage.why}`));
               } else if (!stage.on_map) aimed.append(node('small', ' Put this camera and the wide camera on the room map first (Stage Shots).'));
@@ -2330,7 +2476,7 @@ async function drawAll() {
           other.title = 'Lets go of this one and looks for gimbals near the phone. Not while streaming or recording.';
           other.onclick = async () => { if (await concert.sure(`${camera.name}: let go of this gimbal and look for another? Switch the new one on near the phone, and close Hohem’s app.`, { ok: 'Look' })) set({ address: '', look: true }, 'Pair a different gimbal'); };
           turn.append(other);
-          const forget = node('button', 'Forget this gimbal'); forget.disabled = off;
+          const forget = node('button', 'Forget this gimbal'); forget.className = 'danger'; forget.disabled = off;
           forget.onclick = async () => { if (await concert.sure(`${camera.name}: forget its gimbal? The phone lets go of it until one is chosen again.`, { ok: 'Forget' })) set({ address: '' }, 'Forget gimbal'); };
           turn.append(axes, node('p', `${gimbal.model ? `Hohem ${gimbal.model} · ` : ''}${gimbal.name || 'Gimbal'} ${gimbal.address}`), forget);
         }
@@ -2348,7 +2494,8 @@ async function drawAll() {
         }
         turn.append(node('small', ' Pair the gimbal with the phone once (Hohem’s app does it), then close Hohem’s app: it holds the gimbal while it is open.'));
       }
-      for (const group of [shots, picture, upkeep, chill, turn]) if (group.childElementCount > 1) card.append(group);
+      for (const group of [shots, picture, upkeep, chill, turn]) if (group.childElementCount > 1) more.append(group);
+      if (more.childElementCount > 1) card.append(more);
       grid.append(card);
       } catch (error) { console.error(error); grid.append(failedCard(`Camera ${slot}`, error)); }
     }

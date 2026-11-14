@@ -6,6 +6,15 @@
 (() => {
   const NOT_NOW = 'mcvsaid-ai-not-now';
   let state = null, failed = null, loadedAt = 0;
+  const folds = {};  // which folds are open, kept across redraws (the panel is rebuilt every few seconds)
+  // Long absolute paths are shown short: the home folder as ~, any other long path as its last two parts. Only what is displayed; commands and buttons use the full text.
+  const shorten = text => String(text ?? '').replace(/\/(?:Users|home)\/[^/\s'"]+/g, '~')
+    .replace(/\/[^/\s'"]+(?:\/[^/\s'"]+){3,}/g, path => '…/' + path.split('/').slice(-2).join('/'));
+  const fold = (key, summary) => {
+    const box = el('details'); box.open = !!folds[key]; box.dataset.fold = key;
+    box.append(el('summary', summary)); box.addEventListener('toggle', () => { folds[key] = box.open; });
+    return box;
+  };
   const remembered = () => { try { return localStorage.getItem(NOT_NOW) === '1'; } catch (error) { return false; } };
   const remember = on => { try { if (on) localStorage.setItem(NOT_NOW, '1'); else localStorage.removeItem(NOT_NOW); } catch (error) { /* private window */ } };
   const el = (tag, text, className) => { const made = document.createElement(tag); if (text != null) made.textContent = text; if (className) made.className = className; return made; };
@@ -21,7 +30,7 @@
     for (const level of state.tiers) {
       const fits = state.hardware.fits[level.id] || { ok: true, why: '' };
       const card = el('article', null, `ai-level${level.id === current ? ' chosen' : ''}`);
-      card.append(el('h4', level.name + (level.id === current ? ' (in use)' : '')), el('p', level.about));
+      card.append(el('h3', level.name + (level.id === current ? ' (in use)' : '')), el('p', level.about));
       card.append(el('small', (fits.ok ? '✓ This computer: ' : '⚠ This computer: ') + fits.why, fits.ok ? '' : 'warn'));
       if (level.id !== current) {
         const choose = el('button', level.id === 'none' ? 'Use No AI' : `Set up ${level.name}`);
@@ -40,17 +49,19 @@
     const list = el('ol', null, 'ai-steps');
     for (const step of state.steps) {
       const item = el('li', null, step.done ? 'done' : step.job?.state === 'failed' ? 'failed' : step.job?.state === 'running' ? 'running' : 'todo');
-      item.append(el('strong', `${step.done ? '✓' : '○'} ${step.title}`), el('span', ` — ${step.detail}`));
+      item.append(el('strong', `${step.done ? '✓' : '○'} ${step.title}`), el('span', ` — ${shorten(step.detail)}`));
+      if (step.detail && shorten(step.detail) !== step.detail) item.lastChild.title = step.detail;
       if (step.job?.state === 'running') {
         const bar = el('progress'); if (step.job.progress != null) { bar.max = 1; bar.value = step.job.progress; }
         item.append(el('br'), bar, el('small', ` ${step.job.detail || 'working…'}`));
-      } else if (step.job?.state === 'failed') item.append(el('br'), el('small', `Did not work: ${step.job.detail}`, 'warn'));
-      else if (step.job?.state === 'done' && !step.done) item.append(el('br'), el('small', step.job.detail));
+      } else if (step.job?.state === 'failed') item.append(el('br'), el('small', `Did not work: ${shorten(step.job.detail)}`, 'warn'));
+      else if (step.job?.state === 'done' && !step.done) item.append(el('br'), el('small', shorten(step.job.detail)));
       if (!step.done && step.command) {
         const box = el('div', null, 'ai-command');
         box.append(el('small', step.admin ? 'Needs an administrator: run this in Terminal, and type the password it asks for there (it is never typed here):' : 'Run this in Terminal:'));
-        const code = el('code', step.command), copy = el('button', 'Copy');
+        const code = el('code', shorten(step.command)), copy = el('button', 'Copy');
         copy.onclick = async () => { try { await navigator.clipboard.writeText(step.command); copy.textContent = 'Copied'; } catch (error) { copy.textContent = 'Select and copy'; } };
+        if (code.textContent !== step.command) code.title = step.command;
         box.append(el('br'), code, copy); item.append(box);
       }
       if (!step.done && step.link) { const go = el('a', 'Open the People page'); go.href = step.link; go.className = 'button'; item.append(el('br'), go); }
@@ -81,11 +92,31 @@
       if (where === 'director') { const later = el('button', 'Not now'); later.onclick = () => { remember(true); draw(); }; container.append(later); }
       return;
     }
-    const heading = el('p', state.ready ? `${state.name} is set up and in use.` : `${state.name}: ${state.steps.filter(s => s.done).length} of ${state.steps.length} steps done.`);
-    container.append(heading);
-    if (where === 'director' && state.ready) {
-      const more = el('details'); more.append(el('summary', 'The set-up, and other levels')); steps(more); levels(more, current); container.append(more);
-    } else { steps(container); const other = el('details'); other.append(el('summary', 'Other levels')); levels(other, current); container.append(other); }
+    const done = state.steps.filter(s => s.done).length, total = state.steps.length;
+    const failedSteps = state.steps.filter(s => !s.done && s.job?.state === 'failed').length;
+    const runningSteps = state.steps.filter(s => s.job?.state === 'running').length;
+    if (where === 'director') {
+      // One line; the steps and the other levels sit in a fold, closed until opened.
+      const line = el('p', null, 'ai-summary');
+      line.append(el('span', state.ready ? `${state.name} is set up and in use.` : `${state.name}: ${done} of ${total} steps done.`));
+      if (failedSteps) { const bad = el('strong', ` ${failedSteps === 1 ? 'A step' : failedSteps + ' steps'} did not work.`); bad.style.color = 'var(--warn, #a15c00)'; line.append(bad); }
+      else if (runningSteps) line.append(el('span', ' Working…'));
+      container.append(line);
+      const more = fold('director', state.ready ? 'The set-up, and other levels' : `The ${total} set-up steps, and other levels`);
+      if (!state.ready) {
+        const go = el('button', failedSteps ? 'Show what did not work' : 'Continue set-up');
+        go.onclick = () => {
+          more.open = true; folds.director = true;
+          const next = more.querySelector('li.failed, li.running, li.todo');
+          if (next) { next.scrollIntoView({ block: 'center' }); next.querySelector('button, a')?.focus(); }
+        };
+        line.append(' ', go);
+      }
+      steps(more); levels(more, current); container.append(more);
+    } else {
+      container.append(el('p', state.ready ? `${state.name} is set up and in use.` : `${state.name}: ${done} of ${total} steps done.`));
+      steps(container); const other = fold('system-levels', 'Other levels'); levels(other, current); container.append(other);
+    }
   }
 
   function draw(force = false) {
