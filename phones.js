@@ -131,14 +131,14 @@ function drawCode(report) {
 }
 document.querySelector('#code-place').onsubmit = async e => {
   e.preventDefault(); result.textContent = '';
-  try { await api('/api/phones/code', { repository: document.querySelector('#code-repository').value.trim() }); await refresh(); } catch (error) { result.textContent = error.message; }
+  try { await api('/api/phones/code', { repository: document.querySelector('#code-repository').value.trim() }); await refresh(); } catch (error) { concert.fail(error); }
 };
 document.querySelector('#code-form').onsubmit = async e => {
   e.preventDefault(); result.textContent = '';
   const plan = codePick.pair === 'new' ? { pair: 'new', name: codePick.name.trim(), slot: codePick.slot } : { pair: 'as', camera_id: codePick.camera_id };
   plan.setup_wifi = { ssid: document.querySelector('#setup-ssid').value, password: document.querySelector('#setup-password').value };
   plan.camera_wifi = { ssid: document.querySelector('#camera-ssid').value, password: document.querySelector('#camera-password').value };
-  try { showCode(await api('/api/phones/code', plan)); codePick.name = ''; await refresh(); } catch (error) { result.textContent = error.message; hideCode(); }
+  try { showCode(await api('/api/phones/code', plan)); codePick.name = ''; await refresh(); } catch (error) { concert.fail(error); hideCode(); }
 };
 document.querySelector('#code-hide').onclick = hideCode;
 
@@ -172,7 +172,7 @@ function draw() {
           const plan = pick.pair === 'move' ? { pair: 'move', leave_recordings: pick.leave } : pick.pair === 'new' ? { pair: 'new', name: pick.name.trim(), slot: pick.slot } : pick.pair === 'as' ? { pair: 'as', camera_id: pick.camera_id } : { pair: 'keep' };
           if (pick.pair === 'as' && !await concert.sure('The phone that is this camera now will no longer be able to connect. Put this phone in its place?')) return;
           go.disabled = true; result.textContent = '';
-          try { await api(`/api/phones/${encodeURIComponent(phone.serial)}/setup`, plan); delete asked[phone.serial]; } catch (error) { result.textContent = error.message; }
+          try { await api(`/api/phones/${encodeURIComponent(phone.serial)}/setup`, plan); delete asked[phone.serial]; } catch (error) { concert.fail(error); }
           await refresh();
         };
         card.append(go);
@@ -184,7 +184,7 @@ function draw() {
 }
 async function refresh() {
   try { latest = await api('/api/phones'); draw(); }
-  catch (error) { result.textContent = error.message; }
+  catch (error) { concert.fail(error); }
 }
 
 async function enter(session) {
@@ -197,6 +197,6 @@ async function enter(session) {
 document.querySelector('#login').onsubmit = async e => {
   e.preventDefault();
   try { await enter(await api('/api/login', { name: document.querySelector('#username').value, password: document.querySelector('#password').value })); }
-  catch (error) { result.textContent = error.message; }
+  catch (error) { concert.fail(error); }
 };
 window.concert.resume().then(session => { if (session) enter(session); });

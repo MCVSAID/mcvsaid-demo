@@ -21,7 +21,7 @@ async function enter(session) {
 document.querySelector('#login').onsubmit = async e => {
   e.preventDefault();
   try { await enter(await api('/api/login', { name: document.querySelector('#username').value, password: document.querySelector('#password').value })); }
-  catch (error) { result.textContent = error.message; }
+  catch (error) { concert.fail(error); }
 };
 window.concert.resume().then(session => { if (session) enter(session); });
 
@@ -69,7 +69,7 @@ async function load() {
       if (other) { state.compare = await readings(other.start - 60, other.end + 60); state.compareOrigin = other.start; state.other = other; state.to = Math.max(state.to, other.end - other.start); }
     }
     result.textContent = ''; draw(state); coolers(state.main.coolers || []);
-  } catch (error) { result.textContent = error.message; }
+  } catch (error) { concert.fail(error); }
 }
 
 // Lines for one set of readings: [{camera, color, points: [[x, °C, load, size]]}], x measured from `origin`.

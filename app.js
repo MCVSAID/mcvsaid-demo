@@ -1,5 +1,8 @@
 'use strict';
 let csrf = '', busy = new Set();
+// The page is drawn one run at a time (concert.single): asked again meanwhile, it runs once more when done.
+const refresh = () => drawAllOnce();
+const drawAllOnce = (() => { let run = null; return () => (run ||= window.concert.single(drawAll))(); })();
 // Latest command per camera: shown on its card while running and until the next one.
 const activity = new Map();
 function paintActivity() {
@@ -18,12 +21,13 @@ function paintActivity() {
     }
   }
 }
-setInterval(paintActivity, 500);
+// Only while a command is running or has just ended (its line shows its seconds); not on every half-second for nothing.
+setInterval(() => { if (!document.hidden && [...activity.values()].some(a => a.state === 'RUNNING')) paintActivity(); }, 500);
 const result = document.querySelector('#result');
 async function api(path, options = {}) {
-  const response = await fetch(path, { ...options, headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf, ...options.headers } });
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
+  // A reading that is not answered in 10 s is given up, so that hung requests do not pile up to the browser's limit.
+  const { response, data, unreachable } = await window.concert.fetchJson(path, { ...options, headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf, ...options.headers } });
+  if (!response.ok) { const failure = new Error(data.detail || `HTTP ${response.status}`); failure.unreachable = unreachable; throw failure; }
   return data;
 }
 // Which part of the main page is showing, and which sections belong to it.
@@ -81,6 +85,7 @@ function show(path) {
   window.concert.nav(role, show);
   refresh();
 }
+let polling = false;
 async function enter(session) {
   csrf = session.csrf; role = session.role || 'admin'; window.concert.session = session;
   document.querySelector('#password').value = '';
@@ -90,14 +95,14 @@ async function enter(session) {
   // Opened at a panel (the Add a phone page links to /system#release): go to it once it has been drawn.
   const wanted = location.hash && document.querySelector(location.hash);
   if (wanted) refresh().then(() => { if (!wanted.hidden) wanted.scrollIntoView({ block: 'start' }); });
-  setInterval(refresh, 2000);
+  if (!polling) { polling = true; window.concert.every(refresh, 2000); }       // not while the page is hidden
 }
 window.addEventListener('hashchange', () => { if (csrf && part === '/system') show('/system'); });
 window.addEventListener('popstate', () => { if (csrf) { show(location.pathname.replace(/\/+$/, '') || '/'); window.concert.nav(role, show); } });
 document.querySelector('#login').onsubmit = async event => {
   event.preventDefault();
   try { await enter(await api('/api/login', { method: 'POST', body: JSON.stringify({ name: document.querySelector('#username').value, password: document.querySelector('#password').value }) })); }
-  catch (error) { result.textContent = error.message; }
+  catch (error) { concert.fail(error); }
 };
 // A login made on another page, or before this one was reloaded, is picked up: the password is asked for once.
 window.concert.resume().then(session => { if (session) enter(session); });
@@ -120,7 +125,7 @@ async function aimSend(cameraId, command, parameters) {
   try {
     const outcome = await api(`/api/cameras/${encodeURIComponent(cameraId)}/commands`, { method: 'POST', body: JSON.stringify({ request_id: crypto.randomUUID(), command, parameters, timeout_seconds: 3 }) });
     if (outcome.state !== 'SUCCEEDED') result.textContent = `Gimbal: ${outcome.result?.error || outcome.state}`;
-  } catch (error) { if (!/rate limit/i.test(error.message)) result.textContent = `Gimbal: ${error.message}`; }
+  } catch (error) { if (!/rate limit/i.test(error.message)) concert.fail(error, `Gimbal: `); }
 }
 function aimStart(camera, pan, tilt) {
   aimStop();
@@ -165,7 +170,7 @@ async function send(camera, command, parameters = {}, label = command) {
     result.textContent = JSON.stringify(outcome, null, 2);
     activity.set(camera.id, { label, state: outcome.state, error: outcome.result?.error, finished: Date.now() });
   } catch (error) {
-    result.textContent = `${camera.name}: ${error.message}`;
+    concert.fail(error, `${camera.name}: `);
     activity.set(camera.id, { label, state: 'FAILED', error: error.message, finished: Date.now() });
   }
   finally { busy.delete(camera.id); refresh(); settle(); }
@@ -392,7 +397,7 @@ function asideButton(camera) {
   button.title = inUse ? 'Keep it paired, but leave it out of the shows at this location' : 'Use this camera at this location again';
   button.onclick = async () => {
     if (inUse && !await concert.sure(`Set ${camera.name} aside at this location?\n\nIt stays paired and keeps its settings, but the director never chooses it, “Start All” leaves it out, no OBS scenes are made for it and it is not checked for readiness. If it connects it is shown under “Not in use here”, and nothing more. Each location keeps its own cameras set aside: switching location brings back that location's.`)) return;
-    try { await api(`/api/cameras/${encodeURIComponent(camera.id)}/in-use`, { method: 'POST', body: JSON.stringify({ in_use: !inUse }) }); } catch (error) { result.textContent = error.message; }
+    try { await api(`/api/cameras/${encodeURIComponent(camera.id)}/in-use`, { method: 'POST', body: JSON.stringify({ in_use: !inUse }) }); } catch (error) { concert.fail(error); }
     refresh();
   };
   return button;
@@ -409,7 +414,7 @@ function moveHere(camera, kind, paired) {
     move.onclick = async () => {
       if (!await concert.sure(`Move the ${word} from ${other.name} to ${camera.name}?\n\n${other.name} lets it go${other.online ? '' : ' when it is next connected'}, and ${camera.name} connects to it. Put it on ${camera.name} first.`, { ok: 'Move here' })) return;
       try { const done = await api(`/api/cameras/${encodeURIComponent(camera.id)}/accessory`, { method: 'POST', body: JSON.stringify({ kind, from: other.id }) }); result.textContent = done.state === 'SUCCEEDED' ? `${camera.name} has the ${word} now.` : JSON.stringify(done, null, 2); }
-      catch (error) { result.textContent = error.message; }
+      catch (error) { concert.fail(error); }
       refresh();
     };
     item.append(move); list.append(item);
@@ -425,7 +430,7 @@ function renameButton(camera) {
       fields: [{ name: 'name', label: 'New name', value: camera.name }], ok: 'Rename' });
     if (!got || got.name.trim() === camera.name) return;
     try { const done = await api(`/api/cameras/${encodeURIComponent(camera.id)}/name`, { method: 'POST', body: JSON.stringify({ name: got.name }) }); result.textContent = `${done.was} is now ${done.name}.` + inObs(done.obs); }
-    catch (error) { result.textContent = error.message; }
+    catch (error) { concert.fail(error); }
     refresh();
   };
   return button;
@@ -437,7 +442,7 @@ function removeButton(camera) {
   button.title = capturing ? 'Stop its stream and local recording first' : 'Unpair it for good';
   button.onclick = async () => {
     if (!await concert.sure(`Remove ${camera.name} (slot ${camera.slot}) for good?\n\nIt is unpaired: its credential stops working, so the phone can no longer connect${camera.online ? ' (it is disconnected now)' : ''}, and its slot is free. What is set for it here is cleared: what it shows, its place on the stage picture, its microphone, telephoto, decoding and colour. Its recordings stay, and a restore point is kept (System › Locations & backups).\n\nTo use the phone again it must be paired again. To keep it for another time, use “Not used here” instead.`)) return;
-    try { const done = await api(`/api/cameras/${encodeURIComponent(camera.id)}`, { method: 'DELETE' }); result.textContent = `Removed ${done.removed}: slot ${done.slot} is free.`; } catch (error) { result.textContent = error.message; }
+    try { const done = await api(`/api/cameras/${encodeURIComponent(camera.id)}`, { method: 'DELETE' }); result.textContent = `Removed ${done.removed}: slot ${done.slot} is free.`; } catch (error) { concert.fail(error); }
     refresh();
   };
   return button;
@@ -564,7 +569,7 @@ document.querySelector('#capacity-form').onsubmit = async event => {
     await api('/api/settings/camera-capacity', { method: 'POST', body: JSON.stringify({camera_capacity: Number(document.querySelector('#camera-capacity').value)}) });
     result.textContent = 'Camera capacity saved. Existing pairings preserved.';
     await refresh();
-  } catch (error) { result.textContent = error.message; }
+  } catch (error) { concert.fail(error); }
 };
 // A panel is left alone only while someone is typing in it or has a list open, so their entry is not wiped by the
 // two-second redraw. A button or tick box that was just clicked keeps the keyboard focus, and used to freeze its whole
@@ -661,7 +666,7 @@ async function switchPlug(plug, on) {
     const text = lines.length ? `These stop charging:\n${lines.join('\n')}${warning}` : 'Whatever is on its charger stops charging. (Nothing is listed on it yet: say what is, on the Power page.)';
     if (!await concert.sure(`Switch ${name} off?\n${text}`, { ok: 'Switch off', danger: true })) return;
   }
-  try { await api('/api/power/switch', { method: 'POST', body: JSON.stringify({ id: plug.id, on }) }); result.textContent = ''; } catch (error) { result.textContent = error.message; }
+  try { await api('/api/power/switch', { method: 'POST', body: JSON.stringify({ id: plug.id, on }) }); result.textContent = ''; } catch (error) { concert.fail(error); }
   refresh();
 }
 function plugButtons(plug, power) {
@@ -703,7 +708,7 @@ function powerField(fold, text, value, width, type = 'text') {
 async function powerSave(path, body, button) {
   if (button) button.disabled = true;
   try { await api(path, { method: 'POST', body: JSON.stringify(body) }); result.textContent = ''; powerDirty = false; return true; }
-  catch (error) { result.textContent = error.message; if (button) button.disabled = false; return false; }
+  catch (error) { concert.fail(error); if (button) button.disabled = false; return false; }
   finally { refresh(); }
 }
 // Keeping this Mac awake (keepawake.py), on the Power page: when (during shows, always, never), a few hours from now for
@@ -713,7 +718,7 @@ let awakeAdding = false;                  // the Add a time form open: kept open
 async function awakeSave(body, button) {
   if (button) button.disabled = true;
   try { await api('/api/keep-awake', { method: 'POST', body: JSON.stringify(body) }); result.textContent = ''; return true; }
-  catch (error) { result.textContent = error.message; if (button) button.disabled = false; return false; }
+  catch (error) { concert.fail(error); if (button) button.disabled = false; return false; }
   finally { refresh(); }
 }
 function awakeChoice(label, pressed, onclick) {
@@ -870,6 +875,37 @@ function editing(panel) {
   const active = document.activeElement;
   return !!active && panel.contains(active) && active.matches('input:not([type=checkbox]):not([type=radio]), select, textarea');
 }
+// One section of the page, drawn off the page and put in only when it built and only when it differs from what shows: a
+// failed section keeps what it had (with a line saying so) and the others are drawn as usual; keyboard focus and text
+// selection are not lost to a redraw that changes nothing. `build` gets a stand-in for each panel (same name, same
+// class) and may answer false for "nothing to show: leave it". `loose` is for a live region (aria-live): the words
+// are compared without their numbers, so that a reading moving by a digit is not read out again.
+const labelOf = element => (element.getAttribute('aria-label') || element.textContent.trim() || element.title || element.name || '').slice(0, 80);
+async function paint(panels, when, build, { loose = false } = {}) {
+  const list = [].concat(panels).filter(Boolean);
+  if (!when || !list.length || list.every(p => p.hidden) || list.some(editing)) return;
+  const stages = list.map(p => p.cloneNode(false));
+  try { if (await build(...stages) === false) return; }
+  catch (error) {
+    console.error(error);
+    for (const panel of list) if (!panel.hidden && !panel.querySelector(':scope > .section-error')) { const line = node('p', `Part of this page could not be drawn (${error.message}); what is shown may be out of date.`); line.className = 'recording-warning section-error'; panel.prepend(line); }
+    return;
+  }
+  list.forEach((panel, index) => {
+    if (panel.hidden) return;
+    panel.querySelectorAll(':scope > .section-error').forEach(line => line.remove());
+    if (window.concert.sig(stages[index], loose) === window.concert.sig(panel, loose)) return;
+    const active = document.activeElement, inside = active && active !== panel && panel.contains(active);
+    const same = inside ? [...panel.querySelectorAll(active.localName)].filter(e => labelOf(e) === labelOf(active)) : [], nth = same.indexOf(active), label = inside ? labelOf(active) : '';
+    panel.className = stages[index].className;
+    panel.replaceChildren(...stages[index].childNodes);
+    if (inside) { const now = [...panel.querySelectorAll(active.localName)].filter(e => labelOf(e) === label); (now[nth] || now[0])?.focus({ preventScroll: true }); }
+  });
+}
+// A card that could not be built, in its place, so that the others are not lost with it.
+function failedCard(name, error) {
+  const card = node('article', ''); card.append(node('h2', name)); const line = node('p', `Could not be drawn: ${error.message}`); line.className = 'recording-warning'; card.append(line); return card;
+}
 // A list or tick box has done its job once it changes; letting go of it lets its panel show the result.
 document.addEventListener('change', event => { if (event.target.matches?.('select, input[type=checkbox], input[type=radio]')) event.target.blur(); });
 // The dashboard's words for the kind of event in use (modes.UI): live music's until the manager has said otherwise.
@@ -920,35 +956,38 @@ function autoSwitches(auto, camera, cameras) {
   return row.childElementCount ? row : node('span', '');
 }
 
-async function refresh() {
+async function drawAll() {
+  let answer;
+  try { answer = await api('/api/cameras'); } catch (error) { concert.polled(!error.unreachable); concert.fail(error); return; }
+  concert.polled(true);
   try {
-    const answer = await api('/api/cameras'); window.concert.feed(answer);
+    window.concert.feed(answer);
     const { cameras: paired, camera_capacity = 5, release, app_auto_update, battery_protect, phone_silence, power, keep_awake, sync, show_minutes, director, manager_version, away = false, ready, clocks_set_automatically, auto } = answer;
     studioSummary = answer.creator || null;          // Creator Studio's framings, for each card's What it shows (shows.js)
     // The cameras in use at this location; those set aside are left out of everything but their own short list.
     const cameras = paired.filter(c => c.in_use !== false), aside = paired.filter(c => c.in_use === false);
     // Show length, and which cameras are not expected to last it at their present load.
     const heatPlan = document.querySelector('#heat-plan');
-    if (show_minutes !== undefined && !editing(heatPlan)) {
+    await paint(heatPlan, show_minutes !== undefined, async (heatPlan) => {
       heatPlan.replaceChildren(node('h2', 'Show plan'));
       const length = document.createElement('input'); length.type = 'number'; length.min = 5; length.max = 720; length.value = show_minutes; length.size = 4;
-      const set = node('button', 'Set'); set.onclick = async () => { try { await api('/api/settings/show-minutes', { method: 'POST', body: JSON.stringify({ minutes: Number(length.value) }) }); } catch (error) { result.textContent = error.message; } length.blur(); refresh(); };
+      const set = node('button', 'Set'); set.onclick = async () => { try { await api('/api/settings/show-minutes', { method: 'POST', body: JSON.stringify({ minutes: Number(length.value) }) }); } catch (error) { concert.fail(error); } length.blur(); refresh(); };
       const row = node('label', 'Show length in minutes (used for heat projections) '); row.append(length, set); heatPlan.append(row);
       const short = cameras.filter(c => c.online && c.thermal?.projection?.lasts_show === false);
       const known = cameras.filter(c => c.online && ['learned', 'trend'].includes(c.thermal?.projection?.method));
       const line = node('p', short.length ? `Heat outlook: ${short.map(c => `${c.name} reaches its limit in ${about(c.thermal.projection.minutes_to_stop)}`).join('; ')}. Give ${short.length === 1 ? 'it' : 'them'} a lighter load, more airflow, or a planned rest.`
         : known.length ? `Heat outlook: every camera with a projection is expected to last a ${show_minutes}-minute show at its present load.` : 'Heat outlook: projections appear after a few minutes of readings.');
       if (short.length) line.className = 'recording-warning'; heatPlan.append(line);
-    }
+    });
     // The programme: which camera is on air, who is choosing, and recording the result to a file.
     const program = document.querySelector('#program');
     const settings = document.querySelector('#director-settings');
-    if (director && !editing(program) && !editing(settings)) {
+    await paint([program, settings], director, async (program, settings) => {
       program.replaceChildren(); settings.replaceChildren(node('h2', 'How shots are chosen'));
       // At No AI (AI assistance, ai.py) there is no model: what needs one is left off, and the page says so.
       const aiOff = director.ai_tier === 'none';
       const named = identifier => cameras.find(c => c.id === identifier)?.name || identifier;
-      const direct = async body => { try { await api('/api/director', { method: 'POST', body: JSON.stringify(body) }); } catch (error) { result.textContent = error.message; } refresh(); settle(); };
+      const direct = async body => { try { await api('/api/director', { method: 'POST', body: JSON.stringify(body) }); } catch (error) { concert.fail(error); } refresh(); settle(); };
       const clock = seconds => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`;
       const nowSeconds = Date.now() / 1000;
       program.append(node('h2', 'Programme'));
@@ -961,9 +1000,12 @@ async function refresh() {
       const cutRow = node('p', 'Put on air: ');
       for (const camera of cameras) {
         const usable = director.usable.includes(camera.id);
-        const button = node('button', camera.name); button.disabled = !usable || director.on_air === camera.id;
-        button.title = director.on_air === camera.id ? 'On air now' : usable ? `Cut to ${camera.name}` : 'Not usable right now: offline, not streaming, or no picture in OBS (or no “Cam” scene for it)';
-        button.onclick = () => direct({ take: camera.id }); cutRow.append(button);
+        const live = director.on_air === camera.id;
+        const button = node('button', camera.name); button.disabled = !usable && !live;
+        // The one on air looks on air, and is still read out: pressed and unavailable, not dimmed out of the row.
+        button.setAttribute('aria-pressed', String(live)); if (live) { button.className = 'on-air-now'; button.setAttribute('aria-disabled', 'true'); }
+        button.title = live ? 'On air now' : usable ? `Cut to ${camera.name}` : 'Not usable right now: offline, not streaming, or no picture in OBS (or no “Cam” scene for it)';
+        button.onclick = live ? null : () => direct({ take: camera.id }); cutRow.append(button);
       }
       program.append(cutRow);
       const splitNames = Object.keys(director.splits || {});
@@ -971,9 +1013,11 @@ async function refresh() {
         const splitRow = node('p', 'Split screen: ');
         for (const scene of splitNames) {
           const members = director.splits[scene], usable = members.every(identifier => director.usable.includes(identifier));
-          const button = node('button', members.map(named).join(' + ')); button.disabled = !usable || director.scene === scene;
-          button.title = director.scene === scene ? 'On air now' : usable ? `Show ${members.map(named).join(' and ')} side by side` : 'One of these cameras is not usable right now';
-          button.onclick = () => direct({ take: scene }); splitRow.append(button);
+          const live = director.scene === scene;
+          const button = node('button', members.map(named).join(' + ')); button.disabled = !usable && !live;
+          button.setAttribute('aria-pressed', String(live)); if (live) { button.className = 'on-air-now'; button.setAttribute('aria-disabled', 'true'); }
+          button.title = live ? 'On air now' : usable ? `Show ${members.map(named).join(' and ')} side by side` : 'One of these cameras is not usable right now';
+          button.onclick = live ? null : () => direct({ take: scene }); splitRow.append(button);
         }
         program.append(splitRow);
       }
@@ -1087,7 +1131,7 @@ async function refresh() {
       if (director.ai?.enabled && !director.cameras_told) { const untold = node('p', 'The model has not been told what any camera shows (Cameras page), so it rates them by your wishes alone and may find little worth cutting to.'); untold.className = 'recording-warning'; settings.append(untold); }
       const recording = director.recording;
       const record = node('button', recording ? 'Stop Recording Programme' : 'Record Programme To File'); if (recording) record.className = 'danger';
-      record.onclick = async () => { if (!recording || await concert.sure('Stop recording the programme? The file is finished and checked.')) direct({ record: !recording }); };
+      record.onclick = async () => { if (!recording || await concert.sure('Stop recording the programme? The file is finished and checked.', { ok: 'Stop recording', danger: true })) direct({ record: !recording }); };
       const recordRow = node('p', ''); recordRow.append(record, node('span', recording ? ` Recording: ${clock(recording.seconds)} · ${(recording.bytes / 1048576).toFixed(0)} MiB · ${recording.cuts} shot(s) logged` : ` Saves what OBS is showing into ${director.folder}`));
       if (recording) recordRow.className = 'activity running'; program.append(recordRow);
       if (recording && words().step && !director.recipe) {        // with a recipe loaded, its own Next step does this (recipe.js)
@@ -1129,7 +1173,7 @@ async function refresh() {
       // OBS's own outgoing stream, to whatever service is set up in OBS.
       const live = director.streaming;
       const stream = node('button', live ? 'Stop OBS Stream' : 'Start OBS Stream'); if (live) stream.className = 'danger';
-      stream.onclick = async () => { if (await concert.sure(live ? 'Stop OBS streaming? Viewers lose the programme.' : 'Start OBS streaming to the service set up in OBS? The programme goes out to its audience.')) direct({ stream: !live }); };
+      stream.onclick = async () => { if (await concert.sure(live ? 'Stop OBS streaming? Viewers lose the programme.' : 'Start OBS streaming to the service set up in OBS? The programme goes out to its audience.', { ok: live ? 'Stop stream' : 'Start stream', danger: !!live })) direct({ stream: !live }); };
       const streamRow = node('p', ''); streamRow.append(stream, node('span', live ? ` Streaming from OBS for ${clock(live.seconds)}${live.reconnecting ? ' · RECONNECTING' : ''} · ${live.dropped_frames} dropped frame(s)` : ' OBS is not streaming out'));
       if (live) streamRow.className = live.reconnecting ? 'recording-warning' : 'activity running'; program.append(streamRow);
       // A vision model that advises on the next shot: any server that speaks the OpenAI chat format.
@@ -1150,7 +1194,7 @@ async function refresh() {
         settings.append(saveAi);
         if (ai.last) { const said = node('small', ai.last.ok ? `Model’s last answer (${ai.last.ms} ms): rates ${Object.entries(ai.last.scores || {}).map(([identifier, score]) => `${named(identifier)} ${score}`).join(', ')}${ai.last.reason ? ` — ${ai.last.reason}` : ''}` : `Model’s last answer failed: ${ai.last.detail}. The rules are choosing meanwhile.`); if (!ai.last.ok) said.className = 'recording-warning'; settings.append(said); }
       }
-    }
+    });
     // Keeping the feeds aligned in OBS: the switch, what it is aiming for, and what it last corrected.
     // How the phones find the manager: by its address alone, or by a name that follows it to whatever address it has.
     // An operator sees what runs a show. What only the administrator may change is left off their page altogether.
@@ -1160,7 +1204,7 @@ async function refresh() {
     who.textContent = operator ? `Logged in as an operator${away ? ' from the camera network' : ''}: cameras, streams, recording and shots. Updating, pairing, deleting from the phones and passwords are for the administrator, at the manager PC.` : '';
     // Locations: sets of cameras and settings for different places, switching between them, and going back.
     const placesPanel = document.querySelector('#locations');
-    if (!operator && !placesPanel.hidden && !editing(placesPanel)) {
+    await paint(placesPanel, !operator, async (placesPanel) => {
       let places = null; try { places = await api('/api/locations'); } catch (error) { places = null; }
       if (places) {
         const ask = async body => { try { const answer = await api('/api/locations', { method: 'POST', body: JSON.stringify(body) }); placeSaid = ''; if (answer.restarting) { placeSaid = 'Restarting the manager for the change…'; setTimeout(() => location.reload(), 7000); } else if (answer.restart_needed) placeSaid = 'Done. Restart the manager for it to take effect.'; return answer; } catch (error) { placeSaid = error.message; return null; } finally { refresh(); } };
@@ -1220,10 +1264,10 @@ async function refresh() {
         if (places.restore_points.length > 15) placesPanel.append(node('small', `…and ${places.restore_points.length - 15} older.`));
         if (placeSaid) { const line = node('p', placeSaid); line.className = /cannot|not |No |wrong|Give|Choose/.test(placeSaid) && !/^Made|^Added|^Restore point|exported/.test(placeSaid) ? 'recording-warning' : ''; placesPanel.append(line); }
       }
-    }
+    });
     // Carrying this set-up to another PC, or bringing one here. Drawn once: it shows nothing that changes by itself.
     const transferPanel = document.querySelector('#transfer');
-    if (!operator && !transferPanel.hidden && !transferPanel.childElementCount) {
+    await paint(transferPanel, !operator && !transferPanel.childElementCount, async (transferPanel) => {
       const save = (name, content) => { const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([JSON.stringify(content, null, 1)], { type: 'application/json' })); link.download = name; document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(link.href), 10000); };
       const read = input => new Promise((resolve, reject) => { const file = input.files[0]; if (!file) { reject(new Error('Choose the file first.')); return; } if (file.size > 2000000) { reject(new Error('That file is far too large to be one of these.')); return; } const reader = new FileReader(); reader.onload = () => { try { resolve(JSON.parse(reader.result)); } catch (error) { reject(new Error('That file is not one of these: it could not be read.')); } }; reader.onerror = () => reject(new Error('The file could not be read.')); reader.readAsText(file); });
       const said = node('p', ''); const tell = (text, bad) => { said.textContent = text; said.className = bad ? 'recording-warning' : ''; };
@@ -1238,10 +1282,10 @@ async function refresh() {
       importSettings.onclick = async () => { try { const file = await read(settingsFile); if (!await concert.sure('Load these settings over the ones here? The settings in the file replace this PC’s; nothing else is touched.')) return; const report = await api('/api/transfer/settings', { method: 'POST', body: JSON.stringify({ file }) }); tell(`${report.applied.length} settings loaded.${report.for_cameras_not_here.length ? ` ${report.for_cameras_not_here.length} left out because they are for cameras this location does not have.` : ''}`); settingsFile.value = ''; refresh(); } catch (error) { tell(error.message, true); } };
       const settingsRow = node('div', ''); settingsRow.append(exportSettings, settingsFile, importSettings); transferPanel.append(settingsRow);
       transferPanel.append(node('small', 'A settings file carries no cameras. To move cameras to another PC, export the location above: it carries the cameras and their settings together, encrypted. Neither carries passwords and passcodes (each PC keeps its own), recordings and history, or OBS, which exports its own scenes and settings from its Scene Collection and Profile menus.'), said);
-    }
+    });
     // The manager's own version: look for a newer one, install it, restart.
     const updatePanel = document.querySelector('#manager-update');
-    if (!operator && !updatePanel.hidden && !editing(updatePanel)) {
+    await paint(updatePanel, !operator, async (updatePanel) => {
       let up = null; try { up = await api('/api/updates'); } catch (error) { up = null; }
       if (up) {
         updatePanel.replaceChildren(node('h3', 'This manager'));
@@ -1268,14 +1312,14 @@ async function refresh() {
         if (!up.repository_ready) { const line = node('p', `There is no copy of the repository at ${up.repository || 'the usual place'} to look for updates in. Run scripts/bootstrap.sh from a clone to make one.`); line.className = 'recording-warning'; updatePanel.append(line); }
         else updatePanel.append(node('small', `Looks for newer versions in ${up.repository}${up.repository_chosen ? ' (set by hand)' : ', this installation’s own copy'}, on the ${up.branch} branch.`));
       }
-    }
+    });
     // Who else can get in: the operator's password, the dashboard on the camera network, and who is logged in now.
     const accessPanel = document.querySelector('#access');
-    if (!operator && !accessPanel.hidden && !editing(accessPanel)) {
+    await paint(accessPanel, !operator, async (accessPanel) => {
       let access = null; try { access = await api('/api/access'); } catch (error) { access = null; }
       if (access) {
         accessPanel.replaceChildren(node('h3', 'Who else can log in'));
-        const change = async body => { try { return await api('/api/access', { method: 'POST', body: JSON.stringify(body) }); } catch (error) { result.textContent = error.message; return null; } finally { refresh(); } };
+        const change = async body => { try { return await api('/api/access', { method: 'POST', body: JSON.stringify(body) }); } catch (error) { concert.fail(error); return null; } finally { refresh(); } };
         // The accounts themselves, each a name with its own password and role, are on the Users page.
         const accounts = node('p', access.operators ? `${access.operators} operator account${access.operators === 1 ? '' : 's'}. ` : 'No operator accounts, so only administrators can log in. ');
         const manage = document.createElement('a'); manage.href = '/users'; manage.textContent = 'Add people, change their roles and passwords on the Users page.'; accounts.append(manage);
@@ -1302,7 +1346,7 @@ async function refresh() {
         }
         if (access.logged_in.length > 1) { const all = node('button', 'Log everyone else out'); all.onclick = async () => { if (await concert.sure('Log out every other device, including phones on Stage Shots?')) change({ end_all: true }); }; accessPanel.append(all); }
       }
-    }
+    });
     // The camera relay (System › This PC): it holds each camera's look-ahead as compressed video, where OBS would hold
     // decoded pictures. On by default; switching it off is a troubleshooting step, so it is kept under Troubleshooting.
     const relaySystem = document.querySelector('#relay-system'), relayFiles = document.querySelector('#relay');
@@ -1310,11 +1354,11 @@ async function refresh() {
     const switchRelay = async (on, question) => {
       if (!await concert.sure(question)) return false;
       try { await api('/api/relay', { method: 'POST', body: JSON.stringify({ enabled: on }) }); result.textContent = on ? 'Camera relay on.' : 'Camera relay off.'; }
-      catch (error) { result.textContent = error.message; }
+      catch (error) { concert.fail(error); }
       refresh(); return true;
     };
     const MEMORY = 'Measured on a Mac with 48 GB and six cameras at 4K (25 Mb/s, 5.5 s look-ahead): OBS used 11.0 GB with the relay off and 2.6 GB with it on, the relay itself 0.13 GB; the whole Mac 38.8 GB against 30.7 GB.';
-    if (relay && !relaySystem.hidden && !editing(relaySystem)) {
+    await paint(relaySystem, relay, async (relaySystem) => {
       relaySystem.replaceChildren(node('h3', 'Camera relay: the look-ahead, held as video'));
       relaySystem.append(node('p', 'Each camera’s stream passes through a relay on this PC on its way to OBS, unchanged. The relay holds the look-ahead (the seconds the programme runs behind the stage, so the director’s cuts land on time) as the compressed stream, about 12 MB for 4 s, where OBS would hold it as pictures, about 1.5-1.8 GB per 4K camera. The phones do no extra work.'));
       if (relay.switched_on && relay.unavailable) {
@@ -1351,9 +1395,9 @@ async function refresh() {
         off.onclick = () => switchRelay(false, 'Switch the camera relay off? Every camera’s OBS source is pointed back at the camera and OBS holds the look-ahead in memory, about 1.5-1.8 GB per 4K camera. A streaming camera drops for a few seconds.');
         fold.append(warning, off); relaySystem.append(fold);
       }
-    }
+    });
     // Camera files (PC recordings): each camera's whole stream kept while the programme is recorded, for its own file and the EDL.
-    if (relay && !relayFiles.hidden && !editing(relayFiles)) {
+    await paint(relayFiles, relay, async (relayFiles) => {
       relayFiles.replaceChildren(node('h2', 'Camera files: each camera’s own file'));
       relayFiles.append(node('p', 'With this on, the camera relay keeps each camera’s stream while the programme is recorded. When the recording stops, each camera gets its own file of it beside the programme, at the stream’s own quality, with the cuts as an edit (EDL) that a videographer can open, change or re-cut.'));
       relayFiles.append(node('p', 'It takes disk space: about 3 GB an hour per camera at 1080p, 5 GB at 1440p and 11 GB at 4K, and up to twice that while the files are being made. The readiness check counts it when this is on.'));
@@ -1362,7 +1406,7 @@ async function refresh() {
       box.onchange = async () => {
         box.disabled = true;
         try { await api('/api/relay', { method: 'POST', body: JSON.stringify({ files: box.checked }) }); result.textContent = box.checked ? 'Camera files on.' : 'Camera files off.'; }
-        catch (error) { result.textContent = error.message; }
+        catch (error) { concert.fail(error); }
         refresh();
       };
       label.append(box, node('span', ' Keep each camera’s own file of every programme recording')); relayFiles.append(label);
@@ -1372,15 +1416,15 @@ async function refresh() {
         need.append(link, node('span', '.')); relayFiles.append(need);
       } else if (relay.files) relayFiles.append(node('small', ' Without a recording the relay keeps about ten minutes of each camera.'));
       else relayFiles.append(node('small', ' Off: the relay keeps only the last minute or so of each camera, and nothing for the length of a recording.'));
-    }
+    });
     // Decoding each camera on the graphics card or the processor, with a measurement to help choose.
     const decodingPanel = document.querySelector('#decoding');
-    if (!operator && !decodingPanel.hidden && !editing(decodingPanel)) {
+    await paint(decodingPanel, !operator, async (decodingPanel) => {
       let d = null; try { d = await api('/api/decoding'); } catch (error) { d = null; }
       if (d) {
         decodingPanel.replaceChildren(node('h3', 'Decoding: graphics card or processor'));
         decodingPanel.append(node('p', `OBS decodes every camera, on the graphics card's video decoder unless it is set to the processor. On the PC this was built on the processor did better: six 4K cameras took about 16% of it, while the graphics card, shared with the shot-choosing model, filled up at three. The suggestion below starts every camera on the processor and moves the largest to the graphics card only if the processor would be over half busy. Now: video decoder ${d.decoder_percent ?? '—'}% busy, processor ${d.processor_percent ?? '—'}%.`));
-        const ask = async body => { try { await api('/api/decoding', { method: 'POST', body: JSON.stringify(body) }); } catch (error) { result.textContent = error.message; } refresh(); };
+        const ask = async body => { try { await api('/api/decoding', { method: 'POST', body: JSON.stringify(body) }); } catch (error) { concert.fail(error); } refresh(); };
         for (const camera of d.cameras) {
           const row = node('label', `${camera.name}${camera.height ? ` (${camera.height === 2160 ? '4K' : `${camera.height}p`})` : ''}: decode on `);
           const pick = document.createElement('select'); pick.setAttribute('aria-label', `Where ${camera.name} is decoded`);
@@ -1413,13 +1457,13 @@ async function refresh() {
           }
         } else decodingPanel.append(node('p', 'Not measured yet on this PC.'));
       }
-    }
+    });
     const networkPanel = document.querySelector('#network');
-    if (!operator && !networkPanel.hidden && !editing(networkPanel)) {
+    await paint(networkPanel, !operator, async (networkPanel) => {
       let net = null; try { net = await api('/api/network'); } catch (error) { net = null; }
       if (net) {
         networkPanel.replaceChildren(node('h3', 'How the phones find this manager'));
-        const change = async body => { try { await api('/api/network', { method: 'POST', body: JSON.stringify(body) }); } catch (error) { result.textContent = error.message; } refresh(); };
+        const change = async body => { try { await api('/api/network', { method: 'POST', body: JSON.stringify(body) }); } catch (error) { concert.fail(error); } refresh(); };
         const here = net.addresses.join(' and ');
         networkPanel.append(node('p', net.name ? `By name: ${net.name}, at ${here}. A phone paired to the name follows the manager if its address changes.` : `By address alone: ${here}. A phone paired this way has to be paired again if the address ever changes.`));
         // The choices, each with what it needs of the network.
@@ -1479,7 +1523,7 @@ async function refresh() {
           networkPanel.append(node('p', `${byName.length} of ${net.cameras.length} cameras reach the manager by this name${byName.length ? `: ${byName.map(c => c.name).join(', ')}` : ''}.`));
           if (movable.length) {
             const move = node('button', `Move ${movable.map(c => c.name).join(', ')} to ${net.name}`); move.disabled = !ok;
-            move.onclick = async () => { move.disabled = true; move.textContent = 'Moving…'; try { const answer = await api('/api/network/move', { method: 'POST', body: JSON.stringify({}) }); result.textContent = answer.outcomes.map(o => `${net.cameras.find(c => c.id === o.camera_id)?.name || o.camera_id}: ${o.moved ? 'now by name' : `not moved (${o.why})`}`).join('\n'); } catch (error) { result.textContent = error.message; } refresh(); };
+            move.onclick = async () => { move.disabled = true; move.textContent = 'Moving…'; try { const answer = await api('/api/network/move', { method: 'POST', body: JSON.stringify({}) }); result.textContent = answer.outcomes.map(o => `${net.cameras.find(c => c.id === o.camera_id)?.name || o.camera_id}: ${o.moved ? 'now by name' : `not moved (${o.why})`}`).join('\n'); } catch (error) { concert.fail(error); } refresh(); };
             networkPanel.append(move, node('small', 'Each phone tries the name first and keeps its present pairing if that does not work. Its stream is not interrupted.'));
           }
           if (stuck.length) networkPanel.append(node('small', `${stuck.map(c => c.name).join(', ')} ${stuck.length === 1 ? 'needs' : 'need'} a newer app before ${stuck.length === 1 ? 'it' : 'they'} can be moved without a cable; until then ${stuck.length === 1 ? 'it goes' : 'they go'} on connecting by address.`));
@@ -1490,12 +1534,12 @@ async function refresh() {
           networkPanel.append(node('small', `Still answering to an earlier name, ${old.name}${using.length ? `, used by ${using.map(c => c.name).join(', ')}` : ', which no camera is using'}. `), retire);
         }
       }
-    }
+    });
     const syncPanel = document.querySelector('#obs-sync');
-    if (sync && !editing(syncPanel)) {
+    await paint(syncPanel, sync, async (syncPanel) => {
       syncPanel.replaceChildren(node('h2', 'Timing in OBS'));
       const label = node('label', ''); const box = document.createElement('input'); box.type = 'checkbox'; box.checked = sync.enabled;
-      box.onchange = async () => { try { await api('/api/settings/obs-sync', { method: 'POST', body: JSON.stringify({ enabled: box.checked }) }); } catch (error) { result.textContent = error.message; } refresh(); };
+      box.onchange = async () => { try { await api('/api/settings/obs-sync', { method: 'POST', body: JSON.stringify({ enabled: box.checked }) }); } catch (error) { concert.fail(error); } refresh(); };
       label.append(box, node('span', ' Keep camera feeds aligned in OBS automatically')); syncPanel.append(label);
       const scenesRow = node('p'); scenesRow.append(scenesButton(), ' ', namesButton(), node('small', scenesSaid ? ` ${scenesSaid}` : ' Makes a source, a scene and split screens in OBS for any camera that has none, and gives them the cameras\' names.')); syncPanel.append(scenesRow);
       const states = Object.values(sync.cameras || {}), reading = states.filter(s => s.latency_ms != null);
@@ -1505,7 +1549,7 @@ async function refresh() {
       if ((sync.wandering || []).length) summary += ` · ${sync.wandering.map(identifier => cameras.find(c => c.id === identifier)?.name || identifier).join(', ')} wandering: held at a steady delay`;
       const line = node('p', summary); if (sync.problem || reading.some(s => s.status === 'out of sync')) line.className = 'recording-warning'; syncPanel.append(line);
       const audio = document.createElement('input'); audio.type = 'text'; audio.size = 18; audio.placeholder = 'none'; audio.value = sync.audio_input || '';
-      const save = node('button', 'Set'); save.onclick = async () => { try { await api('/api/settings/obs-sync', { method: 'POST', body: JSON.stringify({ audio_input: audio.value.trim() || null }) }); result.textContent = audio.value.trim() ? `Soundboard input “${audio.value.trim()}” will be delayed to match the pictures.` : 'No soundboard input is being delayed.'; } catch (error) { result.textContent = error.message; } refresh(); };
+      const save = node('button', 'Set'); save.onclick = async () => { try { await api('/api/settings/obs-sync', { method: 'POST', body: JSON.stringify({ audio_input: audio.value.trim() || null }) }); result.textContent = audio.value.trim() ? `Soundboard input “${audio.value.trim()}” will be delayed to match the pictures.` : 'No soundboard input is being delayed.'; } catch (error) { concert.fail(error); } refresh(); };
       const row = node('label', 'Soundboard audio input in OBS (delayed to match the pictures) '); row.append(audio, save); syncPanel.append(row);
       const most = sync.most_hold_ms || 3000;
       const hold = document.createElement('input'); hold.type = 'number'; hold.min = 0; hold.max = most; hold.step = 100; hold.value = sync.hold_ms || 0; hold.setAttribute('aria-label', 'Look-ahead in milliseconds');
@@ -1534,10 +1578,10 @@ async function refresh() {
       const last = (sync.corrections || []).slice(-1)[0];
       if (last) syncPanel.append(node('small', last.restart ? `Last action ${new Date(last.at * 1000).toLocaleTimeString()}: restarted ${called(last.camera_id)}’s OBS source (it was ${last.was_ms - last.normal_ms} ms behind its normal).`
         : `Last correction ${new Date(last.at * 1000).toLocaleTimeString()}: ${called(last.camera_id)} delay ${last.from_ms} → ${last.to_ms} ms (was ${Math.abs(last.error_ms)} ms ${last.error_ms < 0 ? 'early' : 'late'}).`));
-    }
+    });
     // One answer, kept current without being asked for: is everything ready? The PC and every camera together.
     const readyPanel = document.querySelector('#ready');
-    if (ready && part === '/') {
+    await paint(readyPanel, ready && part === '/', async (readyPanel) => {
       readyPanel.replaceChildren(); readyPanel.className = `ready-${ready.state}`;
       const count = ready.worth_checking.length;
       readyPanel.append(node('strong', ready.state === 'ok' ? 'Ready for a show' : ready.state === 'warn' ? `Ready, with ${count} thing${count === 1 ? '' : 's'} worth a look` : 'Not ready'));
@@ -1551,10 +1595,10 @@ async function refresh() {
       // A camera OBS has no source for is put right from here.
       if ([...ready.stopping, ...ready.worth_checking].some(item => item.includes('Stream target'))) readyPanel.append(scenesButton());
       if (scenesSaid) readyPanel.append(node('p', scenesSaid));
-    }
+    }, { loose: true });
     // Actions for every camera at once.
     const fleet = document.querySelector('#fleet');
-    if (!editing(fleet)) {
+    await paint(fleet, true, async (fleet) => {
       fleet.replaceChildren(node('h2', 'All cameras'));
       // Starting and stopping apart, the stops in red on a row of their own, so that one is not pressed for the other.
       for (const [heading, actions] of [['Start', FLEET.filter(a => !a.danger)], ['Stop', [...FLEET.filter(a => a.danger)].sort((a, b) => FLEET.indexOf(b) - FLEET.indexOf(a))]]) {
@@ -1583,7 +1627,7 @@ async function refresh() {
         row.append(node('span', 'Coolers'));
         const start = async (action, question) => {
           if (!await concert.sure(question, { ok: action === 'repair' ? 'Re-pair' : 'Forget all', danger: action === 'forget' })) return;
-          try { coolerJob = await api(`/api/coolers/${action}`, { method: 'POST', body: '{}' }); } catch (error) { result.textContent = error.message; }
+          try { coolerJob = await api(`/api/coolers/${action}`, { method: 'POST', body: '{}' }); } catch (error) { concert.fail(error); }
           refresh();
         };
         const repair = node('button', 'Re-pair all coolers'); repair.disabled = running;
@@ -1605,10 +1649,10 @@ async function refresh() {
         }
       }
       if (fleetNote && !fleetBusy) { const note = node('p', fleetNote); note.className = fleetNote.includes('FAILED') || fleetNote.includes('Not included') ? 'recording-warning' : 'activity done'; fleet.append(note); }
-    }
+    });
     // The recordings on this PC: the programme, each camera's own file of it with the edit, and the colour LUTs that go with them.
     const pcPanel = document.querySelector('#pc-recordings');
-    if (director && !pcPanel.hidden && !editing(pcPanel)) {
+    await paint(pcPanel, director, async (pcPanel) => {
       let colour = null;
       if (!operator) try { colour = await api('/api/colour'); } catch (error) { colour = null; }
       const clock = seconds => `${Math.floor(seconds / 3600) ? `${Math.floor(seconds / 3600)}:` : ''}${String(Math.floor(seconds / 60) % 60).padStart(Math.floor(seconds / 3600) ? 2 : 1, '0')}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`;
@@ -1640,13 +1684,13 @@ async function refresh() {
           : 'No camera has been calibrated from a colour chart, so camera files come without a LUT. Calibrate on the ');
         line.append(link, node('span', '.')); pcPanel.append(node('h3', 'Colour LUTs'), line);
       }
-    }
+    });
     // Battery protection: each charging phone holds its battery short of full where it can, which keeps it cooler. On by default.
     const batteryPanel = document.querySelector('#battery');
-    if (battery_protect !== undefined && !editing(batteryPanel)) {
+    await paint(batteryPanel, battery_protect !== undefined, async (batteryPanel) => {
       batteryPanel.replaceChildren(node('h3', 'Battery protection'));
       const label = node('label', ''); const box = document.createElement('input'); box.type = 'checkbox'; box.checked = !!battery_protect;
-      box.onchange = async () => { try { await api('/api/settings/battery-protection', { method: 'POST', body: JSON.stringify({ enabled: box.checked }) }); } catch (error) { result.textContent = error.message; } refresh(); };
+      box.onchange = async () => { try { await api('/api/settings/battery-protection', { method: 'POST', body: JSON.stringify({ enabled: box.checked }) }); } catch (error) { concert.fail(error); } refresh(); };
       label.append(box, node('span', ' While a phone is charging (on its Ethernet hub, say), hold its battery at about 80–85% instead of full'));
       batteryPanel.append(label, node('small', ' A battery charged to full adds to a camera’s heat over a long show, and kept full and hot it wears out fastest. Each phone uses its own charge limit, switched on after 30 s on power, and gets its own setting back 2 minutes after it is unplugged. Phones are allowed to do this when set up over USB.'));
       const said = c => {
@@ -1660,13 +1704,13 @@ async function refresh() {
         return g.on === true ? `on (${how})${g.effect === 'holding' ? ', holding' : ''}` : g.on_power ? `switching on (${how})` : `can (${how}); not charging now`;
       };
       if (paired.length) { const list = node('ul', ''); for (const c of paired) list.append(node('li', `${c.name}: ${said(c)}`)); batteryPanel.append(list); }
-    }
+    });
     // Silence while armed: each phone's microphone feeds the show, so the phone itself plays nothing. On by default.
     const silencePanel = document.querySelector('#silence');
-    if (phone_silence !== undefined && !editing(silencePanel)) {
+    await paint(silencePanel, phone_silence !== undefined, async (silencePanel) => {
       silencePanel.replaceChildren(node('h3', 'Silence while armed'));
       const label = node('label', ''); const box = document.createElement('input'); box.type = 'checkbox'; box.checked = !!phone_silence;
-      box.onchange = async () => { try { await api('/api/settings/phone-silence', { method: 'POST', body: JSON.stringify({ enabled: box.checked }) }); } catch (error) { result.textContent = error.message; } refresh(); };
+      box.onchange = async () => { try { await api('/api/settings/phone-silence', { method: 'POST', body: JSON.stringify({ enabled: box.checked }) }); } catch (error) { concert.fail(error); } refresh(); };
       label.append(box, node('span', ' While a phone is armed, keep it from playing any sound or vibrating: no notifications, calls, alarms, key or charging sounds'));
       silencePanel.append(label, node('small', ' Its microphone feeds the show, so anything the phone plays could be heard in the recording. Each phone switches Do Not Disturb to total silence and mutes its sounds as it arms (as device owner), turns touch vibration off where it was set up over USB, and gets its owner’s settings back 10 s after it is disarmed. Recording is not affected.'));
       const said = c => {
@@ -1679,7 +1723,7 @@ async function refresh() {
         return (q.silenced ? 'silenced' : q.level === 'partly' ? 'partly silenced' : 'not silenced') + vibration;
       };
       if (paired.length) { const list = node('ul', ''); for (const c of paired) list.append(node('li', `${c.name}: ${said(c)}`)); silencePanel.append(list); }
-    }
+    });
     // Power (plug.py): the smart plugs the coolers' and gimbals' USB charger hubs are on, each with what is on its
     // charger, switched from here and nowhere else. Set up by an administrator; switched by operators too, here and
     // from the Cameras page once a plug is set up.
@@ -1690,7 +1734,7 @@ async function refresh() {
     if (power?.plugs.some(p => p.configured)) drawPlugSwitches(power); else document.querySelector('#plug-switch').hidden = true;
     // Which app version the manager offers, and whether cameras take it by themselves.
     const panel = document.querySelector('#release');
-    if (!editing(panel)) {
+    await paint(panel, true, async (panel) => {
       panel.replaceChildren(node('h3', 'Camera app'));
       if (release === undefined) { /* manager not yet restarted with update support */ }
       else if (!release) {
@@ -1705,7 +1749,7 @@ async function refresh() {
         const odd = cameras.filter(c => versionOf(c, release).mismatch);
         if (odd.length) { const warn = node('p', `App version mismatch: ${odd.map(c => `${c.name} is on ${c.app?.version_name || 'an older, unreported version'}`).join('; ')}. Published: ${release.version_name}.`); warn.className = 'recording-warning'; panel.append(warn); }
         const label = node('label', ''); const box = document.createElement('input'); box.type = 'checkbox'; box.checked = !!app_auto_update;
-        box.onchange = async () => { try { await api('/api/settings/app-auto-update', { method: 'POST', body: JSON.stringify({ enabled: box.checked }) }); } catch (error) { result.textContent = error.message; } refresh(); };
+        box.onchange = async () => { try { await api('/api/settings/app-auto-update', { method: 'POST', body: JSON.stringify({ enabled: box.checked }) }); } catch (error) { concert.fail(error); } refresh(); };
         label.append(box, node('span', ' Update unarmed cameras automatically, one at a time')); panel.append(label);
         // Update now: every camera that can take the release without interrupting a stream or recording.
         const ready = cameras.filter(c => c.online && c.app?.can_update), waiting = cameras.filter(c => c.app?.update_available && !(c.online && c.app?.can_update));
@@ -1741,14 +1785,15 @@ async function refresh() {
             if (!await concert.sure(`Publish ${tag} as the app offered to the cameras? ${then}`)) return;
             githubBusy = true; refresh();
             try { const done = await api('/api/app-release/github', { method: 'POST', body: JSON.stringify({ tag }) }); result.textContent = `Published app ${done.published.version_name} from ${tag}.`; githubApp = null; }
-            catch (error) { result.textContent = error.message; }
+            catch (error) { concert.fail(error); }
             githubBusy = false; refresh();
           };
           panel.append(node('p', `GitHub has a newer app: ${tag}, built ${when}${githubApp.published ? `; the cameras are offered ${githubApp.published.version_name}` : ''}.`), publish);
         }
       }
-    }
-    const alerts = document.querySelector('#recording-alerts'); alerts.replaceChildren();
+    });
+    // A live region: written to only when its words change, a reading moving by a digit being no news to a screen reader.
+    await paint(document.querySelector('#recording-alerts'), true, async alerts => {
     for (const camera of cameras) {
       if (camera.telemetry?.recording_warning) {
         const alert = node('p', `${camera.name}${camera.online ? '' : ' (last reported)'}: ${camera.telemetry.recording_warning}`);
@@ -1757,10 +1802,12 @@ async function refresh() {
       const heat = heatMessage(camera);
       if (heat && (heatOf(camera).level !== 'warm' || !camera.online)) { const alert = node('p', `${camera.name} ${heat}`); alert.className = 'recording-warning'; alerts.append(alert); }
     }
+    }, { loose: true });
     // Band profiles: who is where on stage, kept by name and loaded in one step when the same band is back.
     const bandPanel = document.querySelector('#bands');
-    if (part === '/cameras' && !editing(bandPanel)) {
+    await paint(bandPanel, part === '/cameras', async (bandPanel) => {
       let kept = null; try { kept = await api('/api/bands'); } catch (error) { kept = null; }
+      if (!kept) return false;                    // no answer: what shows stays
       if (kept) {
         const ask = async (body, said) => { try { const answer = await api('/api/bands', { method: 'POST', body: JSON.stringify(body) }); bandSaid = said ? said(answer) : ''; return answer; } catch (error) { bandSaid = error.message; return null; } finally { refresh(); } };
         const loaded = kept.bands.find(band => band.id === kept.loaded);
@@ -1784,10 +1831,10 @@ async function refresh() {
         bandPanel.append(node('small', `A ${profile} profile keeps what each camera shows, its solo zoom, the stage picture, the ${words().crowd} camera, the default shot, the zoom choices and your wishes for the shots. It belongs to this location, since it is written in terms of its cameras. The kind of event is not part of it: that is chosen under the name in the side bar.`));
         if (bandSaid) { const line = node('p', bandSaid); if (/already|No such|Give /.test(bandSaid)) line.className = 'recording-warning'; bandPanel.append(line); }
       }
-    }
+    });
     // Every paired camera, in use here or not: where a camera is set aside, brought back or removed.
     const pairedPanel = document.querySelector('#paired-cameras');
-    if (pairedPanel && !editing(pairedPanel)) {
+    await paint(pairedPanel, true, async (pairedPanel) => {
       pairedPanel.replaceChildren(node('h3', 'Paired cameras'));
       if (!paired.length) pairedPanel.append(node('p', 'No cameras are paired at this location yet.'));
       for (const camera of paired) {
@@ -1797,13 +1844,14 @@ async function refresh() {
         pairedPanel.append(row);
       }
       pairedPanel.append(node('small', 'A camera this location does not use is set aside: it stays paired, for another location or another time. Removing a camera unpairs it for good; its recordings stay.'));
-    }
+    });
     const grid = document.querySelector('#cameras');
     window.studioCameras = cameras;                  // for Creator Studio's preview (creator.js)
-    if (editing(grid)) return;
-    grid.replaceChildren();
     if (document.activeElement !== document.querySelector('#camera-capacity')) document.querySelector('#camera-capacity').value = camera_capacity;
+    // Each card is built on its own and put in only if it built: one camera's odd value leaves the others as they were.
+    await paint(grid, true, async grid => {
     for (let slot = 1; slot <= camera_capacity; slot++) {
+      try {
       const camera = paired.find(c => c.slot === slot);
       if (camera?.in_use === false) continue;              // set aside here: in the short list below, not a card
       const card = node('article', '');
@@ -1815,7 +1863,7 @@ async function refresh() {
         // Creator Studio: which framing it leads with, for anyone (shows.js, as on the Operate page); then the rest of its
         // Studio settings, the administrator's (creator.js).
         const made = window.whatItShows.build(camera, director, { words, studio: studioSummary, framing: async (id, framing) => {
-          try { await api(`/api/cameras/${encodeURIComponent(id)}/framing`, { method: 'POST', body: JSON.stringify({ framing }) }); } catch (error) { result.textContent = error.message; } refresh(); } });
+          try { await api(`/api/cameras/${encodeURIComponent(id)}/framing`, { method: 'POST', body: JSON.stringify({ framing }) }); } catch (error) { concert.fail(error); } refresh(); } });
         shots.append(...made.element.childNodes);
         shots.querySelector('summary').append(node('span', ` · ${made.summary}`));
         if (concert.role === 'admin' && window.studioCard) window.studioCard(camera, shots);
@@ -1829,7 +1877,7 @@ async function refresh() {
       if (camera && director && director.event_mode?.mode !== 'creator') {
         // What this camera is there to show (shows.js, shared with the Operate page so both are the same setting).
         const made = window.whatItShows.build(camera, director, { words, ask: dialog => concert.ask(dialog), tell: message => { result.textContent = message; },
-          direct: async body => { try { await api('/api/director', { method: 'POST', body: JSON.stringify(body) }); } catch (error) { result.textContent = error.message; } refresh(); } });
+          direct: async body => { try { await api('/api/director', { method: 'POST', body: JSON.stringify(body) }); } catch (error) { concert.fail(error); } refresh(); } });
         shots.append(...made.element.childNodes);
         // The folded group says what is set, so it need not be opened to know.
         shots.querySelector('summary').append(node('span', ` · ${made.summary}`));
@@ -2246,7 +2294,7 @@ async function refresh() {
             if (gimbal.stage) {
               const stage = gimbal.stage, gimbalStage = async (action, label) => {
                 try { await api(`/api/cameras/${encodeURIComponent(camera.id)}/gimbal-stage`, { method: 'POST', body: JSON.stringify({ action }) }); refresh(); }
-                catch (error) { result.textContent = `${label}: ${error.message}`; }
+                catch (error) { concert.fail(error, `${label}: `); }
               };
               const aimed = node('p', 'Aim from the stage: ');
               const calibrate = node('button', stage.calibrated ? 'Set again' : 'Set: it points at centre stage'); calibrate.disabled = off || !stage.on_map;
@@ -2302,7 +2350,9 @@ async function refresh() {
       }
       for (const group of [shots, picture, upkeep, chill, turn]) if (group.childElementCount > 1) card.append(group);
       grid.append(card);
+      } catch (error) { console.error(error); grid.append(failedCard(`Camera ${slot}`, error)); }
     }
+    try {
     if (aside.length) {
       // Paired, but not used at this location: one line each, and the way back.
       const card = node('article', ''); card.className = 'set-aside';
@@ -2316,6 +2366,8 @@ async function refresh() {
       card.append(node('small', 'Kept paired with their settings, and left out of the director, “Start All”, the OBS scenes and the readiness checks at this location.'));
       grid.append(card);
     }
+    } catch (error) { console.error(error); grid.append(failedCard('Not in use here', error)); }
+    });
     paintActivity();
-  } catch (error) { result.textContent = error.message; }
+  } catch (error) { console.error(error); concert.fail(error); }
 }

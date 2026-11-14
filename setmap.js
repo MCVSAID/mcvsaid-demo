@@ -233,7 +233,7 @@
       const d = await r.json();
       if (!r.ok) throw Error(d.detail || `HTTP ${r.status}`);
       state = d; result.textContent = ''; key = ''; window.stageDraw(); return d;
-    } catch (error) { result.textContent = error.message; return null; }
+    } catch (error) { concert.fail(error); return null; }
   }
 
   // -- the panel ------------------------------------------------------------------------------------------------

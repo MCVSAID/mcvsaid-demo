@@ -19,18 +19,18 @@ const COLOURS = ['#4cc9f0', '#f4a261', '#90be6d', '#f78fb3', '#b5a1ff', '#ffd166
 const cameraColour = camera => COLOURS[(camera.slot - 1 + COLOURS.length) % COLOURS.length];
 const FRONT = 0.625;            // the middle of a button's lower edge, a quarter round its edge for each side from the top left
 function node(tag, text, className) { const e = document.createElement(tag); if (text !== undefined) e.textContent = text; if (className) e.className = className; return e; }
-async function api(path, body) { const r = await fetch(path, { method: body === undefined ? 'GET' : 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, body: body === undefined ? undefined : JSON.stringify(body) }); if (r.status === 401 && csrf) location.reload(); const d = await r.json(); if (!r.ok) throw Error(d.detail || `HTTP ${r.status}`); return d; }
-async function act(path, body) { try { const answer = await api(path, body); result.textContent = ''; return answer; } catch (error) { result.textContent = error.message; return null; } finally { refresh(); } }
+async function api(path, body) { const { response: r, data: d, unreachable } = await window.concert.fetchJson(path, { method: body === undefined ? 'GET' : 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, body: body === undefined ? undefined : JSON.stringify(body) }); if (r.status === 401 && csrf) location.reload(); if (!r.ok) { const failure = Error(d.detail || `HTTP ${r.status}`); failure.unreachable = unreachable; throw failure; } return d; }
+async function act(path, body) { try { const answer = await api(path, body); result.textContent = ''; return answer; } catch (error) { concert.fail(error); return null; } finally { refresh(); } }
 
 async function enter(session) {
   csrf = session.csrf; document.querySelector('#password').value = ''; document.querySelector('#login').hidden = true; document.querySelector('#shots').hidden = false;
   if (window.concert) { window.concert.session = session; window.concert.nav(session.role); }
-  await refresh(); setInterval(refresh, 1000);
+  await refresh(); window.concert.every(refresh, 1000);        // not while the page is hidden
 }
 document.querySelector('#login').onsubmit = async e => {
   e.preventDefault();
   try { await enter(await api('/api/login', { name: document.querySelector('#username').value, password: document.querySelector('#password').value })); }
-  catch (error) { result.textContent = error.message; }
+  catch (error) { concert.fail(error); }
 };
 // A login already made, on this page or another, is picked up without asking again.
 fetch('/api/session').then(r => r.ok ? r.json() : null).then(session => { if (session) enter(session); }).catch(() => {});
@@ -89,11 +89,13 @@ function aimWord(aim) {
 }
 const markWords = camera => { const m = markOf(camera); return `camera ${standsWord(m.at)}, pointing ${aimWord(m.aim)}`; };
 
-async function refresh() {
+// One run at a time; asked again meanwhile, once more when done (concert.single).
+const refresh = window.concert.single(async () => {
   if (dragging || window.roomBusy) return;
-  try { state = await api('/api/stage'); } catch (error) { result.textContent = error.message; return; }
+  try { state = await api('/api/stage'); } catch (error) { window.concert.polled(!error.unreachable); window.concert.fail(error); return; }
+  window.concert.polled(true);
   draw();
-}
+});
 
 function draw() {
   const director = state.director, cameras = state.cameras, usable = new Set(director.usable || []), pair = director.pair || [];
@@ -103,11 +105,14 @@ function draw() {
   const said = window.concert ? window.concert.programme(director) : { word: 'On air', suffix: '', blank: false };
   // What is coming next, when the director has decided a cut and waits for its moment: the preview, in green.
   const planned = director.planned ? (director.planned.pair || [director.planned.camera_id]) : [];
-  now.textContent = `${said.word}: ${pair.length ? pair.map(named).join(' and ') + ' (split screen)' : director.on_air ? named(director.on_air) : director.scene || 'nothing known'}${said.suffix}`
+  const nowText = `${said.word}: ${pair.length ? pair.map(named).join(' and ') + ' (split screen)' : director.on_air ? named(director.on_air) : director.scene || 'nothing known'}${said.suffix}`
     + (planned.length ? ` · next: ${planned.map(named).join(' and ')}` : '')
-    + (director.enabled ? held ? ` · automatic resumes in ${held} s` : ' · choosing automatically' : ' · automatic is off')
+    + (director.enabled ? held ? ' · automatic resumes shortly' : ' · choosing automatically' : ' · automatic is off')
     + (soloName ? ` · solo heard: ${soloName}` : '') + (director.problem ? ` · ${director.problem}` : '')
     + (state.people_recognition ? ' · Performer recognition: ON' : '');
+  // A live region: written to only when its words change. The seconds to go ride in a part hidden from screen readers.
+  if (now.dataset.said !== nowText) { now.dataset.said = nowText; now.textContent = nowText; now.append(node('span', '')); now.lastChild.setAttribute('aria-hidden', 'true'); }
+  now.lastChild.textContent = held ? ` (${held} s)` : '';
   buttons.auto.setAttribute('aria-pressed', String(!!director.enabled)); buttons.auto.textContent = director.enabled ? 'Automatic: on' : 'Automatic: off';
   // Tracking and the zoom for every camera (autoswitch.py): at the dashboard only, for operators and administrators.
   for (const [button, kind, word] of [[buttons.tracking, 'tracking', 'Tracking'], [buttons.autozoom, 'zoom', 'Auto zoom']]) {

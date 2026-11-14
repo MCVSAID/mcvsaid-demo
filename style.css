@@ -308,3 +308,19 @@ details.recipe-more[open] { display:block; width:100%; } details.recipe-more[ope
 #power details { margin: .8rem 0; }
 .awake-on { color:#8fe3a1; }
 #keep-awake button.chosen { outline:2px solid #5fb4ee; font-weight:600; } #keep-awake .awake-window label { white-space:nowrap; } #keep-awake .awake-window { margin:8px 0; line-height:2.2; }
+
+/* Messages: an error stays until put away; a raw answer is a line with its JSON behind "details". */
+.said-error { color:#ffd9d2; font-weight:600; white-space:pre-wrap; } .said-error + .said-note { margin-top:8px; padding-top:8px; border-top:1px solid #34495b; }
+.said-note { white-space:pre-wrap; } .said-note details { display:inline; } .said-note summary { display:inline; cursor:pointer; color:#9fd0f5; text-decoration:underline; }
+.said-note details pre { margin:6px 0 0; white-space:pre-wrap; word-break:break-word; font-size:.85rem; }
+.sr-only { position:absolute; width:1px; height:1px; margin:-1px; padding:0; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0; }
+
+/* The manager has stopped answering (nav.js, concert.polled): say so, and grey what may no longer be true. */
+#stale-banner { position:fixed; top:0; left:0; right:0; z-index:40; background:#7a2a22; color:#fff; padding:10px 16px; text-align:center; font-weight:600; border-bottom:2px solid #ffd9d2; }
+body.stale #live .pill, body.stale #live-top .pill, body.stale #pages .badge { filter:grayscale(1); opacity:.55; }
+body.stale #live, body.stale #live-top { outline:1px dashed #8aa0b4; outline-offset:2px; }
+body.stale .feed.on-air, body.stale .on-air-now { filter:grayscale(1); }
+
+/* The camera on air, in a row of buttons to cut to: lit, not dimmed (aria-pressed, not disabled, so it is still read out). */
+button.on-air-now, button.on-air-now:disabled { background:#8f1d22; border-color:#ff8a8e; color:#fff; box-shadow:0 0 0 2px #e5484d inset; opacity:1; cursor:default; font-weight:700; }
+button.on-air-now::before { content:'● '; }

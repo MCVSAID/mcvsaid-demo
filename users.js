@@ -25,7 +25,7 @@ async function act(call, who) {
     if (answer?.users) { state = answer; draw(); }
     if (answer?.password_once) showOnce(who, answer.password_once);
     return answer;
-  } catch (error) { result.textContent = error.message; return null; }
+  } catch (error) { concert.fail(error); return null; }
 }
 const day = seconds => seconds ? new Date(seconds * 1000).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' }) : '';
 
@@ -38,7 +38,7 @@ async function enter(session) {
 }
 document.querySelector('#login').onsubmit = async event => {
   event.preventDefault();
-  try { await enter(await api('/api/login', { name: document.querySelector('#username').value, password: document.querySelector('#password').value })); } catch (error) { result.textContent = error.message; }
+  try { await enter(await api('/api/login', { name: document.querySelector('#username').value, password: document.querySelector('#password').value })); } catch (error) { concert.fail(error); }
 };
 window.concert.resume().then(session => { if (session) enter(session); });
 

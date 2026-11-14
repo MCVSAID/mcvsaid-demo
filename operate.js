@@ -22,24 +22,24 @@ const DEAD = 0.18, ZOOM_DEAD = 0.1, EVERY_MS = 100, SOONEST_MS = 45;   // the ma
 const feed = (id, again) => window.concertDemo?.feed ? window.concertDemo.feed(id) : `/api/operate/feed/${encodeURIComponent(id)}${again ? `?t=${Date.now()}` : ''}`;
 function node(tag, text, className) { const e = document.createElement(tag); if (text !== undefined) e.textContent = text; if (className) e.className = className; return e; }
 async function api(path, body) {
-  const r = await fetch(path, { method: body === undefined ? 'GET' : 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, body: body === undefined ? undefined : JSON.stringify(body) });
-  const data = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(data.detail || `${r.status}`);
+  // A reading not answered in 10 s is given up (concert.fetchJson), so that hung ones do not pile up.
+  const { response: r, data, unreachable } = await window.concert.fetchJson(path, { method: body === undefined ? 'GET' : 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, body: body === undefined ? undefined : JSON.stringify(body) });
+  if (!r.ok) { const failure = new Error(data.detail || `${r.status}`); failure.unreachable = unreachable; throw failure; }
   return data;
 }
-async function act(path, body) { try { const answer = await api(path, body); result.textContent = ''; return answer; } catch (error) { result.textContent = error.message; return null; } }
+async function act(path, body) { try { const answer = await api(path, body); result.textContent = ''; return answer; } catch (error) { concert.fail(error); return null; } }
 const send = (camera, command, parameters = {}) => act(`/api/cameras/${encodeURIComponent(camera)}/commands`, { request_id: crypto.randomUUID(), command, parameters });
 
 async function enter(session) {
   csrf = session.csrf; document.querySelector('#password').value = ''; document.querySelector('#login').hidden = true; document.querySelector('#operate').hidden = false;
   if (window.concert) { window.concert.session = session; window.concert.nav(session.role); }
-  await refresh(); setInterval(refresh, 1000);
+  await refresh(); window.concert.every(refresh, 1000);        // not while the page is hidden
   // Read about sixty times a second, on a timer rather than animation frames, which a browser stops for a page not in view.
   setInterval(() => poll(performance.now()), 16);
 }
 document.querySelector('#login').onsubmit = async e => {
   e.preventDefault();
-  try { await enter(await api('/api/login', { name: document.querySelector('#username').value, password: document.querySelector('#password').value })); } catch (error) { result.textContent = error.message; }
+  try { await enter(await api('/api/login', { name: document.querySelector('#username').value, password: document.querySelector('#password').value })); } catch (error) { concert.fail(error); }
 };
 fetch('/api/session').then(r => r.ok ? r.json() : null).then(session => { if (session) enter(session); }).catch(() => {});
 
@@ -89,10 +89,12 @@ function pictures() {
   socket.onclose = () => { socket = null; socketOpen = false; setTimeout(pictures, 2000); };
 }
 
-async function refresh() {
-  try { state = await api('/api/cameras'); } catch (error) { result.textContent = error.message; return; }
+// One run at a time; asked again meanwhile, once more when done (concert.single).
+const refresh = window.concert.single(async () => {
+  try { state = await api('/api/cameras'); } catch (error) { window.concert.polled(!error.unreachable); window.concert.fail(error); return; }
+  window.concert.polled(true);
   draw();
-}
+});
 
 const showsContext = {
   words: () => window.concert?.mode?.words || { role: 'instrument', roles: 'instruments', anyone: 'anyone performing', crowd: 'crowd', example: 'banjo, harmonica, pedal steel' },
@@ -106,7 +108,8 @@ function draw() {
   if (!state) return;
   const shown = chosen(), director = state.director || {};
   const name = id => state.cameras.find(c => c.id === id)?.name || id;
-  document.querySelector('#programme').textContent = director.pair ? `On air: ${director.pair.map(name).join(' + ')}` : director.on_air ? `On air: ${name(director.on_air)}` : director.scene ? `On air: ${director.scene}` : '';
+  const programme = document.querySelector('#programme'), onAirNow = director.pair ? `On air: ${director.pair.map(name).join(' + ')}` : director.on_air ? `On air: ${name(director.on_air)}` : director.scene ? `On air: ${director.scene}` : '';
+  if (programme.textContent !== onAirNow) programme.textContent = onAirNow;       // a live region: written to only when it changes
   drawProgramme(director);
   drawAuto(state.auto);
   document.querySelector('#main-stage').disabled = !director.default_shot;
@@ -254,7 +257,7 @@ function onscreenPad(id) {
   const sendReading = () => {
     const scale = aimLevel / DEFAULT_AIM, held = v => Math.max(-100, Math.min(100, Math.round(v * scale)));
     api('/api/operate/control', { camera_id: id, ...reading, pan: held(reading.pan || 0), tilt: held(reading.tilt || 0), zoom_speed: zoomTimes() })
-      .catch(error => { if (!/rate limit/i.test(error.message)) result.textContent = error.message; });
+      .catch(error => { if (!/rate limit/i.test(error.message)) concert.fail(error); });
   };
   const release = () => { if (!timer) return; clearInterval(timer); timer = null; reading = { pan: 0, tilt: 0, zoom: 0 }; sendReading(); };
   const hold = (label, title, values, kind) => {
@@ -394,7 +397,7 @@ function poll(time) {
     const moved = !last.active || Math.abs(pan - (last.pan || 0)) >= 8 || Math.abs(tilt - (last.tilt || 0)) >= 8 || Math.abs(zoom - (last.zoom || 0)) >= 0.08;
     if ((active && (time - last.sent >= EVERY_MS || (moved && time - last.sent >= SOONEST_MS))) || (!active && last.active)) {
       last.sent = time; last.pan = pan; last.tilt = tilt; last.zoom = zoom;
-      api('/api/operate/control', { camera_id: camera, pan, tilt, zoom, zoom_speed: zoomTimes() }).catch(error => { if (!/rate limit/i.test(error.message)) result.textContent = error.message; });
+      api('/api/operate/control', { camera_id: camera, pan, tilt, zoom, zoom_speed: zoomTimes() }).catch(error => { if (!/rate limit/i.test(error.message)) concert.fail(error); });
     }
     pads.set(pad.index, { buttons: pad.buttons.map(b => b.pressed), sent: last.sent, active, pan: last.pan, tilt: last.tilt, zoom: last.zoom });
   }

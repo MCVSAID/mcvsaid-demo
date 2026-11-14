@@ -43,7 +43,7 @@ window.concert = {
     return new Promise(resolve => {
       const dialog = document.createElement('dialog'); dialog.className = 'ask';
       const form = document.createElement('form'); form.method = 'dialog';
-      const heading = document.createElement('h3'); heading.textContent = title; form.append(heading);
+      const heading = document.createElement('h3'); heading.textContent = title; heading.id = `ask-${++this.asked}`; dialog.setAttribute('aria-labelledby', heading.id); form.append(heading);
       if (text) { const said = document.createElement('p'); said.textContent = text; form.append(said); }
       const inputs = {};
       for (const field of fields) {
@@ -62,9 +62,11 @@ window.concert = {
         dialog.remove(); resolve(answer);
       });
       dialog.showModal();
-      (Object.values(inputs)[0] || go).focus();
+      // A dangerous confirmation opens on Cancel: Enter or a stray tap must not be the thing that stops the show.
+      (Object.values(inputs)[0] || (danger && cancel ? no : go)).focus();
     });
   },
+  asked: 0,
 
   /** Asks yes or no in a dialog over the page: true for OK. In place of window.confirm, which browsers can stop showing
    * (Firefox's "don't allow this site to prompt you again", and those built into apps) and then answer "Cancel" by
@@ -96,7 +98,7 @@ window.concert = {
       bar = document.createElement('nav'); bar.id = 'pages'; bar.setAttribute('aria-label', 'Pages'); document.body.prepend(bar);
       document.body.classList.add('has-sidebar');
       document.addEventListener('keydown', event => { if (event.key === 'Escape' && (document.body.classList.contains('menu-open') || document.body.classList.contains('rail-open'))) { const back = document.body.classList.contains('menu-open') ? '#menu-button' : '#widen'; this.menu(false); document.querySelector(back)?.focus(); } });
-      setInterval(() => this.poll(), 3000);
+      this.every(() => this.poll(), 3000);
       this.askName();
     }
     bar.replaceChildren();
@@ -226,6 +228,78 @@ window.concert = {
     if (open) document.querySelector('#pages a[aria-current=page]')?.focus({ preventScroll: true });
   },
 
+
+  /** Runs `fn` one at a time: asked again while it runs, it runs once more when it has finished (however many times it
+   * was asked), so that two draws never interleave and the last one is of the latest state. Answers when it is done. */
+  single(fn) {
+    let running = null, again = false;
+    return () => {
+      if (running) { again = true; return running; }
+      running = (async () => {
+        try { do { again = false; try { await fn(); } catch (error) { console.error(error); } } while (again); }
+        finally { running = null; }
+      })();
+      return running;
+    };
+  },
+
+  /** `fn` every `ms`, but not while the page is hidden (a tablet put down, another tab in front); once more at once when
+   * it is looked at again. */
+  every(fn, ms) {
+    setInterval(() => { if (!document.hidden) fn(); }, ms);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) fn(); });
+  },
+
+  /** A fetch that gives up (a timeout) instead of waiting for ever: hung requests would otherwise pile up to the browser's
+   * limit of connections to the manager and the page would stop answering to anything. A reading only; a command that
+   * takes long (a camera's answer, an update) is not cut short. Failures to reach the manager carry `unreachable`. */
+  async fetchJson(path, options = {}, timeout = 10000) {
+    const reading = !options.method || options.method === 'GET';
+    const signal = options.signal || (reading && timeout && AbortSignal.timeout ? AbortSignal.timeout(timeout) : undefined);
+    let response;
+    try { response = await fetch(path, { ...options, ...(signal ? { signal } : {}) }); }
+    catch (error) {
+      const timedOut = error?.name === 'TimeoutError' || error?.name === 'AbortError';
+      const failure = new Error(timedOut ? 'The manager did not answer in time.' : 'Could not reach the manager.'); failure.unreachable = true; throw failure;
+    }
+    const data = await response.json().catch(() => ({}));
+    return { response, data, unreachable: [502, 503, 504].includes(response.status) };
+  },
+
+  /** Every poll of the manager reports here, success or not. After two misses in a row a banner says the page may be out
+   * of date and greys the show's state (body.stale); the next answer puts both away. */
+  misses: 0, lastAnswer: Date.now(),
+  polled(ok) {
+    if (ok) { this.misses = 0; this.lastAnswer = Date.now(); this.stale(false); return; }
+    if (++this.misses >= 2) this.stale(true);
+  },
+  stale(on) {
+    document.body.classList.toggle('stale', on);
+    let banner = document.querySelector('#stale-banner');
+    if (!on) { banner?.remove(); clearInterval(this.staleTimer); this.staleTimer = null; return; }
+    if (!banner) {
+      banner = document.createElement('div'); banner.id = 'stale-banner'; banner.setAttribute('role', 'alert');
+      // Read out once, without the count; the count is for the eyes and moves every second.
+      const said = document.createElement('span'); said.className = 'sr-only'; said.textContent = 'No answer from the manager; what is shown may be out of date.';
+      const seen = document.createElement('span'); seen.setAttribute('aria-hidden', 'true');
+      banner.append(said, seen); document.body.prepend(banner);
+    }
+    const paint = () => { banner.lastChild.textContent = `No answer from the manager for ${Math.round((Date.now() - this.lastAnswer) / 1000)} s; what is shown may be out of date`; };
+    paint(); if (!this.staleTimer) this.staleTimer = setInterval(paint, 1000);
+  },
+
+  /** An error, kept in the message bar until it is put away; a note is shown beside it. */
+  fail(error, prefix = '') { if (!error?.unreachable) this.say(`${prefix}${error?.message ?? error}`, 'error'); },
+  say(text, kind) { const bar = document.querySelector('#result'); if (bar?.put) bar.put(String(text ?? ''), kind); },
+
+  /** Whether a section's drawing has changed what it shows: its markup and the state of its fields (which are properties,
+   * not markup). With `loose`, numbers are left out, for a live region where a reading moving by a digit is not news. */
+  sig(element, loose = false) {
+    const fields = [...element.querySelectorAll('input, select, textarea')].map(f => f.type === 'checkbox' || f.type === 'radio' ? (f.checked ? 1 : 0) : f.value);
+    const text = `${element.className}\u0001${element.innerHTML}\u0001${fields.join('\u0002')}`;
+    return loose ? text.replace(/[0-9]+(?:[.,][0-9]+)?/g, '#') : text;
+  },
+
   /** Takes a fresh /api/cameras answer from the page that asked for it; pages that do not ask are looked after by poll(). */
   feed(data) {
     // An administrator who has changed this account's role: the page is drawn again for what it may do now.
@@ -235,10 +309,11 @@ window.concert = {
   async poll() {
     if (!this.session || Date.now() - this.fedAt < 4000) return;
     try {
-      const response = await fetch('/api/cameras');
-      if (response.ok) this.feed(await response.json());
+      const { response, data, unreachable } = await this.fetchJson('/api/cameras');
+      this.polled(!unreachable);
+      if (response.ok) this.feed(data);
       else if (response.status === 401) location.reload();          // logged out: the account was removed, given a new password or a role that does not open this
-    } catch (error) { /* said by the page itself */ }
+    } catch (error) { this.polled(false); }
   },
 
   /** An administrator's account from before accounts had names is given one, once, at its first login. */
@@ -355,17 +430,44 @@ window.concert = {
   },
 
   /** The page's messages (#result) in a bar at the foot of the window, where they are seen, with a way to put them away.
-   * A long raw answer from a camera is cut to a few lines until it is clicked. */
+   * Pages write to it with `result.textContent = text`, as before; the bar sorts what it is given. An error (written with
+   * concert.fail) stays until it is put away, and is not erased by the next success. A note is one line, and where it is
+   * a raw answer from the manager (JSON), a line saying what it was with the whole of it behind a "details" control. */
   messages() {
     const said = document.querySelector('#result'); if (!said || said.dataset.bar) return;
     said.dataset.bar = 'yes'; document.body.classList.add('message-bar');
     const close = document.createElement('button'); close.type = 'button'; close.id = 'result-close'; close.textContent = '×'; close.setAttribute('aria-label', 'Put the message away'); close.hidden = true;
-    close.onclick = () => { said.textContent = ''; };
     said.after(close);
-    said.title = 'Click to see all of it';
-    said.onclick = () => said.classList.toggle('open');
-    const look = () => { const text = said.textContent.trim(); close.hidden = !text; said.classList.toggle('raw', /^[[{]/.test(text)); if (!text) said.classList.remove('open'); };
-    new MutationObserver(look).observe(said, { childList: true, characterData: true, subtree: true }); look();
+    const held = { error: '', note: '' }, own = Object.getOwnPropertyDescriptor(Node.prototype, 'textContent');
+    const summary = text => {
+      if (!/^\s*[[{]/.test(text)) return null;
+      let data; try { data = JSON.parse(text); } catch (error) { return null; }
+      const found = ['did', 'message', 'summary', 'detail', 'state', 'status'].map(key => data?.[key]).find(v => typeof v === 'string' && v);
+      return { line: found || (Array.isArray(data) ? `Done (${data.length} item${data.length === 1 ? '' : 's'})` : 'Done'), pretty: JSON.stringify(data, null, 2) };
+    };
+    const draw = () => {
+      const parts = [];
+      if (held.error) { const e = document.createElement('div'); e.className = 'said-error'; e.textContent = held.error; parts.push(e); }
+      if (held.note) {
+        const n = document.createElement('div'), sum = summary(held.note); n.className = 'said-note';
+        if (sum) {
+          const line = document.createElement('span'); line.textContent = sum.line;
+          const more = document.createElement('details'); const label = document.createElement('summary'); label.textContent = 'details';
+          const raw = document.createElement('pre'); raw.textContent = sum.pretty; more.append(label, raw); n.append(line, ' ', more);
+        } else n.textContent = held.note;
+        parts.push(n);
+      }
+      own.set.call(said, ''); said.append(...parts); close.hidden = !parts.length;
+    };
+    // Written to by the pages: an error is held, a note replaces the last note, an empty write clears the note only.
+    said.put = (text, kind) => {
+      const was = `${held.error}\u0000${held.note}`;
+      if (kind === 'error') held.error = text; else held.note = text;
+      if (`${held.error}\u0000${held.note}` !== was) draw();
+    };
+    Object.defineProperty(said, 'textContent', { configurable: true, get: () => [held.error, held.note].filter(Boolean).join('\n'), set: text => said.put(String(text ?? ''), 'note') });
+    close.onclick = () => { held.error = held.note = ''; draw(); };
+    draw();
   },
 };
 

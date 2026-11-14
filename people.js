@@ -13,7 +13,7 @@ async function api(path, body) {
   if (!response.ok) throw Error(data.detail || `HTTP ${response.status}`);
   return data;
 }
-async function act(call) { try { result.textContent = ''; const answer = await call(); if (answer && answer.performers) { state = answer; draw(); } return answer; } catch (error) { result.textContent = error.message; return null; } }
+async function act(call) { try { result.textContent = ''; const answer = await call(); if (answer && answer.performers) { state = answer; draw(); } return answer; } catch (error) { concert.fail(error); return null; } }
 const day = seconds => new Date(seconds * 1000).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' });
 const when = seconds => new Date(seconds * 1000).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 
@@ -26,7 +26,7 @@ async function enter(session) {
 }
 document.querySelector('#login').onsubmit = async event => {
   event.preventDefault();
-  try { await enter(await api('/api/login', { name: document.querySelector('#username').value, password: document.querySelector('#password').value })); } catch (error) { result.textContent = error.message; }
+  try { await enter(await api('/api/login', { name: document.querySelector('#username').value, password: document.querySelector('#password').value })); } catch (error) { concert.fail(error); }
 };
 window.concert.resume().then(session => { if (session) enter(session); });
 

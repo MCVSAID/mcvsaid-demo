@@ -10,7 +10,7 @@ async function api(path, body) {
   if (!r.ok) throw new Error(data.detail || `${r.status}`);
   return data;
 }
-async function change(body) { try { take(await api('/api/karaoke', body)); result.textContent = ''; return true; } catch (error) { result.textContent = error.message; return false; } }
+async function change(body) { try { take(await api('/api/karaoke', body)); result.textContent = ''; return true; } catch (error) { concert.fail(error); return false; } }
 
 async function enter(session) {
   csrf = session.csrf; $('#password').value = ''; $('#login').hidden = true; $('#karaoke-page').hidden = false;
@@ -19,10 +19,10 @@ async function enter(session) {
 }
 $('#login').onsubmit = async event => {
   event.preventDefault();
-  try { await enter(await api('/api/login', { password: $('#password').value })); } catch (error) { result.textContent = error.message; }
+  try { await enter(await api('/api/login', { password: $('#password').value })); } catch (error) { concert.fail(error); }
 };
 fetch('/api/session').then(r => r.ok ? r.json() : null).then(session => { if (session) enter(session); }).catch(() => {});
-async function refresh() { try { take(await api('/api/karaoke')); } catch (error) { result.textContent = error.message; } }
+async function refresh() { try { take(await api('/api/karaoke')); } catch (error) { concert.fail(error); } }
 
 const STATE = { asked: 'Asked from a phone', waiting: '', up: 'Singing now', done: 'Sung', skipped: 'Skipped' };
 let drawn = '';

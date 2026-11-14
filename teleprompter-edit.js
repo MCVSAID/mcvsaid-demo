@@ -10,7 +10,7 @@ async function api(path, body) {
   if (!r.ok) throw new Error(data.detail || `${r.status}`);
   return data;
 }
-async function act(path, body) { try { const answer = await api(path, body); result.textContent = ''; return answer; } catch (error) { result.textContent = error.message; return null; } }
+async function act(path, body) { try { const answer = await api(path, body); result.textContent = ''; return answer; } catch (error) { concert.fail(error); return null; } }
 const control = async body => { const answer = await act('/api/teleprompter', body); if (answer) take(answer); };
 
 // What each kind of event's teleprompter is for (modes.py): said above the scripts.
@@ -33,7 +33,7 @@ async function enter(session) {
 }
 $('#login').onsubmit = async event => {
   event.preventDefault();
-  try { await enter(await api('/api/login', { name: $('#username').value, password: $('#password').value })); } catch (error) { result.textContent = error.message; }
+  try { await enter(await api('/api/login', { name: $('#username').value, password: $('#password').value })); } catch (error) { concert.fail(error); }
 };
 fetch('/api/session').then(r => r.ok ? r.json() : null).then(session => { if (session) enter(session); }).catch(() => {});
 
