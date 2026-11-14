@@ -76,6 +76,7 @@
     if (!S) return;
     const d = director(), t = now();
     for (const plug of cams().power?.plugs || []) plug.checked = t;
+    for (const c of cams().cameras) { const spot = c.gimbal?.targets?.spot; if (spot) spot.ago_seconds = Math.max(0, Math.round(t - spot.at)); }   // a spot remembered live, how long ago
     d.usable = cams().cameras.filter(c => c.online && (c.telemetry || {}).streaming).map(c => c.id);
     if (d.on_air && !d.usable.includes(d.on_air) && d.usable.length) cutTo(d.usable[0]);
     if (d.enabled && !(d.hold_until && d.hold_until > t) && t >= S.nextCut && d.usable.length > 1) {
@@ -646,7 +647,7 @@
     const spotter = recorded.spotter ? { ...recorded.spotter, ...(typeof v.spotter === 'boolean' ? { enabled: v.spotter } : {}) } : null;
     return { ...recorded, ...(cue ? { enabled: cue.enabled, device: cue.device, source: cue.source, model: cue.model } : {}), spotter, listening: !!(cue ? cue.enabled : recorded.enabled) && (shots.on || mode() === 'cooking'), shots, zooms, targets: targetsRead(), heard };
   }
-  const LEAD = /\b(?:(?:cut|cutting|switch|switching|go|going|jump|change|move|take|let's go|lets go|let's cut|let's switch)\s+(?:back\s+|over\s+|across\s+)?to|over\s+to|back\s+to|show(?:ing)?(?:\s+(?:me|us|them|you|everyone))?|let's\s+see|lets\s+see|let's\s+look\s+at|give\s+(?:me|us)|camera\s+on|bring\s+up)\s+(?:the\s+|that\s+|our\s+|my\s+|this\s+)?$/;
+  const LEAD = /\b(?:(?:cut|cutting|switch|switching|go|going|jump|change|move|take|let's go|lets go|let's cut|let's switch)\s+(?:back\s+|over\s+|across\s+)?to|over\s+to|back\s+to|show(?:ing)?(?:\s+(?:me|us|them|you|everyone))?|let's\s+see|lets\s+see|let's\s+look\s+at|(?:let's\s+|lets\s+)?check\s+(?:out|on)|give\s+(?:me|us)|camera\s+on|bring\s+up)\s+(?:the\s+|that\s+|our\s+|my\s+|this\s+)?$/;
   const FILLER = new Set(['the', 'a', 'shot', 'camera', 'cam', 'angle', 'view', 'please', 'now', 'okay', 'ok', 'and', 'so', 'right', 'go', 'on', 'over', 'there', 'thanks']);
   const TAIL = new Set(['shot', 'camera', 'cam', 'angle', 'view', 'please', 'now', 'for', 'a', 'sec', 'second', 'moment', 'bit', 'again', 'here', 'there', 'thanks']);
   const NUMBERS = { one: '1', two: '2', three: '3', four: '4', five: '5', six: '6', seven: '7', eight: '8', nine: '9' };
@@ -1015,18 +1016,27 @@
     for (const x of [camera.telemetry?.gimbal, g].filter(Boolean)) { x.follow = null; if (x.attitude) { x.attitude.pan = target.pan; x.attitude.tilt = target.tilt; } }
     g.performer = null;
     if (target.zoom_percent && camera.telemetry) camera.telemetry.zoom_percent = target.zoom_percent;
-    t.away = { id: target.id, name: target.name, since: now() / 1000, by };
+    t.away = { id: target.id, name: target.name, since: now(), by };
     camera.gimbal.targets = copy(t);
     return `${camera.name}: turning to ${target.name}${target.zoom_percent ? `, zooming to ${(target.zoom_percent / 100).toFixed(1)}x` : ''}`;
   }
+  // The way back: to the spot remembered live ("remember where we are") when there is one, else as before the first target.
   function targetBack(camera) {
-    const t = targetState(camera), g = camera.gimbal, was = (S.targetWas || {})[camera.id] || {};
-    if (!t?.away) return null;
+    const t = targetState(camera), g = camera.gimbal, spot = t?.spot, was = spot ? { pan: spot.pan, tilt: spot.tilt, zoom: spot.zoom_percent, follow: spot.followWas, performer: spot.performerWas } : (S.targetWas || {})[camera.id] || {};
+    if (!t?.away && !spot) return null;
     for (const x of [camera.telemetry?.gimbal, g].filter(Boolean)) { x.follow = was.follow || null; if (x.attitude && was.pan != null) { x.attitude.pan = was.pan; x.attitude.tilt = was.tilt; } }
     g.performer = was.performer || null;
     if (was.zoom && camera.telemetry) camera.telemetry.zoom_percent = was.zoom;
     t.away = null; camera.gimbal.targets = copy(t);
-    return `${camera.name}: ${was.follow ? 'following again' : 'back where it was'}`;
+    return `${camera.name}: ${spot ? 'to the spot remembered, ' : ''}${was.follow ? 'following again' : 'back where it was'}`;
+  }
+  function targetRemember(camera, by) {
+    const t = targetState(camera), g = camera.gimbal, a = camera.telemetry?.gimbal?.attitude || g.attitude, was = t.away ? (S.targetWas || {})[camera.id] || {} : { follow: g.follow, performer: g.performer };
+    if (!a) return null;
+    const zoom = camera.telemetry?.zoom_percent || null;
+    t.spot = { pan: a.pan, tilt: a.tilt, zoom_percent: zoom, following: !!(was.follow || was.performer), at: now(), ago_seconds: 0, by, stale: false, followWas: was.follow || null, performerWas: was.performer || null };
+    camera.gimbal.targets = copy(t);
+    return `${camera.name}: remembered where it is (pan ${a.pan}°${zoom ? `, ${(zoom / 100).toFixed(1)}x` : ''}${t.spot.following ? ', following' : ''}): the way back comes here`;
   }
   // Tracking and the zoom switched off and on live (autoswitch.py), as the manager answers POST /api/auto: per camera,
   // or for every camera, which overrides each camera's own while off. Off, a following gimbal stops following (and
@@ -1064,7 +1074,7 @@
     const camera = cams().cameras.find(c => c.id === id); if (!camera) return answer({ detail: 'No such camera' }, 404);
     const t = camera.gimbal?.targets ? targetState(camera) : null;
     if (!t) return answer({ detail: 'Gimbal: the camera app cannot turn to a position' }, 409);
-    if (!['save', 'change', 'delete', 'go', 'back'].includes(body.action)) return answer({ detail: 'action is save, change, delete, go or back' }, 400);
+    if (!['save', 'change', 'delete', 'go', 'back', 'remember', 'clear'].includes(body.action)) return answer({ detail: 'action is save, change, delete, go, back, remember or clear' }, 400);
     const tidy = text => String(text || '').split(/\s+/).join(' ').trim().slice(0, 40);
     const lead = /^(?:show(?:\s+(?:me|us))?|let's\s+see|lets\s+see|cut\s+to|go\s+to|give\s+me)\s+(?:the\s+)?/i;
     const phrases = list => [...new Set((list || []).map(p => tidy(p).replace(lead, '')).filter(Boolean))].slice(0, 6);
@@ -1074,7 +1084,9 @@
     if (name !== null && !name) return answer({ detail: 'A name is 1 to 40 characters' }, 400);
     if (name && t.list.some(x => x.name.toLowerCase() === name.toLowerCase() && x.id !== body.id)) return answer({ detail: `${camera.name} already has a target called ${name}` }, 409);
     let did = null;
-    if (body.action === 'back') { did = targetBack(camera); if (!did) return answer({ detail: 'no camera is on a saved target' }, 409); }
+    if (body.action === 'back') { did = targetBack(camera); if (!did) return answer({ detail: 'no camera is on a saved target or has a spot remembered' }, 409); }
+    else if (body.action === 'remember') { did = targetRemember(camera, 'operator'); if (!did) return answer({ detail: `${camera.name}: its phone is not reporting where it points` }, 409); }
+    else if (body.action === 'clear') t.spot = null;
     else if (body.action === 'go') { did = targetGo(camera, target, 'operator'); note('In the demo the gimbal says it has turned, but the pictures are drawn, so nothing moves.'); }
     else if (body.action === 'delete') t.list = t.list.filter(x => x.id !== target.id);
     else if (body.action === 'change') Object.assign(target, name ? { name } : {}, 'phrases' in body ? { phrases: phrases(body.phrases) } : {});
@@ -1093,20 +1105,41 @@
     const recorded = ((S.kinds[mode()] || {})['/api/voice'] || S.answers['/api/voice'])?.targets; if (!recorded) return null;
     const on = (S.voice?.targetsOn || {})[mode()], back = (S.voice?.back || {})[mode()];
     const cameras = cams().cameras.filter(c => c.gimbal?.targets).map(c => ({ id: c.id, name: c.name, targets: targetState(c).list.map(x => ({ id: x.id, name: x.name, phrases: [x.name, ...x.phrases].map(p => ({ phrase: p, shared: false })) })) })).filter(c => c.targets.length);
-    const away = cams().cameras.filter(c => c.gimbal?.targets && targetState(c).away).map(c => c.id);
+    const gimballed = cams().cameras.filter(c => c.gimbal?.targets && c.online !== false);
+    const onTarget = gimballed.filter(c => targetState(c).away).map(c => c.id);
+    const away = onTarget.length ? onTarget : gimballed.filter(c => targetState(c).spot).map(c => c.id);
     const switched = on === undefined ? recorded.switched_on : on;
-    return { ...recorded, switched_on: switched, on: switched && cameras.length > 0, cameras, away, ...(back ? { back, back_own: true } : {}) };
+    return { ...recorded, switched_on: switched, on: switched && (cameras.length > 0 || gimballed.length > 0), cameras, away, gimballed: gimballed.map(c => c.id), ...(back ? { back, back_own: true } : {}) };
   }
   function targetCall(text, entry) {
     const t = targetsRead(); if (!t?.on) return null;
     const table = { cameras: [...t.cameras.flatMap(c => c.targets.map(x => ({ id: `${c.id}/${x.id}`, name: x.name, phrases: x.phrases.map(p => ({ ...p, source: 'own' })) }))),
-      { id: 'back', name: 'the way back', phrases: t.back.map(p => ({ phrase: p, source: 'own', shared: false })) }] };
+      { id: 'back', name: 'the way back', phrases: t.back.map(p => ({ phrase: p, source: 'own', shared: false })) },
+      { id: 'remember', name: 'a spot to come back to', phrases: (t.remember || []).map(p => ({ phrase: p, source: 'own', shared: false })) },
+      { id: 'home', name: 'the home position', phrases: (t.home || []).map(p => ({ phrase: p, source: 'own', shared: false })) }] };
     const call = shotMatch(text, table);
     if (!call.id) return call.why;
     if (call.id === 'back') {
-      const done = cams().cameras.filter(c => c.gimbal?.targets && targetState(c).away).map(targetBack);
-      if (!done.length) return `heard “${call.phrase}”, but no camera is on a saved target`;
+      const done = t.away.map(id => targetBack(cams().cameras.find(c => c.id === id))).filter(Boolean);
+      if (!done.length) return `heard “${call.phrase}”, but no camera is on a saved target or has a spot remembered`;
       entry.did = done.join('; ');
+    } else if (call.id === 'home') {
+      // As the manager's target_home: the gimbal camera on air with a home position, else the only one with one.
+      const homed = t.gimballed.filter(id => cams().cameras.find(c => c.id === id)?.gimbal?.home?.set);
+      const chosen = homed.filter(id => id === director().on_air).length ? [director().on_air] : homed;
+      if (chosen.length !== 1) return `heard “${call.phrase}”, but ${chosen.length ? 'which camera? put the one to send home on air' : 'no connected gimbal camera has a home position (Set home on its card)'}`;
+      const camera = cams().cameras.find(c => c.id === chosen[0]), home = camera.gimbal.home;
+      if (home.stale) return `heard “${call.phrase}”, but the phone has restarted since Set home`;
+      for (const x of [camera.telemetry?.gimbal, camera.gimbal].filter(Boolean)) { x.follow = null; if (x.attitude) { x.attitude.pan = home.pan; x.attitude.tilt = home.tilt; } }
+      camera.gimbal.performer = null;
+      const st = targetState(camera); if (st) { st.away = null; camera.gimbal.targets = copy(st); }
+      entry.did = `${camera.name}: back home (pan ${home.pan}°, tilt ${home.tilt}°), not following`;
+    } else if (call.id === 'remember') {
+      // The gimbal camera on air, else the only one that can turn: as the manager's target_remember chooses.
+      const onAir = t.gimballed.filter(id => id === director().on_air), chosen = onAir.length ? onAir : t.gimballed;
+      if (chosen.length !== 1) return `heard “${call.phrase}”, but ${chosen.length ? 'which camera? put the one to remember on air' : 'no gimbal camera can turn to a position'}`;
+      entry.did = targetRemember(cams().cameras.find(c => c.id === chosen[0]), 'voice');
+      if (!entry.did) return `heard “${call.phrase}”, but its phone is not reporting where it points`;
     } else {
       const [cid, tid] = call.id.split('/'), camera = cams().cameras.find(c => c.id === cid);
       entry.did = targetGo(camera, targetState(camera).list.find(x => x.id === tid), 'voice');

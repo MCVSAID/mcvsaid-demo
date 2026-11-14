@@ -2151,7 +2151,7 @@ async function refresh() {
                 try { await api(`/api/cameras/${encodeURIComponent(camera.id)}/gimbal-home`, { method: 'POST', body: JSON.stringify({ action }) }); refresh(); }
                 catch (error) { concert.tell(`${camera.name}: ${label}: ${error.message}`); }
               };
-              const go = node('button', 'Home'); go.disabled = off || !home.set || home.stale; go.title = 'Turn it back to its home position (stops following)';
+              const go = node('button', 'Home'); go.disabled = off || !home.set || home.stale; go.title = 'Turn it back to its home position (stops following); or say “let’s bring it back home” while it is on air';
               go.onclick = () => gimbalHome('go', 'Home');
               const keep = node('button', home.set ? 'Set again' : 'Set home'); keep.disabled = off; keep.title = 'Keep where it points now as its home position';
               keep.onclick = () => gimbalHome('set', 'Set home');
@@ -2174,6 +2174,27 @@ async function refresh() {
                 back.onclick = () => gimbalTarget({ action: 'back' }, 'Back');
                 away.append(back); box.append(away);
               }
+              // A spot remembered live ("remember where we are"): the way back goes there instead, until cleared or replaced.
+              const spotLine = node('p', ''); spotLine.className = 'app-version';
+              if (targets.spot) {
+                const spot = targets.spot, ago = Math.max(0, Math.round((spot.ago_seconds || 0) / 60));
+                spotLine.append(node('span', spot.stale ? 'Spot remembered, but the phone restarted since: remember it again. '
+                  : `Spot remembered${spot.by === 'voice' ? ' aloud' : ''} ${ago ? `${ago} min ago` : 'just now'}: pan ${spot.pan}°, tilt ${spot.tilt}°${spot.zoom_percent ? `, ${(spot.zoom_percent / 100).toFixed(1)}x` : ''}${spot.following ? ', following' : ''}. The way back comes here. `));
+                if (!spot.stale) {
+                  const bring = node('button', 'Bring it back'); bring.disabled = off; bring.title = `Turn it to the spot remembered, zoom as it was, and follow again if it did (or say “${targets.back}”)`;
+                  bring.onclick = () => gimbalTarget({ action: 'back' }, 'Bring it back');
+                  spotLine.append(bring, ' ');
+                }
+                const clear = node('button', 'Clear'); clear.title = 'Forget the spot: the way back is then to where it was before its first target';
+                clear.onclick = () => gimbalTarget({ action: 'clear' }, 'Clear the spot');
+                spotLine.append(clear);
+              } else {
+                const mark = node('button', 'Remember where it is'); mark.disabled = off;
+                mark.title = `Keep where it points now, its zoom and whether it follows as the way back (or say “and ${targets.remember}” while it is on air)`;
+                mark.onclick = () => gimbalTarget({ action: 'remember' }, 'Remember where it is');
+                spotLine.append(node('span', 'No spot remembered. '), mark);
+              }
+              box.append(spotLine);
               const list = node('ul', '');
               for (const target of targets.list) {
                 const item = node('li', '');
@@ -2206,7 +2227,7 @@ async function refresh() {
                 const row = node('div', ''); row.append(name, ' ', save); box.append(row);
               }
               box.append(node('small', targets.list.length
-                ? (targets.voice ? `Say “show the ${targets.list[0].name}” (with listening on) to turn it there; “${targets.back}” puts it back as it was, following again if it was.` : 'Target calls are switched off for this kind of event (Director page, Voice).')
+                ? (targets.voice ? `Say “show the ${targets.list[0].name}” (with listening on) to turn it there; “and ${targets.remember}” first keeps a spot to come back to; “${targets.back}” puts it back there, or as it was, following again if it was.` : 'Target calls are switched off for this kind of event (Director page, Voice).')
                 : `Aim it at something it should show on cue (the pot, the board), then Save as target. Kept for ${targets.mode_name} only.`));
               turn.append(box);
             }

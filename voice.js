@@ -184,7 +184,7 @@ window.listenTo = (v, pick, disabled) => {
     const t = v.targets, box = node('div', ''); box.className = 'voice-cameras';
     if (!t) return box;
     box.append(node('h4', 'Saved gimbal targets'));
-    if (!t.cameras.length) { box.append(node('small', `None saved for ${modeName(t.mode)}. On a gimbal camera’s card (Cameras page, Gimbal): aim it at what it should show on cue, such as the pot, then Save as target.`)); return box; }
+    if (!t.cameras.length) { box.append(node('small', `None saved for ${modeName(t.mode)}. On a gimbal camera’s card (Cameras page, Gimbal): aim it at what it should show on cue, such as the pot, then Save as target.${t.on ? ` Meanwhile “and ${t.remember[0]}” keeps where the gimbal camera on air points, and “${t.back[0]}” turns it back there.` : ''}`)); return box; }
     box.append(checkbox(`Turn a gimbal camera to a saved target when it is called, in ${modeName(t.mode)}`, t.switched_on, on => send({ targets_on: on })));
     const list = node('ul', '');
     for (const camera of t.cameras) {
@@ -201,7 +201,7 @@ window.listenTo = (v, pick, disabled) => {
     row.append(node('span', 'The way back: '), back, ' ',
       button('Save', () => { const kept = back.value.split(',').map(p => p.trim()).filter(Boolean); backDraft = null; send({ back_phrases: kept }, 'The way back saved.'); }));
     if (t.back_own) row.append(' ', button('Built-in ones', () => { backDraft = null; send({ back_phrases: [] }, 'The built-in ways back again.'); }));
-    box.append(row, node('small', `Called like a shot (“show the pot”, “let’s see the board”) or said alone (“The pot!”). The camera stops following, turns and zooms to the target, and goes on air once it is there where shot calls are on. The way back returns every camera on a target to where it pointed, its zoom and following, as before its first target.${t.away.length ? ` On a target now: ${t.away.length}.` : ''}`));
+    box.append(row, node('small', `Called like a shot (“show the pot”, “let’s see the board”) or said alone (“The pot!”). The camera stops following, turns and zooms to the target, and goes on air once it is there where shot calls are on. The way back returns every camera on a target to where it pointed, its zoom and following, as before its first target; or, after “and ${t.remember[0]}” (also ${quoted(t.remember.slice(1, 3))}), to the spot the gimbal camera on air was at then. “${(t.home || [])[0] || "let's bring it back home"}” turns it to its home position instead (Set home on its card).${t.away.length ? ` On a target now: ${t.away.length}.` : ''}`));
     return box;
   }
 
