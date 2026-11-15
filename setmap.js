@@ -10,6 +10,9 @@
 // map's scale in metres as well. A further photo is joined on by marking four points in it and the same four on the map
 // so far. Where photos overlap, each spot of the map is taken from the photo that sees it nearest (lowest in that
 // photo). It is all done here in the browser: the photos are never sent anywhere, only the map made from them.
+// Photos measured by a phone's AR (the camera app's Measure the set; setmeasure.py) come with where their pixels are on
+// the floor already, in metres: they are taken from the manager, which holds them in memory for half an hour, and
+// need no reference and no points marked. The four points marked round the set on the phone stand in for the reference.
 // What is not on the floor's level leans away from where each photo was taken: a counter's foot is in the right place,
 // its top stretched. Lens distortion is not corrected (the phones' main lenses correct their own; an ultrawide bends).
 (() => {
@@ -79,11 +82,15 @@
   function make() {
     const ready = photos.list.filter(p => p.toWorld);
     if (!ready.length) return null;
-    const first = ready[0], ref = { w: Number(photos.reference.w), d: Number(photos.reference.d) };
-    const middle = [ref.w / 2, ref.d / 2], reach = clamp(REACH * Math.max(ref.w, ref.d), 6, 30);
+    const first = ready[0], quad = referenceQuad();
+    const xs = quad.map(p => p[0]), ys = quad.map(p => p[1]);
+    const middle = [(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2];
+    const reach = clamp(REACH * Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)), 6, 30);
     // How far the floor goes: each photo's grid of points carried onto the floor, in front of it and near the reference.
-    let x0 = 0, y0 = 0, x1 = ref.w, y1 = ref.d;
-    const centre = first.points.reduce((a, p) => [a[0] + p[0] / 4, a[1] + p[1] / 4], [0, 0]), clear = STRETCH * cover(first.toWorld, ...centre);
+    let x0 = Math.min(...xs), y0 = Math.min(...ys), x1 = Math.max(...xs), y1 = Math.max(...ys);
+    // How clearly the first photo sees the floor at the reference's middle: further floor is taken only as clear as STRETCH times that.
+    const back0 = invert(first.toWorld), seen = back0 && apply(back0, ...middle);
+    const centre = seen && seen[2] > 0 ? seen : first.points.reduce((a, p) => [a[0] + p[0] / 4, a[1] + p[1] / 4], [0, 0]), clear = STRETCH * cover(first.toWorld, centre[0], centre[1]);
     for (const photo of ready) for (let i = 0; i <= 32; i++) for (let j = 0; j <= 32; j++) {
       const u = (photo.canvas.width - 1) * i / 32, v = (photo.canvas.height - 1) * j / 32, [X, Y, w] = apply(photo.toWorld, u, v);
       if (w <= 0 || Math.hypot(X - middle[0], Y - middle[1]) > reach || cover(photo.toWorld, u, v) > clear) continue;
@@ -117,15 +124,40 @@
     context.putImageData(out, 0, 0);
     // The reference outlined, so it can be checked against what is on the floor.
     context.strokeStyle = '#ffd166'; context.lineWidth = 3; context.setLineDash([12, 8]);
-    context.strokeRect((0 - x0) * perMetre, (0 - y0) * perMetre, ref.w * perMetre, ref.d * perMetre);
+    context.beginPath(); quad.forEach(([X, Y], n) => context[n ? 'lineTo' : 'moveTo']((X - x0) * perMetre, (Y - y0) * perMetre)); context.closePath(); context.stroke();
     return { canvas, x0, y0, perMetre, width, depth, photos: ready.length };
   }
 
+  // The reference on the floor, in metres: the four points marked on a phone, or the rectangle of the size given.
+  function referenceQuad() {
+    if (photos.reference.quad) return photos.reference.quad;
+    const w = Number(photos.reference.w), d = Number(photos.reference.d);
+    return [[0, 0], [w, 0], [w, d], [0, d]];
+  }
+  // A phone's measured photos, in place of any being mapped: each read here as any photo is, with where its pixels are
+  // on the floor from the phone (its to_floor, for the photo as the phone sent it, so scaled to the size it is read at).
+  async function useMeasured(measured) {
+    const list = [];
+    for (let n = 0; n < measured.photos.length; n++) {
+      const r = await fetch(`/api/stage/set/measured/${encodeURIComponent(measured.camera)}/${n}`);
+      if (!r.ok) throw Error((await r.json()).detail);
+      const photo = await read(await r.blob(), `${measured.name}, measured photo ${n + 1}`), k = measured.photos[n].w / photo.canvas.width;
+      photo.toWorld = measured.photos[n].to_floor.map(row => [row[0] * k, row[1] * k, row[2]]);
+      const back = invert(photo.toWorld);
+      photo.points = back ? measured.reference.map(([X, Y]) => apply(back, X, Y)).filter(p => p[2] > 0).map(p => [p[0], p[1]]) : [];
+      list.push(photo);
+    }
+    Object.assign(photos, { list, marking: null, mapping: [], reference: { w: '', d: '', quad: measured.reference }, why: '', bounds: null, trimming: [], cutting: false });
+    photos.made = make();
+    // Taken: the manager need hold them no longer.
+    await fetch(`/api/stage/set/measured/${encodeURIComponent(measured.camera)}`, { method: 'DELETE', headers: { 'X-CSRF-Token': csrf } }).catch(() => {});
+  }
   // The first photo: its four points are the reference's corners, far left first and round clockwise, so the far side
   // of the floor is at the top of the map, as the stage is on the room map.
   function straighten(photo) {
     const w = Number(photos.reference.w), d = Number(photos.reference.d);
     if (!(w >= 0.1 && w <= 100 && d >= 0.1 && d <= 100)) return 'Give the size of what the four points mark, in metres (0.1 to 100).';
+    delete photos.reference.quad;
     if (!plain(photo.points)) return 'The four points cross over: mark them in order round the edge, far left, far right, near right, near left.';
     photo.toWorld = homography(photo.points, [[0, 0], [w, 0], [w, d], [0, d]]);
     return photo.toWorld ? '' : 'Three of those points are in a line: mark four corners.';
@@ -252,7 +284,7 @@
 
   function panelDraw() {
     const s = set(), L = layout();
-    const wanted = JSON.stringify([s?.mode, L && { ...L, cameras: undefined }, Object.keys(s?.targets || {}), state.cameras.map(c => [c.id, c.name])]);
+    const wanted = JSON.stringify([s?.mode, L && { ...L, cameras: undefined }, Object.keys(s?.targets || {}), state.cameras.map(c => [c.id, c.name]), (s?.measured || []).map(m => [m.camera, m.at])]);
     if (wanted === key && panel.childElementCount) return;
     key = wanted; panel.replaceChildren();
     panel.append(node('h2', `The set, for ${s.mode_name}`));
@@ -303,6 +335,20 @@
       adding.append(labelled('or a camera ', which), grab);
     }
     work.append(adding);
+    // Measured on a phone (Measure the set in the camera app): ready to use, no points to mark.
+    for (const measured of set()?.measured || []) {
+      const row = node('div', undefined, 'row'), take = node('button', `Use ${measured.photos.length === 1 ? 'it' : `these ${measured.photos.length}`}`);
+      const when = new Date(measured.at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      take.className = 'primary';
+      take.onclick = async () => {
+        if (photos.list.length && !await concert.sure('Put the measured photos in place of the photos being mapped here?')) return;
+        take.disabled = true;
+        try { await useMeasured(measured); } catch (error) { photos.why = error.message; }
+        photosDraw();
+      };
+      row.append(node('span', `${measured.name} measured the set at ${when}: ${measured.photos.length} photo${measured.photos.length > 1 ? 's' : ''}, already to scale. `), take);
+      work.append(row);
+    }
     if (photos.why) work.append(node('p', photos.why, 'warn'));
     if (!photos.list.length) {
       work.append(node('p', 'Best: a photo from high up and well back, with the whole floor of the set in it. Four points on the floor of something whose size you know: the corners of a rug or a run of floor tiles, tape marks put down for it, the foot of a riser or counter. Not a table top: everything off the floor’s level leans away in the map.', 'quiet'));
@@ -337,7 +383,7 @@
     }
     if (photos.made) {
       const made = photos.made;
-      work.append(node('p', `The map so far: ${made.width.toFixed(1)} by ${made.depth.toFixed(1)} m, from ${made.photos} photo${made.photos > 1 ? 's' : ''}. The yellow outline is your reference: check it lies on what you marked.`, 'quiet'));
+      work.append(node('p', `The map so far: ${made.width.toFixed(1)} by ${made.depth.toFixed(1)} m, from ${made.photos} photo${made.photos > 1 ? 's' : ''}. The yellow outline is ${photos.reference.quad ? 'the four points marked on the phone' : 'your reference: check it lies on what you marked'}.`, 'quiet'));
       const joining = current && current !== photos.list[0] && current.points.length === 4;
       // Trimming: two opposite corners of the part to keep, pressed on the map.
       const cutting = photos.cutting && !joining;

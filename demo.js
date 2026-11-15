@@ -1521,6 +1521,17 @@
     const path = url.pathname, query = url.search.slice(1);
     // What a camera sees now, for a map from photos: its recorded picture.
     const grabbed = method === 'GET' && path.match(/^\/api\/stage\/set\/grab\/([^/]+)$/); if (grabbed) return realFetch(`/api/colour/preview/${grabbed[1]}`);
+    // Photos a phone measured with its AR (setmeasure.py): recorded with the demonstration manager's made-up measuring.
+    if (method === 'GET' && /^\/api\/stage\/set\/measured\/[^/]+\/\d+$/.test(path)) return realFetch(path);
+    const forgetting = method === 'DELETE' && path.match(/^\/api\/stage\/set\/measured\/([^/]+)$/);
+    if (forgetting) {
+      // Taken into the map: the manager holds them no longer, in every kind of event's answer.
+      const camera = decodeURIComponent(forgetting[1]);
+      for (const stage of [S.answers['/api/stage'], ...Object.values(S.kinds || {}).map(k => k['/api/stage'])]) {
+        const set = stage?.room?.set; if (set?.measured) set.measured = set.measured.filter(m => m.camera !== camera);
+      }
+      save(); return answer(read('/api/stage'));
+    }
     // The Show page's programme picture: the recorded picture of the camera on air (of a split's first camera).
     if (method === 'GET' && path === '/api/programme/picture') {
       const d = cams().director, shown = d.on_air || (d.pair || [])[0];

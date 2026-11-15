@@ -134,6 +134,7 @@ function draw() {
   const programme = document.querySelector('#programme'), onAirNow = director.pair ? `On air: ${director.pair.map(name).join(' + ')}` : director.on_air ? `On air: ${name(director.on_air)}` : director.scene ? `On air: ${director.scene}` : '';
   if (programme.textContent !== onAirNow) programme.textContent = onAirNow;       // a live region: written to only when it changes
   drawProgramme(director);
+  drawEvery(state.cameras.filter(c => c.in_use !== false));
   drawAuto(state.auto);
   document.querySelector('#main-stage').disabled = !director.default_shot;
   document.querySelector('#main-stage').title = director.default_shot ? `Put ${director.default_shot} on air. Controller: View` : 'No stage shot is set: choose a default shot on the Director page';
@@ -398,7 +399,7 @@ document.querySelector('#record').onclick = async () => {
 };
 document.querySelector('#stream').onclick = async () => {
   const live = state?.director?.streaming;
-  if (!await window.concert.sure(live ? 'Stop OBS streaming? Viewers lose the programme.' : 'Start OBS streaming to the service set up in OBS? The programme goes out to its audience.', { ok: live ? 'Stop stream' : 'Start stream', danger: !!live })) return;
+  if (!await window.concert.sure(live ? 'Stop OBS streaming? Viewers lose the programme.' : 'Start OBS streaming to the service set up in OBS? The programme goes out to its audience.', { ok: live ? 'Stop OBS stream' : 'Start OBS stream', danger: !!live })) return;
   await act('/api/director', { stream: !live }); refresh();
 };
 // Tracking and the automatic crop zoom (autoswitch.py), as on the camera cards and the Show page: for every camera on
@@ -437,8 +438,61 @@ function drawProgramme(director) {
   const clock = seconds => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`;
   record.textContent = director.recording ? `Stop recording ${clock(director.recording.seconds || 0)}` : 'Record programme';
   record.classList.toggle('danger', !!director.recording);
-  stream.textContent = director.streaming ? `Stop stream ${clock(director.streaming.seconds || 0)}${director.streaming.reconnecting ? ' · reconnecting' : ''}` : 'Start stream';
+  stream.textContent = director.streaming ? `Stop OBS stream ${clock(director.streaming.seconds || 0)}${director.streaming.reconnecting ? ' · reconnecting' : ''}` : 'Start OBS stream';
   stream.classList.toggle('danger', !!director.streaming);
+}
+
+// Arm all cameras and Start all camera streams, on every camera in use here and not only those shown: the dashboard's
+// own (fleet.js), with the same rules for which cameras each touches. Each lists those it will touch and those it leaves
+// out, and why, and does nothing until accepted. A stream's start sets the clocks that are off first, as on its tile.
+const { FLEET } = window.concertFleet;
+let everyBusy = '';
+function drawEvery(cameras) {
+  for (const button of document.querySelectorAll('#arm-all, #stream-all')) {
+    const action = FLEET.find(a => a.command === button.dataset.command), targets = cameras.filter(action.targets);
+    const label = everyBusy === action.command ? `${button.id === 'arm-all' ? 'Arming' : 'Starting'}…` : `${button.id === 'arm-all' ? 'Arm all cameras' : 'Start all camera streams'}${targets.length ? ` (${targets.length})` : ''}`;
+    if (button.textContent !== label) button.textContent = label;
+    button.disabled = !targets.length || !!everyBusy;
+    button.title = targets.length ? `${button.id === 'arm-all' ? 'Arm' : 'Start the stream to OBS on'} ${targets.map(c => c.name).join(', ')}` : 'No camera needs this right now';
+    button.onclick = () => every(action);
+  }
+}
+const clockOff = c => c.online && c.telemetry?.capabilities?.time_sync && typeof c.clock_offset_ms === 'number' && Math.abs(c.clock_offset_ms) > 20;
+async function every(action) {
+  const name = action.command === 'camera.arm' ? 'Arm all cameras' : 'Start all camera streams';
+  everyBusy = action.command; draw();      // while the clocks are set, nothing else pressed
+  try {
+    let cameras = state.cameras.filter(c => c.in_use !== false);
+    // Before the question: the clocks that are off set, then the cameras read again so that each one's readiness is fresh.
+    if (action.preflight && cameras.filter(action.targets).some(clockOff)) {
+      result.textContent = 'Setting the clocks first…';
+      const off = cameras.filter(action.targets).filter(clockOff);
+      await Promise.all(off.map((c, i) => new Promise(resolve => setTimeout(resolve, i * 350)).then(() => send(c.id, 'time.sync'))));
+      await new Promise(resolve => setTimeout(resolve, 7000));            // a few fresh readings to measure them again
+      const now = await act('/api/cameras'); if (now) cameras = now.cameras.filter(c => c.in_use !== false);
+    }
+    const targets = cameras.filter(action.targets);
+    const left = cameras.filter(c => !action.targets(c)).map(c => [c, action.skipped(c)]).filter(([, why]) => why);
+    if (!targets.length) { result.textContent = `${name}: no camera needs it now.`; return; }
+    const ready = c => !action.preflight || !c.readiness ? '' : c.readiness.overall === 'ok' ? ' — ready'
+      : `\n      ${c.readiness.overall === 'fail' ? 'NOT READY' : 'check'}: ${(c.readiness.checks || []).filter(k => k.status !== 'ok').map(k => `${k.label}: ${k.detail}`).join('; ')}`;
+    let question = `${action.lead(targets.length)}\n\n${targets.map(c => `  • ${c.name}${action.detail?.(c) ? ` (${action.detail(c)})` : ''}${ready(c)}`).join('\n')}\n\n${action.tail}`;
+    if (left.length) question += `\n\nNOT included:\n${left.map(([c, why]) => `  • ${c.name} (${why})`).join('\n')}`;
+    result.textContent = ''; everyBusy = ''; draw();          // "Arming…" only once accepted, not while it is asked
+    if (!await window.concert.sure(question, { ok: name })) return;
+    everyBusy = action.command; draw();
+    const done = [], failed = [];
+    // A third of a second apart (the manager limits how fast commands arrive), then awaited together.
+    await Promise.all(targets.map(async (camera, index) => {
+      await new Promise(resolve => setTimeout(resolve, index * 350));
+      try {
+        const outcome = await api(`/api/cameras/${encodeURIComponent(camera.id)}/commands`, { request_id: crypto.randomUUID(), command: action.command, parameters: action.parameters ? action.parameters(camera) : {} });
+        if (outcome.state !== 'SUCCEEDED') throw new Error(`${outcome.state}${outcome.result?.error ? ` — ${outcome.result.error}` : ''}`);
+        done.push(camera.name);
+      } catch (error) { failed.push(`${camera.name}: ${error.message}`); }
+    }));
+    result.textContent = `${new Date().toLocaleTimeString()} ${name}: ${action.did} ${done.length ? done.join(', ') : 'no cameras'}.${failed.length ? ` FAILED: ${failed.join('; ')}.` : ''}${left.length ? ` Not included: ${left.map(([c, why]) => `${c.name} (${why})`).join('; ')}.` : ''}`;
+  } finally { everyBusy = ''; refresh(); }
 }
 
 function goHome(id) { return act(`/api/cameras/${encodeURIComponent(id)}/gimbal-home`, { action: 'go' }).then(refresh); }
