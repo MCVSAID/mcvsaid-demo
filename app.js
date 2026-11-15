@@ -2333,7 +2333,7 @@ async function drawAll() {
                 };
                 homeLine.append(' ', find);
               }
-              if (home.set) homeLine.append(node('span', home.stale ? ' · the phone restarted since it was set: aim it where home was and set it again, which brings its saved positions back too' : ` · pan ${home.pan}°, tilt ${home.tilt}°`));
+              if (home.set) homeLine.append(node('span', home.stale ? ' · the phone restarted since it was set: aim it where home was and set it again, which brings its saved positions back too' : ` · pan ${home.pan}°, tilt ${home.tilt}°${home.zoom_percent ? `, zoom ${(home.zoom_percent / 100).toFixed(1)}x` : ''}`));
               turn.append(homeLine);
             }
             // Saved targets (gimbaltargets.py), for this kind of event: aim it at a thing (the pot), Save as target; then

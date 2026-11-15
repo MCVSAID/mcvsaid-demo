@@ -1043,7 +1043,7 @@
       return answer({ did: `${camera.name}: found from its home (294 features matched, checked close up); its home lines up again; it is at home, not following`, home: g.home });
     }
     if (body.action === 'forget') g.home = { set: false };
-    else if (body.action === 'set') { if (!a) return answer({ detail: 'Gimbal: the phone is not reporting where it points' }, 409); g.home = { set: true, pan: a.pan, tilt: a.tilt, stale: false, findable: false }; }
+    else if (body.action === 'set') { if (!a) return answer({ detail: 'Gimbal: the phone is not reporting where it points' }, 409); g.home = { set: true, pan: a.pan, tilt: a.tilt, zoom_percent: camera.telemetry?.zoom_live_percent || camera.telemetry?.zoom_percent || null, stale: false, findable: false }; }
     else {
       if (!g.home.set) return answer({ detail: 'No home position yet: aim it, then Set home' }, 409);
       for (const x of [camera.telemetry?.gimbal, g].filter(Boolean)) { x.follow = null; if (x.attitude) { x.attitude.pan = g.home.pan; x.attitude.tilt = g.home.tilt; } }
