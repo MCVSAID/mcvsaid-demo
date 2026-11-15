@@ -2342,7 +2342,7 @@ async function drawAll() {
             if (gimbal.home) {
               const homeLine = node('p', 'Home position: '), home = gimbal.home;
               const gimbalHome = async (action, label) => {
-                try { await api(`/api/cameras/${encodeURIComponent(camera.id)}/gimbal-home`, { method: 'POST', body: JSON.stringify({ action }) }); refresh(); }
+                try { const done = await api(`/api/cameras/${encodeURIComponent(camera.id)}/gimbal-home`, { method: 'POST', body: JSON.stringify({ action }) }); if (done?.restored) concert.tell(`${camera.name}: home set; ${done.restored}`); refresh(); }
                 catch (error) { concert.tell(`${camera.name}: ${label}: ${error.message}`); }
               };
               const go = node('button', 'Home'); go.disabled = off || !home.set || home.stale; go.title = 'Turn it back to its home position (stops following); or say “let’s bring it back home” while it is on air';
@@ -2350,7 +2350,7 @@ async function drawAll() {
               const keep = node('button', home.set ? 'Set again' : 'Set home'); keep.disabled = off; keep.title = 'Keep where it points now as its home position';
               keep.onclick = () => gimbalHome('set', 'Set home');
               homeLine.append(go, ' ', keep);
-              if (home.set) homeLine.append(node('span', home.stale ? ' · the phone restarted since it was set: set it again' : ` · pan ${home.pan}°, tilt ${home.tilt}°`));
+              if (home.set) homeLine.append(node('span', home.stale ? ' · the phone restarted since it was set: aim it where home was and set it again, which brings its saved positions back too' : ` · pan ${home.pan}°, tilt ${home.tilt}°`));
               turn.append(homeLine);
             }
             // Saved targets (gimbaltargets.py), for this kind of event: aim it at a thing (the pot), Save as target; then
@@ -2402,7 +2402,7 @@ async function drawAll() {
                   item.append(name, ' ', phrases, ' ', keep, ' ', cancel);
                 } else {
                   const said = [target.name, ...target.phrases].map(p => `“${p}”`).join(', ');
-                  item.append(node('span', `${target.name}${target.zoom_percent ? ` · ${(target.zoom_percent / 100).toFixed(1)}x` : ''} · heard as ${said}${target.stale ? ' · the phone restarted since it was saved: aim it and save it again' : ''} `));
+                  item.append(node('span', `${target.name}${target.zoom_percent ? ` · ${(target.zoom_percent / 100).toFixed(1)}x` : ''} · heard as ${said}${target.stale ? ' · the phone restarted since it was saved: aim it where its home was and set home again, or aim it and save it again' : ''} `));
                   const go = node('button', 'Go'); go.disabled = off || target.stale; go.title = 'Turn it there now, to check (it stops following until Back)';
                   go.onclick = () => gimbalTarget({ action: 'go', id: target.id }, `Go to ${target.name}`);
                   const edit = node('button', 'Rename'); edit.title = 'Change its name, or the other words it is called by';

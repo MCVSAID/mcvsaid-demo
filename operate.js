@@ -201,10 +201,10 @@ function draw() {
       // Its home position (gimbal.point to angles kept here): set where it points now, and go back there.
       if (gimbal.home) {
         const home = node('button', 'Go home'); home.disabled = !gimbal.home.set || gimbal.home.stale;
-        home.title = !gimbal.home.set ? 'No home position yet: aim it, then Set home' : gimbal.home.stale ? 'The phone restarted since Set home: aim it and Set home again' : 'Turn it back to its home position (stops following). Controller: press the right stick';
+        home.title = !gimbal.home.set ? 'No home position yet: aim it, then Set home' : gimbal.home.stale ? 'The phone restarted since Set home: aim it where its home was and Set home again, which brings its saved positions back too' : 'Turn it back to its home position (stops following). Controller: press the right stick';
         home.onclick = () => goHome(camera.id);
         const sethome = node('button', gimbal.home.set ? 'Set home again' : 'Set home'); sethome.title = 'Keep where it points now as its home position';
-        sethome.onclick = () => act(`/api/cameras/${encodeURIComponent(camera.id)}/gimbal-home`, { action: 'set' }).then(done => { if (done) result.textContent = `${camera.name}: home set`; refresh(); });
+        sethome.onclick = () => act(`/api/cameras/${encodeURIComponent(camera.id)}/gimbal-home`, { action: 'set' }).then(done => { if (done) result.textContent = `${camera.name}: home set${done.restored ? `; ${done.restored}` : ''}`; refresh(); });
         buttons.append(home, sethome);
       }
     }
@@ -256,7 +256,7 @@ function drawPositions(box, camera, onAir) {
     const label = node('span', target.name, 'name');
     const where = node('span', `pan ${target.pan}°, tilt ${target.tilt}°${target.zoom_percent ? `, ${(target.zoom_percent / 100).toFixed(1)}×` : ''}${index < 4 ? ` · Menu + ${'ABXY'[index]}` : ''}`, 'where');
     const go = node('button', 'Go'); go.disabled = off || target.stale;
-    go.title = target.stale ? 'The phone restarted since this was saved: aim it again and Update to here' : `Turn it to ${target.name} and zoom there, to check${onAir ? ' (it is on air: the audience sees it move)' : ''}`;
+    go.title = target.stale ? 'The phone restarted since this was saved: aim it where its home was and Set home again to bring every position back, or aim it here and Update to here' : `Turn it to ${target.name} and zoom there, to check${onAir ? ' (it is on air: the audience sees it move)' : ''}`;
     go.onclick = async () => { if (onAir && !await window.concert.sure(`${camera.name} is on air. Turn it to ${target.name} anyway? The audience sees it move.`, { ok: 'Turn it' })) return; post({ action: 'go', id: target.id }); };
     const update = node('button', 'Update to here'); update.disabled = off;
     update.title = `Keep where it points now and its zoom as ${target.name}, in place of what it had`;
@@ -266,7 +266,7 @@ function drawPositions(box, camera, onAir) {
     drop.onclick = async () => { if (await window.concert.sure(`Delete the position “${target.name}” from ${camera.name}? Remote keys and voice calls that use it stop working.`, { ok: 'Delete', danger: true })) post({ action: 'delete', id: target.id }, `${camera.name}: ${target.name} deleted`); };
     const acts = node('div', undefined, 'acts'); acts.append(go, update, rename, drop);
     item.append(label, where, acts);
-    if (target.stale) item.append(node('small', 'The phone restarted since this was saved, so the angle no longer lines up: aim it again and Update to here.'));
+    if (target.stale) item.append(node('small', 'The phone restarted since this was saved, so the angle no longer lines up: aim it where its home was and Set home again to bring every position back, or aim it here and Update to here.'));
     list.append(item);
   });
   const parts = [heading];
@@ -303,7 +303,7 @@ async function savePosition(camera, quick = false) {
 function goPosition(cameraId, index) {
   const camera = state?.cameras.find(c => c.id === cameraId), target = camera?.gimbal?.targets?.list[index];
   if (!target) { result.textContent = `${camera?.name || 'This camera'} has no position ${index + 1}`; return; }
-  if (target.stale) { result.textContent = `${camera.name}: ${target.name} no longer lines up (the phone restarted): aim it and Update to here`; return; }
+  if (target.stale) { result.textContent = `${camera.name}: ${target.name} no longer lines up (the phone restarted): aim it where its home was and Set home again, or aim it here and Update to here`; return; }
   act(`/api/cameras/${encodeURIComponent(cameraId)}/gimbal-targets`, { action: 'go', id: target.id }).then(answer => { if (answer?.did) result.textContent = answer.did; refresh(); });
 }
 
