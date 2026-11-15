@@ -66,8 +66,8 @@ function show(path) {
   else if (path === '/system') systemTab = systemTabOf(location.hash.slice(1));
   part = PARTS[path] ? path : '/';
   // The Recipe page is Cooking's: in another kind of event it is the Show page.
-  if (part === '/recipe' && window.concert.mode && window.concert.mode.mode !== 'cooking') { part = '/'; history.replaceState(null, '', '/'); }
-  if (ADMIN_ONLY.includes(part) && role !== 'admin') { part = '/'; history.replaceState(null, '', '/'); }
+  if (part === '/recipe' && window.concert.mode && window.concert.mode.mode !== 'cooking') { part = '/'; history.replaceState(null, '', window.concert.at('/')); }
+  if (ADMIN_ONLY.includes(part) && role !== 'admin') { part = '/'; history.replaceState(null, '', window.concert.at('/')); }
   for (const [name, sections] of Object.entries(PARTS)) for (const id of sections) { const section = document.querySelector(id); if (section) section.hidden = name !== part; }
   if (part === '/system') {
     for (const [id, , panels] of SYSTEM) for (const panel of panels) document.querySelector(panel).hidden = id !== systemTab;
@@ -1715,7 +1715,7 @@ async function drawAll() {
       if (!operator) try { colour = await api('/api/colour'); } catch (error) { colour = null; }
       const clock = seconds => `${Math.floor(seconds / 3600) ? `${Math.floor(seconds / 3600)}:` : ''}${String(Math.floor(seconds / 60) % 60).padStart(Math.floor(seconds / 3600) ? 2 : 1, '0')}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`;
       pcPanel.replaceChildren(node('h2', 'Programme recordings'));
-      const where = node('p', `OBS records the programme into ${director.folder}. Recording is started and stopped on the `); const showLink = document.createElement('a'); showLink.href = '/'; showLink.textContent = 'Show page'; where.append(showLink, node('span', '.')); pcPanel.append(where);
+      const where = node('p', `OBS records the programme into ${director.folder}. Recording is started and stopped on the `); const showLink = document.createElement('a'); showLink.href = window.concert.at('/'); showLink.textContent = 'Show page'; where.append(showLink, node('span', '.')); pcPanel.append(where);
       if (director.recording) { const now = node('p', `Recording now: ${clock(director.recording.seconds)} · ${(director.recording.bytes / 1048576).toFixed(0)} MiB · ${director.recording.cuts} shot${director.recording.cuts === 1 ? '' : 's'} logged`); now.className = 'activity running'; pcPanel.append(now); }
       const finished = [...(director.finished || [])].reverse();
       if (!finished.length) pcPanel.append(node('p', 'No programme has been recorded since the manager last started. The last five are listed here.'));

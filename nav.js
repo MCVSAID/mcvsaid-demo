@@ -28,7 +28,11 @@ window.concert = {
   handy: ['/', '/cameras', '/stage', '/director'],
   handyIn: { cooking: ['/', '/recipe', '/cameras', '/stage'], karaoke: ['/', '/karaoke', '/cameras', '/stage'] },     // in Cooking, the recipe is followed during the show
   // Pages that sit under one of the above, which is shown as the current one while they are open.
-  under: { '/recordings': '/offload', '/phones': '/system', '/locations': '/system' },
+  under: { '/recordings': '/offload', '/phones': '/system', '/locations': '/system', '/show': '/' },
+  // Where the Show page (/) is reached from here: operate. and remote.<name> send / on to their own page (webnames.py),
+  // so there it is /show, which the manager answers with the same page.
+  showAt: /^(operate|remote)\./.test(location.hostname) ? '/show' : '/',
+  at(path) { return path === '/' ? this.showAt : path; },
   // Pages only for one kind of event (modes.py): shown in the side bar only while it is the one in use.
   onlyIn: { '/recipe': 'cooking', '/karaoke': 'karaoke' },
   inPlace: ['/', '/recipe', '/cameras', '/colour', '/director', '/sound', '/power', '/recordings', '/system', '/locations'],   // parts of the one main page: switched without loading anything
@@ -118,11 +122,11 @@ window.concert = {
     const visible = this.pages.filter(([path, , , who]) => (role === 'tech' ? who === 'tech' : who !== 'admin' || role === 'admin') && (!this.onlyIn[path] || this.onlyIn[path] === this.mode?.mode));
     const go = (link, path) => {
       if (!(pick && this.inPlace.includes(path.split('#')[0]))) return;
-      link.onclick = event => { if (event.metaKey || event.ctrlKey || event.shiftKey) return; event.preventDefault(); this.menu(false); history.pushState(null, '', path); pick(path.split('#')[0]); this.nav(role, pick); };
+      link.onclick = event => { if (event.metaKey || event.ctrlKey || event.shiftKey) return; event.preventDefault(); this.menu(false); history.pushState(null, '', this.at(path)); pick(path.split('#')[0]); this.nav(role, pick); };
     };
     // Its name, and a way to open it out on a tablet, where it is a strip of icons.
     const top = document.createElement('div'); top.className = 'brand';
-    const name = document.createElement('a'); name.href = '/'; name.title = 'MultiCam Video Stream AI Director'; name.innerHTML = `${this.icon('logo')}<span>MCVSAID</span>`; go(name, '/');
+    const name = document.createElement('a'); name.href = this.at('/'); name.title = 'MultiCam Video Stream AI Director'; name.innerHTML = `${this.icon('logo')}<span>MCVSAID</span>`; go(name, '/');
     const widen = document.createElement('button'); widen.type = 'button'; widen.id = 'widen'; widen.innerHTML = this.icon('menu');
     const wide = document.body.classList.contains('rail-open'); widen.setAttribute('aria-label', wide ? 'Narrow the side bar' : 'Widen the side bar'); widen.setAttribute('aria-expanded', String(wide));
     widen.onclick = () => { document.body.classList.toggle('rail-open'); this.nav(role, pick); document.querySelector('#widen')?.focus(); };
@@ -135,7 +139,7 @@ window.concert = {
     for (const [path, title, about, , heading, icon] of visible) {
       if (heading !== group) { group = heading; section = document.createElement('div'); section.className = 'group'; section.setAttribute('role', 'group'); section.setAttribute('aria-label', heading);
         const label = document.createElement('p'); label.className = 'group-name'; label.textContent = heading; section.append(label); list.append(section); }
-      const link = document.createElement('a'); link.href = path; link.title = about; link.dataset.page = path;
+      const link = document.createElement('a'); link.href = this.at(path); link.title = about; link.dataset.page = path;
       link.innerHTML = `${this.icon(icon)}<span class="label"></span><span class="badge" hidden></span>`; link.querySelector('.label').textContent = title;
       if (path === current) link.setAttribute('aria-current', 'page');
       go(link, path); section.append(link);
@@ -166,7 +170,7 @@ window.concert = {
     if (!bottom) { bottom = document.createElement('nav'); bottom.id = 'bottom-bar'; bottom.setAttribute('aria-label', 'Pages used during a show'); document.body.append(bottom); }
     bottom.replaceChildren();
     for (const [path, title, , , , icon] of visible.filter(([path]) => handy.includes(path))) {
-      const link = document.createElement('a'); link.href = path; link.dataset.page = path; link.innerHTML = `${this.icon(icon)}<span class="label"></span><span class="badge" hidden></span>`; link.querySelector('.label').textContent = title;
+      const link = document.createElement('a'); link.href = this.at(path); link.dataset.page = path; link.innerHTML = `${this.icon(icon)}<span class="label"></span><span class="badge" hidden></span>`; link.querySelector('.label').textContent = title;
       if (path === current) link.setAttribute('aria-current', 'page');
       go(link, path); bottom.append(link);
     }
