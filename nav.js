@@ -401,7 +401,8 @@ window.concert = {
       prompter: '<rect x="4" y="3" width="16" height="13" rx="1.5"/><path d="M7.5 7h9M7.5 10h9M7.5 13h5"/><path d="M12 16v3M8 21h8"/>',
       keys: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5" fill="currentColor"/>',
       gamepad: '<path d="M6 9h12a4 4 0 0 1 3.9 4.8l-.8 3.6a2 2 0 0 1-3.4.9L15.5 16h-7l-2.2 2.3a2 2 0 0 1-3.4-.9l-.8-3.6A4 4 0 0 1 6 9z"/><path d="M8 11.5v3M6.5 13h3"/><circle cx="16" cy="12" r=".8"/><circle cx="17.6" cy="14" r=".8"/>',
-      stage: '<rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1"/><rect x="3" y="13" width="8" height="8" rx="1"/><rect x="13" y="13" width="8" height="8" rx="1"/>',
+      // A stage, with a camera in each front corner pointed at it: not a grid of squares, which is Remote's (keys).
+      stage: '<path d="M6 3h12l2 5H4z"/><g transform="translate(5.5 18.5) rotate(-55)"><rect x="-3" y="-2" width="6" height="4" rx=".8"/><path d="M3 -1l2.5-1.2v4.4L3 1"/></g><g transform="translate(18.5 18.5) rotate(-125)"><rect x="-3" y="-2" width="6" height="4" rx=".8"/><path d="M3 -1l2.5-1.2v4.4L3 1"/></g>',
       layout: '<rect x="3" y="3" width="18" height="7" rx="1"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/><path d="M7 15l3-5M17 15l-3-5"/>',
       director: '<path d="M4 9h16v10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z"/><path d="M4 9l2-5 15 3-1 2"/><path d="M9 5.2l-1 3.8M14 6.2l-1 2.8"/>',
       colour: '<path d="M12 3a9 9 0 1 0 0 18c1.5 0 2-1 2-2s-1-1.5-1-2.5 1-1.5 2-1.5h2a4 4 0 0 0 4-4c0-4.4-4-8-9-8z"/><circle cx="7.5" cy="11" r="1.2" fill="currentColor"/><circle cx="10" cy="7" r="1.2" fill="currentColor"/><circle cx="15" cy="7" r="1.2" fill="currentColor"/>',
