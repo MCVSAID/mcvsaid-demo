@@ -2336,6 +2336,18 @@ async function drawAll() {
               if (home.set) homeLine.append(node('span', home.stale ? ' · the phone restarted since it was set: aim it where home was and set it again, which brings its saved positions back too' : ` · pan ${home.pan}°, tilt ${home.tilt}°${home.zoom_percent ? `, zoom ${(home.zoom_percent / 100).toFixed(1)}x` : ''}`));
               turn.append(homeLine);
             }
+            // The picture check after a turn to home or a saved target: what it saw against the room kept there (matchhome.py).
+            if (gimbal.checked) {
+              const c = gimbal.checked, deg = v => `${Math.abs(v).toFixed(1)}°`, ago = Math.round((c.ago_seconds || 0) / 60);
+              const off = c.checked ? `${deg(c.off_pan)} ${c.off_pan < 0 ? 'left' : 'right'} and ${deg(c.off_tilt)} ${c.off_tilt < 0 ? 'low' : 'high'}` : '';
+              const said = c.busy && !c.name ? 'Checking where it points by what it sees…'
+                : `Checked ${c.name} by what it sees ${ago ? `${ago} min ago` : 'just now'}: `
+                  + (c.turned ? `it was ${off}, turned onto it (${deg(Math.max(Math.abs(c.left_pan), Math.abs(c.left_tilt)))} left)` : c.checked && !c.why ? `on it, within ${deg(Math.max(Math.abs(c.off_pan), Math.abs(c.off_tilt), 0.1))}` : c.checked ? `${off}; ${c.why}` : c.why)
+                  + (c.busy ? ' · checking again…' : '');
+              const line = node('p', said); line.className = 'app-version';
+              line.title = 'After Home or Go here, the picture is matched against the room kept when it was saved, and what is left is turned off (up to 3°, never on air)';
+              turn.append(line);
+            }
             // Saved targets (gimbaltargets.py), for this kind of event: aim it at a thing (the pot), Save as target; then
             // "show the pot" said aloud, or Go here, turns and zooms it there, and Back puts it back as it was.
             if (gimbal.targets) {

@@ -1047,8 +1047,8 @@
     else {
       if (!g.home.set) return answer({ detail: 'No home position yet: aim it, then Set home' }, 409);
       for (const x of [camera.telemetry?.gimbal, g].filter(Boolean)) { x.follow = null; if (x.attitude) { x.attitude.pan = g.home.pan; x.attitude.tilt = g.home.tilt; } }
-      g.performer = null;
-      note('In the demo the gimbal says it is back home, but the pictures are drawn, so nothing moves.');
+      g.performer = null; pictureChecked(camera, 'its home');
+      note('In the demo the gimbal says it is back home, but the pictures are drawn, so nothing moves. On a real gimbal, once it is there its picture is matched against the room kept at Set home, and what is left is turned off.');
     }
     save();
     return body.action === 'go' ? answer({ state: 'SUCCEEDED', demo: true }) : answer({ home: g.home });
@@ -1068,8 +1068,12 @@
     g.performer = null;
     if (target.zoom_percent && camera.telemetry) camera.telemetry.zoom_percent = target.zoom_percent;
     t.away = { id: target.id, name: target.name, since: now(), by };
-    camera.gimbal.targets = copy(t);
-    return `${camera.name}: turning to ${target.name}${target.zoom_percent ? `, zooming to ${(target.zoom_percent / 100).toFixed(1)}x` : ''}`;
+    camera.gimbal.targets = copy(t); pictureChecked(camera, `“${target.name}”`);
+    return `${camera.name}: turning to ${target.name}${target.zoom_percent ? `, zooming to ${(target.zoom_percent / 100).toFixed(1)}x` : ''}, then checking it by what it sees`;
+  }
+  // The picture check after Home or Go here (Manager.picture_check): as a real one would say of a sensor drifted a little.
+  function pictureChecked(camera, name) {
+    camera.gimbal.checked = { key: 'demo', name, checked: true, turned: true, off_pan: -1.4, off_tilt: 0.6, left_pan: 0.1, left_tilt: -0.2, matches: 312, busy: false, ago_seconds: 0, at: now() };
   }
   // The way back: to the spot remembered live ("remember where we are") when there is one, else as before the first target.
   function targetBack(camera) {
