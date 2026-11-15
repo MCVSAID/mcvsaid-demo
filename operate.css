@@ -41,3 +41,20 @@
 
 /* Tracking or the automatic crop zoom switched off (autoswitch.py): in amber, so it is seen at a glance. */
 button.held { border-color:#ffd17a; color:#ffd17a; }
+
+/* A setup tech (users.py) sets positions here: what cuts, arms, streams or records is not theirs. */
+body.setup-tech .show-only { display:none !important; }
+/* Positions: a gimbal camera's saved aim and zoom (gimbaltargets.py). */
+.feed .positions:empty { display:none; }
+.feed .positions { margin:8px 0 2px; padding-top:6px; border-top:1px solid #2b3a48; }
+.feed .positions h3 { font-size:.95rem; margin:0 0 4px; display:flex; gap:8px; align-items:baseline; }
+.feed .positions h3 .count { color:#9fb3c6; font-weight:normal; font-size:.8rem; }
+.feed .positions ol { margin:0 0 6px; padding-left:22px; }
+.feed .positions li { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin:4px 0; }
+.feed .positions li .name { font-weight:600; }
+.feed .positions li .where { color:#9fb3c6; font-size:.85rem; font-variant-numeric:tabular-nums; }
+.feed .positions li .acts { flex-basis:100%; display:flex; flex-wrap:wrap; gap:6px; }
+.feed .positions li.stale .name { color:#ffd17a; }
+.feed .positions li small { flex-basis:100%; color:#ffd17a; }
+.feed .positions li input { flex:1; min-width:8em; }
+.feed .positions > small { display:block; color:#9fb3c6; margin-top:4px; }

@@ -4,13 +4,13 @@
 window.concert = {
   // Where things are, by what they are for: what is watched while live, what is set up for a show, the recordings (the
   // files and how they are made), and the administration. Each is [path, name, what it is for, who may see it, group, icon].
-  // Who: null for everyone who opens the dashboard, 'admin' for the administrator alone, 'tech' for a setup tech too (and nothing else is theirs).
+  // Who: null for everyone who opens the dashboard, 'admin' for the administrator alone, 'tech' for a setup tech too (Calibrate, and Operate for positions; nothing else is theirs).
   pages: [['/', 'Show', 'Readiness, what is on air, recording the programme', null, 'Show', 'show'],
           ['/recipe', 'Recipe', 'The recipe being cooked: its preparation and steps, what is on screen, spoken cues', null, 'Show', 'recipe'],
           ['/cameras', 'Cameras', 'Each phone: its state, its controls, what it shows', null, 'Show', 'camera'],
           ['/stage', 'Stage Shots', 'Choose shots from a picture of the stage', null, 'Show', 'stage'],
           ['/remote', 'Remote', 'Programmable keys for a phone or tablet: a camera on air, a gimbal camera to a saved angle and zoom', null, 'Show', 'keys'],
-          ['/operate', 'Operate', 'Chosen cameras live, steered with an Xbox controller: aim, zoom, cut', null, 'Show', 'gamepad'],
+          ['/operate', 'Operate', 'Chosen cameras live, steered with an Xbox controller: aim, zoom, cut, and each gimbal camera’s saved positions', 'tech', 'Show', 'gamepad'],
           ['/karaoke', 'Karaoke', 'Karaoke night: the line of singers, guests signing up from their phones, calling up the next', null, 'Show', 'karaoke'],
           ['/teleprompter', 'Teleprompter', 'Scripts for whoever speaks to camera, followed word by word as they are read, on a tablet', null, 'Show', 'prompter'],
           ['/temperatures', 'Temperatures', 'Heat now and run by run', null, 'Show', 'heat'],
@@ -108,8 +108,9 @@ window.concert = {
     bar.replaceChildren();
     const here = location.pathname.replace(/\/+$/, '') || '/', current = this.under[here] || here;
     const handy = this.handyIn[this.mode?.mode] || this.handy;
-    // A setup tech (users.py) has Calibrate and nothing else: any other page sends them there.
-    if (role === 'tech' && here !== '/calibration') { location.replace('/calibration'); return; }
+    // A setup tech (users.py) has Calibrate, and Operate for setting gimbal positions, and nothing else: any other page
+    // sends them to Calibrate.
+    if (role === 'tech' && !this.pages.some(([path, , , who]) => path === here && who === 'tech')) { location.replace('/calibration'); return; }
     const visible = this.pages.filter(([path, , , who]) => (role === 'tech' ? who === 'tech' : who !== 'admin' || role === 'admin') && (!this.onlyIn[path] || this.onlyIn[path] === this.mode?.mode));
     const go = (link, path) => {
       if (!(pick && this.inPlace.includes(path.split('#')[0]))) return;

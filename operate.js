@@ -4,6 +4,9 @@
 // Each controller drives one camera at a time (LB/RB to change); its readings go to the manager ten times a second while
 // a stick or trigger is held (/api/operate/control), and the phone stops its gimbal by itself half a second after the last.
 let csrf = '', state = null;
+// A setup tech (users.py) has this page to set each gimbal camera's positions before the show: aiming, zoom and the
+// Positions under each picture, and nothing that cuts, arms, streams or records.
+const tech = () => window.concert?.session?.role === 'tech';
 // How quick aiming and zooming are, 1 to 10, each kept in this browser (the bar's Aim and Zoom). 2026-10-25: "incredibly
 // slow" on a tablet, at the old default of a sixth of the gimbal's speed for a full push; 6 is now 60% of it.
 const DEFAULT_AIM = 6, DEFAULT_ZOOM = 6;
@@ -43,6 +46,10 @@ const send = (camera, command, parameters = {}) => act(`/api/cameras/${encodeURI
 async function enter(session) {
   csrf = session.csrf; document.querySelector('#password').value = ''; document.querySelector('#login').hidden = true; document.querySelector('#operate').hidden = false;
   if (window.concert) { window.concert.session = session; window.concert.nav(session.role); }
+  document.body.classList.toggle('setup-tech', session.role === 'tech');
+  // A setup tech is often on a phone with no controller: the on-screen arrows at first, unless this browser chose.
+  let chose = null; try { chose = localStorage.getItem('operate.onscreen'); } catch (error) { /* none */ }
+  if (session.role === 'tech' && chose === null) { onscreen = true; document.querySelector('#onscreen').checked = true; }
   await refresh(); window.concert.every(refresh, 1000);        // not while the page is hidden
   // Read about sixty times a second, on a timer rather than animation frames, which a browser stops for a page not in view.
   setInterval(() => poll(performance.now()), 16);
@@ -107,7 +114,7 @@ function pictures() {
 
 // One run at a time; asked again meanwhile, once more when done (concert.single).
 const refresh = window.concert.single(async () => {
-  try { state = await api('/api/cameras'); } catch (error) { window.concert.polled(!error.unreachable); window.concert.fail(error); return; }
+  try { state = await api(tech() ? '/api/operate/cameras' : '/api/cameras'); } catch (error) { window.concert.polled(!error.unreachable); window.concert.fail(error); return; }
   window.concert.polled(true);
   draw();
 });
@@ -152,7 +159,7 @@ function draw() {
         img.src = feed(camera.id);
       }
       picture.append(img, said);
-      tile.append(node('h2'), picture, onscreenPad(camera.id), node('p', '', 'line'), node('div', undefined, 'buttons'), node('div', undefined, 'shows'), node('div', undefined, 'follow'));
+      tile.append(node('h2'), picture, onscreenPad(camera.id), node('p', '', 'line'), node('div', undefined, 'buttons'), node('div', undefined, 'positions'), node('div', undefined, 'shows'), node('div', undefined, 'follow'));
       tile.onclick = event => { if (event.target.closest('button')) return; const index = [...drives.keys()][0]; if (index !== undefined) { drives.set(index, camera.id); draw(); } };
       feeds.append(tile); tiles.set(camera.id, tile);
     }
@@ -171,8 +178,10 @@ function draw() {
     line.textContent = `${!camera.online ? 'Offline' : gimbal?.summary || (gimbal ? 'Gimbal not connected' : 'No gimbal: zoom and cut only')}${camera.lens_now ? '' : zoom}${director.gimbal_out?.[camera.id] ? ` · kept off air: ${director.gimbal_out[camera.id]}` : ''}`;
     if (camera.lens_now) line.append(' ', window.lensChip(camera.lens_now));
     const buttons = tile.querySelector('.buttons'); buttons.replaceChildren();
-    const take = node('button', onAir ? 'On air' : 'Put on air'); take.disabled = onAir || !camera.online; take.onclick = () => act('/api/director', { take: camera.id }).then(refresh);
-    buttons.append(take);
+    if (!tech()) {
+      const take = node('button', onAir ? 'On air' : 'Put on air'); take.disabled = onAir || !camera.online; take.onclick = () => act('/api/director', { take: camera.id }).then(refresh);
+      buttons.append(take);
+    }
     // Back to no zoom (1x), kept on the phone, for a camera left zoomed in.
     if (camera.online && (t.zoom_percent || 100) !== 100) {
       const reset = node('button', 'Reset zoom'); reset.title = `Back to 1x (now ${((t.zoom_live_percent || t.zoom_percent) / 100).toFixed(1)}x), and kept on the phone`;
@@ -183,9 +192,9 @@ function draw() {
     pad.hidden = !onscreen;
     for (const b of pad.querySelectorAll('[data-pan], [data-tilt]')) b.disabled = !camera.online || !gimbal?.connected;
     for (const b of pad.querySelectorAll('[data-zoom]')) b.disabled = !camera.online;
-    buttons.append(...autoButtons(camera, state.auto));
+    if (!tech()) buttons.append(...autoButtons(camera, state.auto));
     // Arming, streaming and recording, as on its card: only what fits the camera's state; stopping asks first.
-    if (camera.online) buttons.append(...capture(camera, t));
+    if (camera.online && !tech()) buttons.append(...capture(camera, t));
     if (gimbal?.connected) {
       const stop = node('button', 'Stop gimbal'); stop.title = 'Stop the gimbal moving (the stream carries on). Controller: press B'; stop.onclick = () => send(camera.id, 'gimbal.stop');
       buttons.append(stop);
@@ -199,17 +208,103 @@ function draw() {
         buttons.append(home, sethome);
       }
     }
+    drawPositions(tile.querySelector('.positions'), camera, onAir);
     // What it shows: the camera card's own control (shows.js), the same setting; for every camera, gimbal or not.
     const shows = tile.querySelector('.shows');
-    if (director.camera_focus !== undefined) window.whatItShows.into(shows, camera, director, { ...showsContext, studio: state.creator });
+    if (director.camera_focus !== undefined && !tech()) window.whatItShows.into(shows, camera, director, { ...showsContext, studio: state.creator });
     else { shows.replaceChildren(); delete shows.dataset.signature; }
     // Whom its gimbal follows and its follow plan: the camera card's own control (follow.js), the same setting.
     const follow = tile.querySelector('.follow');
-    if (gimbal?.connected && t.capabilities?.gimbal_follow) window.gimbalFollow.into(follow, camera, followContext(camera));
+    if (gimbal?.connected && t.capabilities?.gimbal_follow && !tech()) window.gimbalFollow.into(follow, camera, followContext(camera));
     else { follow.replaceChildren(); delete follow.dataset.signature; }
   }
   drawPads(shown);
   pictures();
+}
+
+// Positions: a gimbal camera's saved targets (gimbaltargets.py, the same as on its card and Remote's keys), set up here
+// with the live picture: aim and zoom it, Save as…; Go turns it there to check, Update to here keeps where it points now
+// in place of what one had. The first four are on a controller too: hold Menu (≡) and press A, B, X or Y to go there,
+// Menu and the left stick to save a new one. Drawn again only when something in it changes, so a name being typed holds.
+function drawPositions(box, camera, onAir) {
+  const gimbal = camera.gimbal, targets = gimbal?.targets;
+  if (!targets) { box.replaceChildren(); delete box.dataset.signature; return; }
+  const off = !camera.online || !gimbal.connected;
+  const signature = JSON.stringify([targets.list, targets.mode, off, onAir, gimbal.stage?.calibrated, editing.get(camera.id)]);
+  if (box.dataset.signature === signature) return;
+  box.dataset.signature = signature;
+  const post = async (body, did) => {
+    const answer = await act(`/api/cameras/${encodeURIComponent(camera.id)}/gimbal-targets`, body);
+    if (answer) { result.textContent = answer.did || did || ''; editing.delete(camera.id); }
+    refresh();
+    return answer;
+  };
+  const heading = node('h3', `Positions · ${targets.mode_name} `);
+  heading.append(node('span', `${targets.list.length} of ${targets.most}`, 'count'));
+  const list = node('ol');
+  targets.list.forEach((target, index) => {
+    const item = node('li'); if (target.stale) item.className = 'stale';
+    if (editing.get(camera.id) === target.id) {
+      const name = document.createElement('input'); name.type = 'text'; name.maxLength = 40; name.value = target.name; name.setAttribute('aria-label', `New name for ${target.name}`);
+      const keep = node('button', 'Keep'); keep.onclick = () => post({ action: 'change', id: target.id, name: name.value }, `${camera.name}: renamed ${name.value.trim()}`);
+      const cancel = node('button', 'Cancel'); cancel.onclick = () => { editing.delete(camera.id); delete box.dataset.signature; drawPositions(box, camera, onAir); };
+      name.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); keep.click(); } if (event.key === 'Escape') cancel.click(); });
+      item.append(name, keep, cancel);
+      list.append(item); setTimeout(() => { name.focus(); name.select(); }, 0);
+      return;
+    }
+    const label = node('span', target.name, 'name');
+    const where = node('span', `pan ${target.pan}°, tilt ${target.tilt}°${target.zoom_percent ? `, ${(target.zoom_percent / 100).toFixed(1)}×` : ''}${index < 4 ? ` · Menu + ${'ABXY'[index]}` : ''}`, 'where');
+    const go = node('button', 'Go'); go.disabled = off || target.stale;
+    go.title = target.stale ? 'The phone restarted since this was saved: aim it again and Update to here' : `Turn it to ${target.name} and zoom there, to check${onAir ? ' (it is on air: the audience sees it move)' : ''}`;
+    go.onclick = async () => { if (onAir && !await window.concert.sure(`${camera.name} is on air. Turn it to ${target.name} anyway? The audience sees it move.`, { ok: 'Turn it' })) return; post({ action: 'go', id: target.id }); };
+    const update = node('button', 'Update to here'); update.disabled = off;
+    update.title = `Keep where it points now and its zoom as ${target.name}, in place of what it had`;
+    update.onclick = () => post({ action: 'update', id: target.id });
+    const rename = node('button', 'Rename'); rename.onclick = () => { editing.set(camera.id, target.id); delete box.dataset.signature; drawPositions(box, camera, onAir); };
+    const drop = node('button', 'Delete'); drop.className = 'danger';
+    drop.onclick = async () => { if (await window.concert.sure(`Delete the position “${target.name}” from ${camera.name}? Remote keys and voice calls that use it stop working.`, { ok: 'Delete', danger: true })) post({ action: 'delete', id: target.id }, `${camera.name}: ${target.name} deleted`); };
+    const acts = node('div', undefined, 'acts'); acts.append(go, update, rename, drop);
+    item.append(label, where, acts);
+    if (target.stale) item.append(node('small', 'The phone restarted since this was saved, so the angle no longer lines up: aim it again and Update to here.'));
+    list.append(item);
+  });
+  const parts = [heading];
+  if (targets.list.length) parts.push(list);
+  if (targets.list.length < targets.most) {
+    const save = node('button', 'Save as…'); save.disabled = off;
+    save.title = 'Aim and zoom it first: where it points now and its zoom are kept under a name you give';
+    save.onclick = () => savePosition(camera);
+    parts.push(save);
+  }
+  const anyStale = targets.list.some(t => t.stale);
+  parts.push(node('small', !targets.list.length
+    ? `Aim and zoom it at something it should show on cue (the lead vocal, the piano), then Save as…. Kept for ${targets.mode_name}; used by Remote's keys${targets.voice ? ' and voice calls' : ''}.`
+    : gimbal.stage?.calibrated ? 'Aimed from the stage (Stage layout): these hold across a restart of the phone.'
+    : `${anyStale ? 'Some no longer line up. ' : ''}A restart of the phone moves these off: calibrate its aim from the stage (Stage layout) and they hold.`));
+  box.replaceChildren(...parts);
+}
+const editing = new Map();                                              // camera id -> the position being renamed
+async function savePosition(camera, quick = false) {
+  const targets = camera.gimbal?.targets; if (!targets) return;
+  const taken = new Set(targets.list.map(t => t.name.toLowerCase()));
+  let number = targets.list.length + 1; while (taken.has(`position ${number}`)) number++;
+  let name = `Position ${number}`;
+  if (!quick) {
+    const asked = await window.concert.ask({ title: `Save ${camera.name}'s position`, text: 'Where it points now and its zoom, kept under this name: what it shows, as you would say it.',
+                                             fields: [{ name: 'name', label: 'Name', value: name }], ok: 'Save' });
+    if (!asked) return;
+    name = asked.name;
+  }
+  const answer = await act(`/api/cameras/${encodeURIComponent(camera.id)}/gimbal-targets`, { action: 'save', name });
+  if (answer) result.textContent = answer.did || `${camera.name}: ${name} saved`;
+  refresh();
+}
+function goPosition(cameraId, index) {
+  const camera = state?.cameras.find(c => c.id === cameraId), target = camera?.gimbal?.targets?.list[index];
+  if (!target) { result.textContent = `${camera?.name || 'This camera'} has no position ${index + 1}`; return; }
+  if (target.stale) { result.textContent = `${camera.name}: ${target.name} no longer lines up (the phone restarted): aim it and Update to here`; return; }
+  act(`/api/cameras/${encodeURIComponent(cameraId)}/gimbal-targets`, { action: 'go', id: target.id }).then(answer => { if (answer?.did) result.textContent = answer.did; refresh(); });
 }
 
 // The capture controls of a tile: Arm when not armed; once armed, the stream and the recording each started or
@@ -394,11 +489,17 @@ function poll(time) {
     }
     const camera = drives.get(pad.index), last = pads.get(pad.index) || { buttons: [], sent: 0, active: false };
     const pressed = i => pad.buttons[i]?.pressed && !last.buttons[i];
-    if (pressed(0)) act('/api/director', { take: camera }).then(refresh);
-    if (pressed(1)) send(camera, 'gimbal.stop');
-    if (pressed(2)) { const c = state.cameras.find(x => x.id === camera); if (c?.gimbal?.connected) send(camera, 'gimbal.follow', c.gimbal.follow ? { on: false } : { on: true, who: 'face' }).then(refresh); }
-    if (pressed(3)) act('/api/operate/previous', {}).then(refresh);
-    if (pressed(8)) act('/api/operate/main', {}).then(refresh);
+    // Menu (≡) held: A, B, X and Y go to positions 1 to 4, the left stick saves a new one (named Position N).
+    if (pad.buttons[9]?.pressed) {
+      for (const [button, index] of [[0, 0], [1, 1], [2, 2], [3, 3]]) if (pressed(button)) goPosition(camera, index);
+      if (pressed(10)) { const c = state.cameras.find(x => x.id === camera); if (c?.gimbal?.targets) savePosition(c, true); }
+    } else {
+      if (pressed(0) && !tech()) act('/api/director', { take: camera }).then(refresh);
+      if (pressed(1)) send(camera, 'gimbal.stop');
+      if (pressed(2) && !tech()) { const c = state.cameras.find(x => x.id === camera); if (c?.gimbal?.connected) send(camera, 'gimbal.follow', c.gimbal.follow ? { on: false } : { on: true, who: 'face' }).then(refresh); }
+      if (pressed(3) && !tech()) act('/api/operate/previous', {}).then(refresh);
+    }
+    if (pressed(8) && !tech()) act('/api/operate/main', {}).then(refresh);
     if (pressed(11)) goHome(camera);
     if (pressed(4) || pressed(14)) step(pad.index, -1);
     if (pressed(5) || pressed(15)) step(pad.index, 1);

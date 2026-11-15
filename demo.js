@@ -1161,12 +1161,12 @@
     const camera = cams().cameras.find(c => c.id === id); if (!camera) return answer({ detail: 'No such camera' }, 404);
     const t = camera.gimbal?.targets ? targetState(camera) : null;
     if (!t) return answer({ detail: 'Gimbal: the camera app cannot turn to a position' }, 409);
-    if (!['save', 'change', 'delete', 'go', 'back', 'remember', 'clear'].includes(body.action)) return answer({ detail: 'action is save, change, delete, go, back, remember or clear' }, 400);
+    if (!['save', 'update', 'change', 'delete', 'go', 'back', 'remember', 'clear'].includes(body.action)) return answer({ detail: 'action is save, update, change, delete, go, back, remember or clear' }, 400);
     const tidy = text => String(text || '').split(/\s+/).join(' ').trim().slice(0, 40);
     const lead = /^(?:show(?:\s+(?:me|us))?|let's\s+see|lets\s+see|cut\s+to|go\s+to|give\s+me)\s+(?:the\s+)?/i;
     const phrases = list => [...new Set((list || []).map(p => tidy(p).replace(lead, '')).filter(Boolean))].slice(0, 6);
     const target = t.list.find(x => x.id === body.id);
-    if (['change', 'delete', 'go'].includes(body.action) && !target) return answer({ detail: 'No such target' }, 404);
+    if (['update', 'change', 'delete', 'go'].includes(body.action) && !target) return answer({ detail: 'No such target' }, 404);
     const name = 'name' in body ? (tidy(body.name).replace(lead, '') || tidy(body.name)) : null;
     if (name !== null && !name) return answer({ detail: 'A name is 1 to 40 characters' }, 400);
     if (name && t.list.some(x => x.name.toLowerCase() === name.toLowerCase() && x.id !== body.id)) return answer({ detail: `${camera.name} already has a target called ${name}` }, 409);
@@ -1177,11 +1177,18 @@
     else if (body.action === 'go') { did = targetGo(camera, target, 'operator'); note('In the demo the gimbal says it has turned, but the pictures are drawn, so nothing moves.'); }
     else if (body.action === 'delete') t.list = t.list.filter(x => x.id !== target.id);
     else if (body.action === 'change') Object.assign(target, name ? { name } : {}, 'phrases' in body ? { phrases: phrases(body.phrases) } : {});
+    else if (body.action === 'update') {
+      // Update to here (the Operate page): where it points now and its zoom, under its own name.
+      const a = camera.telemetry?.gimbal?.attitude || camera.gimbal.attitude; if (!a) return answer({ detail: 'Gimbal: the phone is not reporting where it points' }, 409);
+      Object.assign(target, { pan: a.pan, tilt: a.tilt, zoom_percent: camera.telemetry?.zoom_percent || null, stale: false }, name ? { name } : {});
+      did = `${camera.name}: ${target.name} updated to where it points now`;
+    }
     else {
       if (!name) return answer({ detail: 'Give the target a name: what it shows, as you will say it ("the pot")' }, 400);
       if (t.list.length >= t.most) return answer({ detail: `${camera.name} has ${t.most} targets already: delete one first` }, 409);
       const a = camera.telemetry?.gimbal?.attitude || camera.gimbal.attitude; if (!a) return answer({ detail: 'Gimbal: the phone is not reporting where it points' }, 409);
       t.list.push({ id: Math.random().toString(16).slice(2, 10), name, phrases: phrases(body.phrases), pan: a.pan, tilt: a.tilt, zoom_percent: camera.telemetry?.zoom_percent || null, stale: false });
+      did = `${camera.name}: ${name} saved at where it points now`;
     }
     camera.gimbal.targets = copy(t);
     save();
