@@ -42,7 +42,9 @@ body.card { display: flex; flex-direction: column; touch-action: manipulation; }
 #bar label { display: flex; gap: 0.3em; align-items: center; }
 body.card #hint { margin: 0; padding: 0.3em 16px; background: #111; font-size: 13px; }
 body.bare #bar, body.bare #hint { display: none; }
-#stage { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 0; overflow: hidden; }
+/* #stage holds the solid fills (18% grey, white, black) below the bar: without position: relative they covered the
+   whole page, bar and all, leaving nothing to tap but the fill itself. */
+#stage { position: relative; flex: 1; display: flex; align-items: center; justify-content: center; min-height: 0; overflow: hidden; }
 
 /* The chart: 6 x 4 patches on a black frame, as the ColorChecker is held (brown top left, black bottom right). */
 .chart { display: grid; grid-template-columns: repeat(6, 1fr); gap: 2.2%; padding: 3%; background: #0d0d0d; aspect-ratio: 3 / 2; width: min(96vw, 140vh); max-height: 92%; box-sizing: border-box; border-radius: 1.5%; }

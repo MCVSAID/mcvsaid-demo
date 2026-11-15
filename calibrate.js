@@ -4,7 +4,7 @@
 // Sound is the sync flash page (syncflash.js, ?manager=1), which flashes while the manager measures.
 (() => {
   const $ = selector => document.querySelector(selector);
-  let session = null, chart = null, painted = 0, lock = null, timer = null;
+  let session = null, chart = null, painted = 0, lock = null, timer = null, turned = false;
 
   async function api(path, body) {
     const response = await fetch(path, body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': session?.csrf || '' }, body: JSON.stringify(body) });
@@ -83,7 +83,7 @@
       shown.hidden = false; document.body.classList.add('running');
       place();
     }
-    $('#step').textContent = run.said;
+    if (!turned) $('#step').textContent = run.said;
     if (run.step <= painted || !run.show) return;
     const area = $('#area');
     area.classList.toggle('lit', run.show === 'locate');
@@ -95,17 +95,15 @@
 
   function leaveRun() {
     if ($('#run').hidden) return;
-    $('#run').hidden = true; document.body.classList.remove('running'); painted = 0;
-    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    $('#run').hidden = true; document.body.classList.remove('running'); painted = 0; turned = false;
     if (lock) { lock.release().catch(() => {}); lock = null; }
   }
 
   $('#start-colour').onclick = async () => {
     say('');
     if (!chart) { say('The chart has not loaded yet: wait a moment.'); return; }
-    // Full screen and awake for the run: asked on this tap, as browsers allow only then, and not waited for (a browser
-    // may never answer; the run goes on either way).
-    try { document.documentElement.requestFullscreen?.().catch(() => {}); } catch (error) { /* not on every phone */ }
+    // Awake for the run, asked on this tap. Not full screen: going full screen (or leaving it) resizes the page, which
+    // would move the patch area after the manager had found it; the run covers the page as it is instead.
     try { navigator.wakeLock?.request('screen').then(held => { lock = held; }).catch(() => {}); } catch (error) { /* the screen may dim; keep tapping it */ }
     painted = 0; $('#area').replaceChildren();
     try { take(await api('/api/calibrate/start', { kind: 'colour', reference: $('#reference').value, obs: $('#obs').checked })); }
@@ -113,7 +111,13 @@
     refresh();
   };
   $('#stop').onclick = async () => { try { await api('/api/calibrate/stop', {}); } catch (error) { say(error.message); } leaveRun(); refresh(); };
-  addEventListener('resize', () => { if (!$('#run').hidden) place(); });
+  // Placed again only before the manager has looked for it: once found, the patch area must stay where it was, so a
+  // screen that changes shape mid-run (the phone turned) says to start again rather than moving it.
+  addEventListener('resize', () => {
+    if ($('#run').hidden) return;
+    if (!painted) { place(); return; }
+    turned = true; $('#step').textContent = 'The screen changed shape: press Stop and start again, holding the phone the same way.';
+  });
 
   // -- logging in -------------------------------------------------------------------------------------------------------
   $('#login').onsubmit = async event => {
