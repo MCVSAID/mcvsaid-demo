@@ -1030,9 +1030,20 @@
     const camera = cams().cameras.find(c => c.id === id); if (!camera) return answer({ detail: 'No such camera' }, 404);
     const g = camera.gimbal, a = camera.telemetry?.gimbal?.attitude || g?.attitude;
     if (!g?.home) return answer({ detail: 'Gimbal: the camera app cannot turn to a position' }, 409);
-    if (!['set', 'go', 'forget'].includes(body.action)) return answer({ detail: 'action is set, go or forget' }, 400);
+    if (!['set', 'go', 'forget', 'find'].includes(body.action)) return answer({ detail: 'action is set, go, forget or find' }, 400);
+    if (body.action === 'find') {
+      // Find home (matchhome.py): the demonstration manager kept the room as its home was set, before its phone last
+      // restarted; the drawn picture matches it, so home is where it points now, and it lines up again.
+      if (!g.home.findable) return answer({ detail: `${camera.name}: its home and positions already line up (nothing was kept before the phone restarted)` }, 409);
+      const pan = a?.pan ?? 0;
+      g.home = { ...g.home, pan, stale: false, findable: false };
+      for (const x of [camera.telemetry?.gimbal, g].filter(Boolean)) { x.follow = null; if (x.attitude) { x.attitude.pan = pan; x.attitude.tilt = g.home.tilt; } }
+      g.performer = null; save();
+      note('In the demo the pictures are drawn, so the camera does not move; on a real gimbal it stops, zooms out, turns to check and ends at home.');
+      return answer({ did: `${camera.name}: found from its home (294 features matched, checked close up); its home lines up again; it is at home, not following`, home: g.home });
+    }
     if (body.action === 'forget') g.home = { set: false };
-    else if (body.action === 'set') { if (!a) return answer({ detail: 'Gimbal: the phone is not reporting where it points' }, 409); g.home = { set: true, pan: a.pan, tilt: a.tilt, stale: false }; }
+    else if (body.action === 'set') { if (!a) return answer({ detail: 'Gimbal: the phone is not reporting where it points' }, 409); g.home = { set: true, pan: a.pan, tilt: a.tilt, stale: false, findable: false }; }
     else {
       if (!g.home.set) return answer({ detail: 'No home position yet: aim it, then Set home' }, 409);
       for (const x of [camera.telemetry?.gimbal, g].filter(Boolean)) { x.follow = null; if (x.attitude) { x.attitude.pan = g.home.pan; x.attitude.tilt = g.home.tilt; } }
@@ -1368,10 +1379,17 @@
     }
     if (body.widths) st.widths = { ...(st.widths || {}), ...body.widths };
     const room = st.room;
+    if (room && 'room_width_m' in body) {
+      const v = body.room_width_m;
+      if (v !== null && !(v >= 0.5 && v <= 200)) return answer({ detail: 'room_width_m is 0.5 to 200 metres' }, 400);
+      S.roomWidth = v; widthOf(room);
+    }
     for (const [id, entry] of Object.entries((room && body.room) || {})) {
       if ('x' in entry && entry.x === null) { delete room.map[id]; delete room.derived[id]; continue; }
+      if (entry.tilt !== undefined && entry.tilt !== null && !(entry.tilt >= -90 && entry.tilt <= 90)) return answer({ detail: 'a tilt is -90 (straight down) to 90 (straight up) degrees' }, 400);
+      if (entry.height !== undefined && entry.height !== null && !(entry.height >= 0 && entry.height <= 30)) return answer({ detail: 'a height is 0 to 30 metres above the floor' }, 400);
       const changed = { ...(room.map[id] || {}), ...entry };
-      if (entry.fov === null) delete changed.fov;
+      for (const field of ['fov', 'height', 'tilt', 'roll']) if (entry[field] === null) delete changed[field];
       room.map[id] = changed;
       // What Stage Shots takes from it: the mark's aim follows; where it stands round the edge stays as recorded.
       if (room.derived[id]?.cam && 'aim' in entry) room.derived[id].cam.aim = entry.aim;
@@ -1393,8 +1411,157 @@
     room.set.layout = layout;
     Object.assign(room, frameOf(layout));
     if (layout) room.map = layout.cameras;
+    widthOf(room);
     save(); return answer(read('/api/stage'));
   }
+  // The map's width in metres, as roommap.width: the set layout's, else the one set on the room map, else as recorded.
+  function widthOf(room) {
+    if (S.recordedWidth === undefined) S.recordedWidth = [room.width_m ?? 12, room.width_from || 'default'];
+    const set = room.set?.layout?.width_m;
+    [room.width_m, room.width_from] = set ? [set, 'set'] : S.roomWidth ? [S.roomWidth, 'room'] : S.roomWidth === null ? [12, 'default'] : S.recordedWidth;
+  }
+
+  // Fitting a camera from corners marked on its picture: roomfit.py, as the manager works it out, so the demo's
+  // Room view proposes what the manager would. Nothing is saved until the proposal is taken (stagePost).
+  const fit = (() => {
+    const CORNERS = ['front_left', 'front_right', 'back_left', 'back_right'], UP = [0, 0, -1], NARROW = 2, WIDE = 170;
+    const dot = (a, b) => a.reduce((t, v, i) => t + v * b[i], 0), cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+    const sc = (a, k) => a.map(v => v * k), plus = (a, b) => a.map((v, i) => v + b[i]), len = a => Math.hypot(...a), unit = a => sc(a, 1 / Math.max(len(a), 1e-12));
+    const rad = d => d * Math.PI / 180, deg = r => r * 180 / Math.PI;
+    const focal = (fov, aspect) => aspect / (2 * Math.tan(rad(fov) / 2));
+    function solve(rows, values) {
+      const n = rows.length, m = rows.map((r, i) => [...r, values[i]]);
+      for (let c = 0; c < n; c++) {
+        let p = c; for (let r = c + 1; r < n; r++) if (Math.abs(m[r][c]) > Math.abs(m[p][c])) p = r;
+        if (Math.abs(m[p][c]) < 1e-12) throw Error('three of the points are in a line in the picture or on the map: mark the corners again');
+        [m[c], m[p]] = [m[p], m[c]];
+        for (let r = c + 1; r < n; r++) { const k = m[r][c] / m[c][c]; for (let q = c; q <= n; q++) m[r][q] -= k * m[c][q]; }
+      }
+      const x = Array(n).fill(0);
+      for (let r = n - 1; r >= 0; r--) { let t = m[r][n]; for (let q = r + 1; q < n; q++) t -= m[r][q] * x[q]; x[r] = t / m[r][r]; }
+      return x;
+    }
+    function homography(world, image) {
+      const rows = [], values = [];
+      world.forEach(([X, Y], i) => { const [u, v] = image[i]; rows.push([X, Y, 1, 0, 0, 0, -u * X, -u * Y], [0, 0, 0, X, Y, 1, -v * X, -v * Y]); values.push(u, v); });
+      const h = solve(rows, values); return [h.slice(0, 3), h.slice(3, 6), [h[6], h[7], 1]];
+    }
+    const columns = (H, f) => [0, 1, 2].map(c => [H[0][c] / f, H[1][c] / f, H[2][c]]);
+    const misfit = (H, f) => { const [a, b] = columns(H, f), na = dot(a, a), nb = dot(b, b), ab = dot(a, b); return ((na - nb) ** 2 + 4 * ab * ab) / Math.max((na + nb) ** 2, 1e-24); };
+    function bestFocal(H, aspect) {
+      let best = NARROW, cost = Infinity;
+      for (let i = 0; i <= 400; i++) { const fov = NARROW + (WIDE - NARROW) * i / 400, c = misfit(H, focal(fov, aspect)); if (c < cost) [best, cost] = [fov, c]; }
+      let a = Math.max(NARROW, best - 0.42), b = Math.min(WIDE, best + 0.42); const g = (Math.sqrt(5) - 1) / 2;
+      for (let i = 0; i < 60; i++) { const c = b - g * (b - a), d = a + g * (b - a); if (misfit(H, focal(c, aspect)) < misfit(H, focal(d, aspect))) b = d; else a = c; }
+      const fov = (a + b) / 2, at = misfit(H, focal(fov, aspect)), near = Math.min(...[fov / 1.2, fov * 1.2].map(o => misfit(H, focal(Math.min(WIDE, Math.max(NARROW, o)), aspect))));
+      return [fov, near - at > 1e-5];
+    }
+    function rotation(aim, tilt, roll = 0) {
+      const a = rad(aim), t = rad(Math.max(-89.95, Math.min(89.95, tilt))), r = rad(roll);
+      const ahead = [Math.sin(a) * Math.cos(t), -Math.cos(a) * Math.cos(t), -Math.sin(t)], lr = unit(cross(ahead, UP)), ld = cross(ahead, lr);
+      const right = plus(sc(lr, Math.cos(r)), sc(ld, Math.sin(r))); return [right, cross(ahead, right), ahead];
+    }
+    function angles(R) {
+      const ahead = R[2], right = R[0], down = R[1], tilt = deg(Math.asin(Math.max(-1, Math.min(1, dot(ahead, UP)))));
+      if (Math.hypot(ahead[0], ahead[1]) > 0.1) {
+        const lr = unit(cross(ahead, UP)), ld = cross(ahead, lr);
+        return [((deg(Math.atan2(ahead[0], -ahead[1])) % 360) + 360) % 360, tilt, deg(Math.atan2(dot(right, ld), dot(right, lr)))];
+      }
+      const top = ahead[2] > 0 ? sc(down, -1) : down; return [((deg(Math.atan2(top[0], -top[1])) % 360) + 360) % 360, tilt, 0];
+    }
+    function start(H, fov, aspect, world) {
+      const f = focal(fov, aspect), [a, b, c] = columns(H, f); let s = (len(a) + len(b)) / 2;
+      if ((H[2][0] * world[0][0] + H[2][1] * world[0][1] + H[2][2]) / s < 0) s = -s;
+      let r1 = unit(sc(a, 1 / s)), r2 = unit(sc(b, 1 / s)); const p = unit(plus(r1, r2)), q = unit(plus(r1, sc(r2, -1)));
+      r1 = unit(plus(p, q)); r2 = unit(plus(p, sc(q, -1))); const r3 = cross(r1, r2), t = sc(c, 1 / s);
+      const R = [0, 1, 2].map(i => [r1[i], r2[i], r3[i]]);
+      return [...[0, 1, 2].map(k => -dot([R[0][k], R[1][k], R[2][k]], t)), ...angles(R)];
+    }
+    function residuals(p, world, image, aspect, fov) {
+      const R = rotation(p[3], p[4], p[5]), f = focal(Math.min(WIDE, Math.max(NARROW, fov ?? p[6])), aspect), out = [];
+      world.forEach(([X, Y], i) => { const d = [X - p[0], Y - p[1], -p[2]], c = R.map(row => dot(row, d)); if (c[2] <= 1e-6) out.push(10, 10); else out.push(f * c[0] / c[2] - image[i][0], f * c[1] / c[2] - image[i][1]); });
+      return out;
+    }
+    function refine(p, world, image, aspect, fov) {
+      let damping = 1e-3; const cost = q => residuals(q, world, image, aspect, fov).reduce((t, r) => t + r * r, 0); let now = cost(p);
+      for (let round = 0; round < 40 && now > 1e-18; round++) {
+        const base = residuals(p, world, image, aspect, fov), n = p.length;
+        const J = p.map((_, k) => { const step = k < 3 ? 1e-6 : 1e-4, moved = [...p]; moved[k] += step; return residuals(moved, world, image, aspect, fov).map((r, m) => (r - base[m]) / step); });
+        const A = J.map(a => J.map(b => dot(a, b))), g = J.map(a => -dot(a, base));
+        let moved = false;
+        while (damping < 1e6) {
+          let delta; try { delta = solve(A.map((row, i) => row.map((v, j) => v + (i === j ? damping * (A[i][i] + 1e-9) : 0))), g); } catch (error) { damping *= 10; continue; }
+          const tried = p.map((v, i) => v + delta[i]), after = cost(tried);
+          if (after < now) { p = tried; now = after; damping = Math.max(1e-7, damping / 10); moved = true; break; }
+          damping *= 10;
+        }
+        if (!moved) break;
+      }
+      return p;
+    }
+    function corners(room) { const s = room.stage, d = room.depth; return { front_left: [s.left, s.front * d], front_right: [s.right, s.front * d], back_left: [s.left, s.back * d], back_right: [s.right, s.back * d] }; }
+    function pose(points, aspect, lens, metres, room) {
+      const where = corners(room), world = CORNERS.map(k => where[k]), image = CORNERS.map(k => [(points[k][0] - 0.5) * aspect, points[k][1] - 0.5]);
+      const H = homography(world, image), [cornerFov, clear] = bestFocal(H, aspect);
+      const rms = (p, fov) => Math.sqrt(residuals(p, world, image, aspect, fov).reduce((t, r) => t + r * r, 0) / 4) / aspect;
+      let p = refine(start(H, lens, aspect, world), world, image, aspect, lens), fov = lens, error = rms(p, lens), from = 'the lens';
+      const notes = [];
+      if (clear && Math.abs(angles(rotation(p[3], p[4], p[5]))[1]) < 70) {
+        const free = refine([...start(H, cornerFov, aspect, world), cornerFov], world, image, aspect), freeError = rms(free, undefined);
+        if (error > 0.006 && freeError < error / 2 && free[6] >= NARROW && free[6] <= WIDE) {
+          [p, fov, error, from] = [free.slice(0, 6), free[6], freeError, 'the corners'];
+          notes.push(`The corners fit a camera seeing about ${Math.round(fov)}° across much better than the ${lens}° its lens gives: a zoom, or the lens set wrongly? Check the wedge against the picture.`);
+        }
+      } else if (!clear && error > 0.006) notes.push(`Looking square on at the floor, the corners cannot tell the field of view: the lens’s ${lens}° is used. If the camera is zoomed, set its field of view first.`);
+      if (error > 0.2) throw Error('no camera sees those corners where they are marked: check that each is the corner it says');
+      const height = -p[2] * metres;
+      if (height <= 0) throw Error('those corners put the camera under the floor: check that each is the corner it says');
+      const [aim, tilt, roll] = angles(rotation(p[3], p[4], p[5])), x = p[0], y = p[1] / room.depth;
+      if (!(x >= 0 && x <= 1 && y >= 0 && y <= 1)) notes.push('The corners put the camera off the map: it is shown at the map’s edge. Check the corners, or the map’s width and depth.');
+      const found = { x: +Math.min(1, Math.max(0, x)).toFixed(4), y: +Math.min(1, Math.max(0, y)).toFixed(4), aim: Math.round(aim) % 360, fov: +Math.min(WIDE, Math.max(NARROW, fov)).toFixed(1),
+        height: +Math.min(30, height).toFixed(2), tilt: Math.round(Math.max(-90, Math.min(90, tilt))) };
+      if (error < 0.01 && Math.abs(tilt) < 80 && Math.abs(roll) >= 1) found.roll = Math.round(roll);
+      if (error > 0.02) notes.push(`The corners do not quite agree with any one camera (about ${Math.round(error * 100)}% of the picture out): check each is marked where it is.`);
+      return { method: 'corners', proposal: found, error: +error.toFixed(4), fov_from: from, notes };
+    }
+    function bearings(entry, points, aspect, fov, room) {
+      const where = corners(room), cx = entry.x, cy = entry.y * room.depth, tilt = rad(entry.tilt || 0), span = Math.tan(rad(fov) / 2);
+      const offset = (q, half) => deg(Math.atan2((2 * q[0] - 1) * half, Math.cos(tilt) + (2 * q[1] - 1) * half / aspect * Math.sin(tilt)));
+      const bearing = k => deg(Math.atan2(where[k][0] - cx, -(where[k][1] - cy)));
+      const names = CORNERS.filter(k => points[k]), aims = names.map(k => bearing(k) - offset(points[k], span));
+      const mean = deg(Math.atan2(aims.reduce((t, a) => t + Math.sin(rad(a)), 0), aims.reduce((t, a) => t + Math.cos(rad(a)), 0)));
+      const spread = Math.max(...aims.map(a => Math.abs(((a - mean + 540) % 360) - 180)));
+      const out = { method: 'bearings', proposal: { aim: ((Math.round(mean) % 360) + 360) % 360 }, error: +spread.toFixed(1), notes: [] };
+      const first = names.reduce((a, b) => points[a][0] <= points[b][0] ? a : b), last = names.reduce((a, b) => points[a][0] >= points[b][0] ? a : b), turned = ((bearing(last) - bearing(first)) % 360 + 360) % 360;
+      if (points[last][0] - points[first][0] > 0.05 && turned > 0 && turned < 180) {
+        let lo = Math.tan(rad(0.5)), hi = Math.tan(rad(89));
+        for (let i = 0; i < 60; i++) { const mid = (lo + hi) / 2; if (offset(points[last], mid) - offset(points[first], mid) < turned) lo = mid; else hi = mid; }
+        const seen = deg(2 * Math.atan((lo + hi) / 2));
+        if (seen >= NARROW && seen <= WIDE) {
+          out.fov_seen = +seen.toFixed(1);
+          if (Math.abs(seen - fov) > Math.max(5, fov * 0.15)) out.notes.push(`From where the map has the camera, those corners are as far apart as a ${Math.round(seen)}° view would put them, not the ${fov}° it is taken to see: it may stand nearer or further than the map has it. Four corners work out where it stands.`);
+        }
+      }
+      if (spread > 3) out.notes.push(`The corners disagree about the aim by up to ${Math.round(spread)}°: the camera may not stand where the map has it.`);
+      return out;
+    }
+    return body => {
+      const room = S.answers['/api/stage'].room, id = body?.camera, points = body?.points, aspect = body?.aspect ?? 16 / 9;
+      if (!S.answers['/api/stage'].cameras.some(c => c.id === id)) return answer({ detail: 'No such camera' }, 404);
+      const entry = room.map[id] || null, lens = entry?.fov || room.views[id]?.fov || 70;
+      try {
+        if (!points || typeof points !== 'object' || !Object.keys(points).length || Object.keys(points).some(k => !CORNERS.includes(k))) throw Error(`points are {corner: [across, down]}, the corners being ${CORNERS.join(', ')}`);
+        for (const [k, q] of Object.entries(points)) if (!Array.isArray(q) || q.length !== 2 || q.some(v => !(v >= 0 && v <= 1))) throw Error(`the ${k.replace('_', ' ')} corner is [across, down], each 0 to 1 of the picture`);
+        const n = Object.keys(points).length;
+        let found;
+        if (n === 4) found = pose(points, aspect, lens, room.width_m || 12, room);
+        else if (n < 2) throw Error('mark at least the two front corners');
+        else if (!entry) throw Error('with fewer than four corners the camera must be on the map first: put it where it stands, or mark all four corners');
+        else found = bearings(entry, points, aspect, lens, room);
+        return answer({ camera: id, current: entry, lens_fov: lens, width_m: room.width_m || 12, ...found });
+      } catch (error) { return answer({ detail: error.message }, 400); }
+    };
+  })();
   function setPost(body) {
     const room = S.answers['/api/stage'].room, layout = room?.set?.layout ? copy(room.set.layout) : null;
     if (!room?.set) return answer({ detail: 'Not in the demo' }, 404);
@@ -1611,7 +1778,8 @@
     const planned = path.match(/^\/api\/cameras\/([^/]+)\/gimbal-(plan|performer)$/); if (planned) return (planned[2] === 'plan' ? gimbalPlanPost : gimbalPerformerPost)(decodeURIComponent(planned[1]), body);
     const named = path.match(/^\/api\/cameras\/([^/]+)\/name$/); if (named) return renamePost(decodeURIComponent(named[1]), body);
     if (path === '/api/obs/names') return answer({ sources: {}, scenes: {}, skipped: [] });     // renaming in the demo already carried through
-    if (path === '/api/stage' && (body.layout || body.widths || body.room)) return stagePost(body);
+    if (path === '/api/stage' && (body.layout || body.widths || body.room || 'room_width_m' in body)) return stagePost(body);
+    if (path === '/api/stage/room/fit') return fit(body);
     if (path === '/api/stage/place') return placePost(body);
     if (path === '/api/stage/set') return setPost(body);
     if (path === '/api/teleprompter') return promptPost(body);

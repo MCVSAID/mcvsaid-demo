@@ -2317,6 +2317,22 @@ async function drawAll() {
               const keep = node('button', home.set ? 'Set again' : 'Set home'); keep.disabled = off; keep.title = 'Keep where it points now as its home position';
               keep.onclick = () => gimbalHome('set', 'Set home');
               homeLine.append(go, ' ', keep);
+              if (home.findable) {
+                // After a phone restart: home and the positions found again from what it sees (matchhome.py). On air the
+                // manager refuses first, and it is asked again only once the operator has said yes.
+                const find = node('button', 'Find home'); find.disabled = off; find.title = 'Find its home and saved positions again from what it sees: it stops, zooms out, turns to check and ends at home';
+                const ask = onAir => api(`/api/cameras/${encodeURIComponent(camera.id)}/gimbal-home`, { method: 'POST', body: JSON.stringify({ action: 'find', on_air: onAir }) });
+                find.onclick = async () => {
+                  try { concert.tell((await ask(false)).did); }
+                  catch (error) {
+                    if (!/is on air/.test(error.message)) { concert.tell(`${camera.name}: Find home: ${error.message}`); return; }
+                    if (!await concert.sure(`${camera.name} is on air: Find home turns it and zooms out, and the audience sees it. Go ahead?`, { ok: 'Find home', danger: true })) return;
+                    try { concert.tell((await ask(true)).did); } catch (again) { concert.tell(`${camera.name}: Find home: ${again.message}`); }
+                  }
+                  refresh();
+                };
+                homeLine.append(' ', find);
+              }
               if (home.set) homeLine.append(node('span', home.stale ? ' · the phone restarted since it was set: aim it where home was and set it again, which brings its saved positions back too' : ` · pan ${home.pan}°, tilt ${home.tilt}°`));
               turn.append(homeLine);
             }

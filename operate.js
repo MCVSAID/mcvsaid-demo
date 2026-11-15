@@ -207,6 +207,16 @@ function draw() {
         const sethome = node('button', gimbal.home.set ? 'Set home again' : 'Set home'); sethome.title = 'Keep where it points now as its home position';
         sethome.onclick = () => act(`/api/cameras/${encodeURIComponent(camera.id)}/gimbal-home`, { action: 'set' }).then(done => { if (done) result.textContent = `${camera.name}: home set${done.restored ? `; ${done.restored}` : ''}`; refresh(); });
         buttons.append(home, sethome);
+        // After a phone restart: home and the positions found again from what it sees (matchhome.py), nobody aiming it.
+        if (gimbal.home.findable) {
+          const find = node('button', 'Find home'); find.title = 'The phone restarted: find its home and positions again from what it sees. It stops, zooms out, turns to check and ends at home';
+          find.onclick = async () => {
+            if (onAir && !await window.concert.sure(`${camera.name} is on air: Find home turns it and zooms out, and the audience sees it. Go ahead?`, { ok: 'Find home', danger: true })) return;
+            result.textContent = `${camera.name}: finding home…`;
+            act(`/api/cameras/${encodeURIComponent(camera.id)}/gimbal-home`, { action: 'find', on_air: onAir }).then(done => { if (done) result.textContent = done.did; refresh(); });
+          };
+          buttons.append(find);
+        }
       }
     }
     drawPositions(tile.querySelector('.positions'), camera, onAir);
