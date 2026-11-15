@@ -82,6 +82,24 @@ window.listenTo = (v, pick, disabled) => {
     return box;
   }
 
+  // Call words (voicecalls.call_words): what comes before a camera's phrase to make it a call. The built-in ones always
+  // count; this kind of event's own are heard beside them ("let's pop across to the stove").
+  let callDraft = null;
+  function callWords(s) {
+    const c = s.call_words, box = node('div', ''); box.className = 'voice-cameras';
+    if (!c) return box;
+    box.append(node('h4', 'Call words'));
+    box.append(node('small', `Said before a camera’s phrase or a saved target, these make it a call: built in, ${quoted(c.built_in)}. Add your own for ${modeName(s.mode)} below, two words or more each, with commas.`));
+    const row = node('p', ''); row.className = 'recipe-load-row';
+    const input = document.createElement('input'); input.type = 'text'; input.size = 40; input.maxLength = 500; input.value = callDraft ?? c.own.join(', ');
+    input.placeholder = 'pop across to, let’s peek at'; input.setAttribute('aria-label', `Call words of your own for ${modeName(s.mode)}, with commas`);
+    input.oninput = () => { callDraft = input.value; };
+    row.append(input, ' ', button('Save', () => { const kept = input.value.split(',').map(p => p.trim()).filter(Boolean); callDraft = null; send({ call_words: kept }, kept.length ? 'Call words saved.' : 'The built-in call words alone again.'); }));
+    if (c.own.length) row.append(' ', button('Built-in ones only', () => { callDraft = null; send({ call_words: [] }, 'The built-in call words alone again.'); }));
+    box.append(row, node('small', 'They count for zoom calls and saved gimbal targets too. A question (“shall we take a look at the oven?”) or “don’t” before one still does nothing. Try one with Try a phrase below.'));
+    return box;
+  }
+
   function cameras(s) {
     const box = node('div', ''); box.className = 'voice-cameras';
     box.append(node('h4', 'What each camera answers to'));
@@ -213,6 +231,10 @@ window.listenTo = (v, pick, disabled) => {
       const li = document.createElement('li'); li.className = entry.did ? 'did' : 'ignored';
       const ago = entry.ago + (Date.now() - fetchedAt) / 1000;
       li.append(node('q', entry.text), node('small', ` ${entry.typed ? 'typed' : entry.spotted ? 'spotted as it ended (quick phrase spotter)' : `${Math.round(entry.sure * 100)}% sure`}${entry.early ? ', while still speaking' : ''}${entry.took != null ? `, understood in ${entry.took.toFixed(1)} s` : ''}, ${clock(ago)} ago`), node('br', ''), node('span', entry.did ? `→ ${entry.did}` : `→ nothing: ${entry.why}`));
+      // Named in passing after words that are not a call word: offer those words as one of this kind of event's own.
+      const own = v.shots?.call_words?.own || [];
+      if (entry.call_word && own.length < (v.shots?.call_words?.most || 12) && !own.some(p => p.toLowerCase() === entry.call_word.toLowerCase()))
+        li.append(' ', button(`Add “${entry.call_word}” as a call word`, () => { callDraft = null; send({ call_words: [...own, entry.call_word] }, `“${entry.call_word}” is a call word now: say it again, or try it below.`); }));
       list.append(li);
     }
     heard.append(list);
@@ -228,7 +250,7 @@ window.listenTo = (v, pick, disabled) => {
     const intro = node('p', 'Say a camera’s shot aloud and the director puts it on air at once.');
     const how = document.createElement('details'); how.className = 'fold';
     how.append(node('summary', 'How this works'), node('p', 'The director then holds the camera as it does one chosen by hand' +
-      ` (${Math.round(s.hold_seconds)} s, Hold after a person chooses, under Director settings), so the automatic choosing does not cut straight away: “cut to the overhead”, “show the stove”, “back to the wide”, or just “Wide shot!”. A name in passing (“the stove is hot”), a question or “don’t cut to the stove” does nothing.`));
+      ` (${Math.round(s.hold_seconds)} s, Hold after a person chooses, under Director settings), so the automatic choosing does not cut straight away: “cut to the overhead”, “show the stove”, “let’s take a look at the wide”, or just “Wide shot!”. A name in passing (“the stove is hot”), a question or “don’t cut to the stove” does nothing.`));
     const privacy = node('p', 'Speech is recognised on this computer: nothing heard is sent anywhere, and what was heard is kept here only, for the last few phrases, never saved.');
     const parts = [node('h2', 'Voice shot calls'), intro, how, privacy];
     if (!v.allowed) { const need = node('p', 'Listening is part of the Standard and Plus AI levels: choose one in AI assistance on the Director page. You can still try a phrase below.'); need.className = 'recording-warning'; parts.push(need); }
@@ -243,7 +265,7 @@ window.listenTo = (v, pick, disabled) => {
     try_.append(node('span', 'Try a phrase, as if the host said it: '), phrase, act);
     try_.onsubmit = event => { event.preventDefault(); const text = phrase.value.trim(); if (!text) return; phrase.value = ''; send({ say: text }, ''); };
     const message = node('p', said); message.setAttribute('aria-live', 'polite'); if (/not |need|fail|error|refus|must|at most/i.test(said)) message.className = 'recording-warning';
-    parts.push(switches(v, s), hearing(v), sure, cameras(s), zoomCalls(v, s), targetCalls(v), heardBox(v), try_, node('small', 'It acts on the show as a call would: the camera goes on air.'), message);
+    parts.push(switches(v, s), hearing(v), sure, callWords(s), cameras(s), zoomCalls(v, s), targetCalls(v), heardBox(v), try_, node('small', 'It acts on the show as a call would: the camera goes on air.'), message);
     panel.replaceChildren(...parts);
   }
 
@@ -252,8 +274,8 @@ window.listenTo = (v, pick, disabled) => {
     const mine = state?.shots?.cameras.find(c => c.id === camera.id);
     if (!mine || !state.shots.on) return;
     const line = node('small', `Called aloud: ${quoted(mine.phrases.filter(p => !p.shared).slice(0, 6).map(p => p.phrase))}. `);
-    const go = document.createElement('a'); go.href = '/director'; go.textContent = 'Phrases of its own (Director)';
-    go.onclick = event => { if (event.metaKey || event.ctrlKey || event.shiftKey) return; event.preventDefault(); history.pushState(null, '', '/director'); window.concert.pick?.('/director'); };
+    const go = document.createElement('a'); go.href = '/sound'; go.textContent = 'Phrases of its own (Sound)';
+    go.onclick = event => { if (event.metaKey || event.ctrlKey || event.shiftKey) return; event.preventDefault(); history.pushState(null, '', '/sound'); window.concert.pick?.('/sound'); };
     line.append(go); line.className = 'card-setting'; shots.append(line);
   };
 

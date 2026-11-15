@@ -635,8 +635,13 @@
       if (!(c.id in v.phrases)) return;
       c.phrases = [...v.phrases[c.id].map(p => ({ phrase: p, source: 'own', shared: false })), ...c.phrases.filter(p => p.source !== 'own' && !v.phrases[c.id].some(o => o.toLowerCase() === p.phrase.toLowerCase()))];
     });
+    if (shots.call_words) shots.call_words = { ...shots.call_words, own: ownCallWords() };
     const cue = R()?.voice;
-    const heard = (cue ? cue.heard : S.voiceHeard || []).map(e => ({ ...e, ago: Math.round(now() - e.at) }));
+    const named = [...shots.cameras, ...((targetsRead()?.cameras || []).flatMap(c => c.targets))];
+    const heard = (cue ? cue.heard : S.voiceHeard || []).map(e => {
+      const word = !e.did && /in passing/.test(e.why || '') ? leadIn(e.text, named) : null;
+      return { ...e, ago: Math.round(now() - e.at), ...(word ? { call_word: word } : {}) };
+    });
     // Zoom calls (voicezoom.py): switched and given phrases of their own for each kind of event, as the manager keeps them.
     const zooms = recorded.zooms ? copy(recorded.zooms) : null;
     if (zooms) {
@@ -647,7 +652,43 @@
     const spotter = recorded.spotter ? { ...recorded.spotter, ...(typeof v.spotter === 'boolean' ? { enabled: v.spotter } : {}) } : null;
     return { ...recorded, ...(cue ? { enabled: cue.enabled, device: cue.device, source: cue.source, model: cue.model } : {}), spotter, listening: !!(cue ? cue.enabled : recorded.enabled) && (shots.on || mode() === 'cooking'), shots, zooms, targets: targetsRead(), heard };
   }
-  const LEAD = /\b(?:(?:cut|cutting|switch|switching|go|going|jump|change|move|take|let's go|lets go|let's cut|let's switch)\s+(?:back\s+|over\s+|across\s+)?to|over\s+to|back\s+to|show(?:ing)?(?:\s+(?:me|us|them|you|everyone))?|let's\s+see|lets\s+see|let's\s+look\s+at|(?:let's\s+|lets\s+)?check\s+(?:out|on)|give\s+(?:me|us)|camera\s+on|bring\s+up)\s+(?:the\s+|that\s+|our\s+|my\s+|this\s+)?$/;
+  const LEAD = /\b(?:(?:cut|cutting|switch|switching|go|going|jump|change|move|take|let's go|lets go|let's cut|let's switch)\s+(?:back\s+|over\s+|across\s+)?to|over\s+to|back\s+to|show(?:ing)?(?:\s+(?:me|us|them|you|everyone))?|let's\s+see|lets\s+see|let's\s+look\s+at|(?:let's\s+|lets\s+)?(?:take|have)\s+a\s+(?:quick\s+|closer\s+|little\s+)?look\s+at|(?:let's\s+|lets\s+)?check\s+(?:out|on)|give\s+(?:me|us)|camera\s+on|bring\s+up)\s+(?:the\s+|that\s+|our\s+|my\s+|this\s+)?$/;
+  // Call words of this kind of event's own (voicecalls.call_words), heard beside LEAD; kept as tidy_call_words keeps them.
+  const ARTICLES = ['the', 'a', 'an', 'that', 'our', 'my', 'your', 'this'];
+  const WEAK = new Set([...ARTICLES, 'to', 'at', 'on', 'in', 'of', 'it', 'is', 'we', 'i', 'you', 'me', 'us', 'and', 'so', 'now', 'ok', 'okay', 'um', 'uh', 'there', 'here', 'go', 'over', 'right', 'well', 'just', "let's", 'lets', 'for', 'with', 'up', 'out']);
+  const ownCallWords = () => { const own = (S.voice?.callWords || {})[mode()]; return own !== undefined ? own : (((S.kinds[mode()] || {})['/api/voice'] || S.answers['/api/voice'])?.shots?.call_words?.own || []); };
+  const callWordsOf = text => { const w = String(text).split(/\s+/).filter(Boolean); while (w.length && ARTICLES.includes(plainWords(w[w.length - 1])[0])) w.pop(); return w.join(' '); };
+  function tidyCallWords(list) {
+    if (!Array.isArray(list) || list.length > 12) throw new Error('At most 12 call words for a kind of event');
+    const kept = [], seen = new Set();
+    for (const given of list) {
+      const raw = String(given).split(/\s+/).join(' ').trim().replace(/[ ,.!:;]+$/, '');
+      if (!raw || raw.length > 40) throw new Error('A call word is 1 to 40 characters');
+      const text = callWordsOf(raw), said = plainWords(text);
+      if (said.length < 2) throw new Error(`“${raw}” is too short: a call word needs two words or more besides “the” (“pop across to”), so ordinary talk is not taken for a call`);
+      if (said.every(w => WEAK.has(w))) throw new Error(`“${text}” is only small words: ordinary talk would call cameras by it`);
+      if (said.some(w => ['not', "don't", 'dont', 'never', "won't", 'wont', "can't", 'cannot'].includes(w))) throw new Error(`“${text}” says not to: a call word cannot`);
+      const key = said.join(' '); if (seen.has(key)) continue; seen.add(key); kept.push(text);
+    }
+    return kept;
+  }
+  const ownLead = () => { const own = ownCallWords().map(p => plainWords(callWordsOf(p)).map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s+')).filter(Boolean); return own.length ? new RegExp(`\\b(?:${own.join('|')})\\s+(?:the\\s+|that\\s+|our\\s+|my\\s+|your\\s+|this\\s+)?$`) : null; };
+  // The words before a phrase named in passing, offered as a call word (voicecalls.lead_in).
+  function leadIn(text, cameras) {
+    const plain = plainWords(text), heard = plain.map(one);
+    for (const camera of cameras) for (const p of camera.phrases) {
+      const wanted = plainWords(p.phrase).filter(w => !['the', 'a', 'an'].includes(w)).map(one); if (!wanted.length) continue;
+      for (let start = 0; start + wanted.length <= heard.length; start++) {
+        if (wanted.some((w, i) => heard[start + i] !== w)) continue;
+        const before = plain.slice(Math.max(0, start - 5), start);
+        while (before.length && ARTICLES.includes(before[before.length - 1])) before.pop();
+        while (before.length && ['and', 'so', 'okay', 'ok', 'now', 'right', 'well', 'um', 'uh'].includes(before[0])) before.shift();
+        if (before.length < 2) continue;
+        try { return tidyCallWords([before.join(' ')])[0]; } catch { continue; }
+      }
+    }
+    return null;
+  }
   const FILLER = new Set(['the', 'a', 'shot', 'camera', 'cam', 'angle', 'view', 'please', 'now', 'okay', 'ok', 'and', 'so', 'right', 'go', 'on', 'over', 'there', 'thanks']);
   const TAIL = new Set(['shot', 'camera', 'cam', 'angle', 'view', 'please', 'now', 'for', 'a', 'sec', 'second', 'moment', 'bit', 'again', 'here', 'there', 'thanks']);
   const NUMBERS = { one: '1', two: '2', three: '3', four: '4', five: '5', six: '6', seven: '7', eight: '8', nine: '9' };
@@ -660,7 +701,7 @@
       const wanted = plainWords(p.phrase).filter(w => !['the', 'a', 'an'].includes(w)).map(one); if (!wanted.length) continue;
       for (let start = 0; start + wanted.length <= heard.length; start++) {
         if (wanted.some((w, i) => heard[start + i] !== w)) continue;
-        const before = plain.slice(0, start).join(' '), end = start + wanted.length, lead = before ? `${before} `.match(LEAD) : null;
+        const before = plain.slice(0, start).join(' '), end = start + wanted.length, own = ownLead(), lead = before ? (`${before} `.match(LEAD) || (own && `${before} `.match(own))) : null;
         const bare = !lead && plain.slice(0, start).every(w => FILLER.has(w)) && plain.slice(end).every(w => TAIL.has(w));
         if (!lead && !bare) continue;
         if (lead && /\b(?:not|don't|dont|never|won't|wont|can't|cannot|shouldn't|didn't)\s*$/.test(before.slice(0, lead.index).trim().split(' ').slice(-2).join(' '))) continue;
@@ -696,6 +737,7 @@
       const list = cue ? cue.heard : (S.voiceHeard = S.voiceHeard || []); list.unshift(entry); list.splice(10);
       save(); return answer({ ...voiceRead(), said: entry });
     }
+    if ('call_words' in body) { try { (v.callWords = v.callWords || {})[mode()] = tidyCallWords(body.call_words ?? []); } catch (error) { return refused(error.message); } }
     if (typeof body.listen === 'boolean' && cue) cue.enabled = body.listen;
     if ('on' in body) v.on[mode()] = body.on;
     for (const [id, list] of Object.entries(body.phrases || {})) v.phrases[id] = [...new Set((list || []).map(p => String(p).split(/\s+/).join(' ').trim()).filter(Boolean))].slice(0, 8);
