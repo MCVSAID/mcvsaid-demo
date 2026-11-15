@@ -24,15 +24,75 @@ async function act(call, who) {
     const answer = await call();
     if (answer?.users) { state = answer; draw(); }
     if (answer?.password_once) showOnce(who, answer.password_once);
+    if (answer?.backups_once) showBackups(who, answer.backups_once);
     return answer;
   } catch (error) { concert.fail(error); return null; }
+}
+// Backup codes for a lost phone, shown until the page is left: only their hashes are kept.
+function showBackups(who, codes) {
+  const box = document.querySelector('#once'), list = el('ul');
+  for (const code of codes) list.append(el('li', code));
+  box.replaceChildren(el('h3', `Backup codes for ${who}`), list, el('p', 'Each opens one login from the network in place of the authenticator code, for a lost or flat phone. Write them down or keep them in a password manager now: they cannot be shown again.'));
+  box.hidden = false;
+}
+const gadget = text => /iPad/.test(text) ? 'iPad' : /iPhone/.test(text) ? 'iPhone' : /Android/.test(text) ? 'Android device' : /Macintosh/.test(text) ? 'Mac' : /Windows/.test(text) ? 'Windows PC' : /Linux/.test(text) ? 'Linux PC' : 'a browser';
+
+// An administrator's authenticator code (twofactor.py): set up by scanning a QR code, then checked with the first code.
+async function setUpCode(user, who) {
+  const started = await act(() => api(`/api/users/${user.id}/second-step`, { start: true }), who);
+  if (!started) return;
+  const box = document.querySelector('#once'), picture = el('img'); picture.src = `${started.qr}?${Date.now()}`; picture.alt = 'QR code for the authenticator app'; picture.className = 'qr';
+  box.replaceChildren(el('h3', `Authenticator code for ${who}`), el('p', 'Scan this with an authenticator app (Google or Microsoft Authenticator, 1Password, Authy…). Or type the key instead:'), el('p', started.secret.replace(/(.{4})/g, '$1 ').trim(), 'key'), picture);
+  const form = el('form', null, 'row'), label = el('label', 'Then type the code it shows '), input = el('input');
+  input.inputMode = 'numeric'; input.autocomplete = 'one-time-code'; input.maxLength = 20; input.required = true; label.append(input);
+  const go = el('button', 'Set it up'), cancel = el('button', 'Cancel'); cancel.type = 'button'; cancel.onclick = () => { box.hidden = true; };
+  form.append(label, go, cancel);
+  form.onsubmit = async event => {
+    event.preventDefault();
+    // Checked, the box shows the backup codes in its place (showBackups); wrong, it stays for another try.
+    if (await act(() => api(`/api/users/${user.id}/second-step`, { code: input.value }), who)) result.textContent = `Authenticator code set up for ${who}.`;
+  };
+  box.append(form, el('p', `${user.you ? 'Your' : `${who}’s`} other logins from the network are logged out, and devices trusted before are forgotten.`, 'hint'));
+  box.hidden = false; input.focus();
+}
+
+function secondStep(user, who) {
+  const cell = el('td'), step = user.second_step || { code: false, backups_left: 0, devices: [] };
+  if (user.role !== 'admin') return cell;
+  if (!step.code) {
+    cell.append(el('small', 'No code: an administrator at this PC only. '));
+    const set = el('button', 'Set up a code…'); set.type = 'button'; set.onclick = () => setUpCode(user, who); cell.append(set);
+    return cell;
+  }
+  cell.append(el('small', `Code set up; ${step.backups_left} backup code${step.backups_left === 1 ? '' : 's'} left. `));
+  const again = el('button', 'New code…'); again.type = 'button';
+  again.onclick = async () => { if (await concert.sure(`Set up a new authenticator code for ${who}?
+The present one stops working once the new one is checked.`, { ok: 'Go on' })) setUpCode(user, who); };
+  const backups = el('button', 'New backup codes'); backups.type = 'button';
+  backups.onclick = async () => { if (await concert.sure(`Make ten new backup codes for ${who}?
+The ones from before stop working.`, { ok: 'Make them' })) act(() => api(`/api/users/${user.id}/second-step`, { backups: 'new' }), who); };
+  const remove = el('button', 'Remove code'); remove.type = 'button'; remove.className = 'danger';
+  remove.onclick = async () => { if (await concert.sure(`Remove ${who}’s authenticator code?
+They can then administer only at this PC; logged in from the network, they are an operator at once.`, { ok: 'Remove', danger: true })) act(() => api(`/api/users/${user.id}/second-step`, { remove: true }), who); };
+  cell.append(again, backups, remove);
+  if (step.devices.length) {
+    const list = el('ul', null, 'devices');
+    for (const device of step.devices) {
+      const line = el('li', `Trusted: ${gadget(device.device)}, since ${day(device.since)}, last used ${day(device.seen)}, until ${day(device.until)} `);
+      const forget = el('button', 'Forget'); forget.type = 'button'; forget.onclick = () => act(() => api(`/api/users/${user.id}/second-step`, { forget: device.id }), who);
+      line.append(forget); list.append(line);
+    }
+    if (step.devices.length > 1) { const all = el('button', 'Forget them all'); all.type = 'button'; all.onclick = () => act(() => api(`/api/users/${user.id}/second-step`, { forget: 'all' }), who); list.append(el('li', null), all); }
+    cell.append(list);
+  }
+  return cell;
 }
 const day = seconds => seconds ? new Date(seconds * 1000).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' }) : '';
 
 async function enter(session) {
   document.querySelector('#password').value = ''; document.querySelector('#login').hidden = true;
   window.concert.session = session; window.concert.nav(session.role);
-  if (session.role !== 'admin') { document.querySelector('header p').textContent = 'Only the administrator can see or change this page, at the manager PC.'; return; }
+  if (session.role !== 'admin') { document.querySelector('header p').textContent = 'Only an administrator can see or change this page: at the manager PC, or from the camera network with an authenticator code once that is switched on (System › Logins).'; return; }
   document.querySelector('#users').hidden = false;
   await act(() => api('/api/users'));
 }
@@ -53,7 +113,7 @@ function label(user) { return user.name || (user.role === 'admin' ? 'The adminis
 
 function draw() {
   const table = document.querySelector('#accounts');
-  const head = el('tr'); for (const title of ['Name', 'Role', 'Logged in', 'Added', '']) head.append(el('th', title));
+  const head = el('tr'); for (const title of ['Name', 'Role', 'Logged in', 'Added', 'From the network', '']) head.append(el('th', title));
   table.replaceChildren(head);
   const admins = state.users.filter(u => u.role === 'admin').length;
   for (const user of state.users) {
@@ -86,7 +146,7 @@ function draw() {
     const remove = el('button', 'Remove'); remove.type = 'button'; remove.className = 'danger'; remove.disabled = user.role === 'admin' && admins === 1;
     remove.onclick = async () => { if (await concert.sure(`Remove ${who}?\nThey can no longer log in, and are logged out everywhere now.`, { ok: 'Remove', danger: true })) { await act(() => api(`/api/users/${user.id}`, { remove: true }), who); if (user.you) location.reload(); } };
     actions.append(rename, reset, own, remove);
-    row.append(name, role, el('td', user.logged_in ? `${user.logged_in} ${user.logged_in === 1 ? 'device' : 'devices'}` : '—'), el('td', day(user.since)), actions);
+    row.append(name, role, el('td', user.logged_in ? `${user.logged_in} ${user.logged_in === 1 ? 'device' : 'devices'}` : '—'), el('td', day(user.since)), secondStep(user, who), actions);
     table.append(row);
   }
 }

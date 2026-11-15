@@ -42,7 +42,8 @@ window.concert = {
   /** Asks for one or more values in a dialog over the page, and answers {name: value}, or null if cancelled.
    * In place of window.prompt, which some browsers (those built into apps among them) do not show at all, so that a
    * button asking for something seemed to do nothing; and which shows a passphrase in plain text as it is typed.
-   * fields: [{name, label, type ('text' | 'password'), value, minLength}]; ok: the button's words; danger: a red button. */
+   * fields: [{name, label, type ('text' | 'password' | 'checkbox' | 'code'), value, minLength}]; ok: the button's words;
+   * danger: a red button. A checkbox answers true or false; a code is a one-time code, typed on a number pad. */
   ask({ title, text = '', fields, ok = 'OK', danger = false, cancel = 'Cancel' }) {
     return new Promise(resolve => {
       const dialog = document.createElement('dialog'); dialog.className = 'ask';
@@ -52,8 +53,11 @@ window.concert = {
       const inputs = {};
       for (const field of fields) {
         const label = document.createElement('label'); label.textContent = field.label;
-        const input = document.createElement('input'); input.type = field.type || 'text'; input.value = field.value || ''; input.required = true;
-        input.autocomplete = field.type === 'password' ? 'new-password' : 'off'; input.spellcheck = false;
+        const input = document.createElement('input'); input.type = field.type === 'code' ? 'text' : field.type || 'text'; input.spellcheck = false;
+        if (field.type === 'checkbox') { input.checked = !!field.value; label.className = 'check'; label.prepend(input); form.append(label); inputs[field.name] = input; continue; }
+        input.value = field.value || ''; input.required = true;
+        input.autocomplete = field.type === 'password' ? (field.current ? 'current-password' : 'new-password') : field.type === 'code' ? 'one-time-code' : 'off';
+        if (field.type === 'code') { input.inputMode = 'numeric'; input.maxLength = 20; }
         if (field.minLength) input.minLength = field.minLength;
         label.append(input); form.append(label); inputs[field.name] = input;
       }
@@ -62,7 +66,7 @@ window.concert = {
       const go = document.createElement('button'); go.type = 'submit'; go.value = 'ok'; go.textContent = ok; go.className = danger ? 'danger' : 'primary';
       if (cancel) row.append(no); row.append(go); form.append(row); dialog.append(form); document.body.append(dialog);
       dialog.addEventListener('close', () => {
-        const answer = dialog.returnValue === 'ok' ? Object.fromEntries(Object.entries(inputs).map(([name, input]) => [name, input.value])) : null;
+        const answer = dialog.returnValue === 'ok' ? Object.fromEntries(Object.entries(inputs).map(([name, input]) => [name, input.type === 'checkbox' ? input.checked : input.value])) : null;
         dialog.remove(); resolve(answer);
       });
       dialog.showModal();
@@ -500,4 +504,52 @@ window.concert = {
     if (!now || now === was.element || now.disabled || now.textContent.trim() !== was.words) return;
     setTimeout(() => now.click(), 0);           // after the browser's own click, which had no button to go to
   }, true);
+})();
+
+// Administering from the camera network (twofactor.py). Every page's login, and every request an administrator sends,
+// goes through fetch, so it is answered here, once, for all of them: the login asks for the authenticator code (and
+// offers to trust this device, so it is not asked for again for a while), and a request the manager answers
+// {"confirm": true} (rights resting unused, or a change to accounts or the network) asks for the password again and is
+// sent once more. Cancelled, the page is told so in words, as for any refusal.
+(() => {
+  const plain = window.fetch.bind(window);
+  const detailOf = async response => { try { return (await response.clone().json()).detail; } catch (error) { return null; } };
+  const told = (status, detail) => new Response(JSON.stringify({ detail }), { status, headers: { 'Content-Type': 'application/json' } });
+  const csrfOf = init => new Headers(init.headers || {}).get('x-csrf-token') || window.concert.session?.csrf || '';
+  let confirming = null;          // one password dialog however many requests are waiting for it
+  let declined = 0;               // when it was last cancelled: the pages' polls do not ask again straight away
+  const askPassword = (message, csrf) => confirming || (confirming = (async () => {
+    try {
+      for (let said = message; ;) {
+        const answer = await window.concert.ask({ title: 'Your password, again', text: said, fields: [{ name: 'password', label: 'Password', type: 'password', current: true }], ok: 'Go on' });
+        if (!answer) { declined = Date.now(); return false; }
+        const response = await plain('/api/login/confirm', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, body: JSON.stringify({ password: answer.password }) });
+        if (response.ok) return true;
+        const detail = await detailOf(response);
+        said = typeof detail === 'string' ? detail : 'That password is not right.';
+        if (response.status === 429) { window.concert.say?.(said, 'error'); return false; }
+      }
+    } finally { confirming = null; }
+  })());
+  window.fetch = async (input, init = {}) => {
+    const response = await plain(input, init);
+    if (![401, 403].includes(response.status)) return response;
+    const path = new URL(typeof input === 'string' ? input : input.url, location.href).pathname;
+    const detail = await detailOf(response);
+    if (!detail || typeof detail !== 'object') return response;
+    if (detail.code_needed && path === '/api/login' && typeof init.body === 'string') {
+      const answer = await window.concert.ask({
+        title: detail.wrong ? 'That code is not right' : 'Authenticator code', text: detail.message,
+        fields: [{ name: 'code', label: 'Code', type: 'code' }, { name: 'trust', label: 'Trust this device for 30 days: ask only for the password here', type: 'checkbox' }], ok: 'Log in' });
+      if (!answer) return told(response.status, 'Logging in as an administrator from the network needs the code from your authenticator app.');
+      return window.fetch(input, { ...init, body: JSON.stringify({ ...JSON.parse(init.body), code: answer.code, trust: answer.trust }) });
+    }
+    if (detail.confirm) {
+      const reading = !init.method || init.method === 'GET';
+      if ((reading && Date.now() - declined < 120000) || !await askPassword(detail.message, csrfOf(init))) return told(response.status, detail.message);
+      const { signal, ...rest } = init;            // the first try's time limit ran while the password was typed
+      return plain(input, rest);
+    }
+    return told(response.status, detail.message || `HTTP ${response.status}`);
+  };
 })();

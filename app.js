@@ -72,8 +72,8 @@ function show(path) {
   if (part === '/system') {
     for (const [id, , panels] of SYSTEM) for (const panel of panels) document.querySelector(panel).hidden = id !== systemTab;
     window.concert.tabs(document.querySelector('#system-tabs'), SYSTEM.map(([id, name]) => [`#${id}`, name]), `#${systemTab}`, href => { history.pushState(null, '', `/system${href}`); show('/system'); });
-    // Setting a phone up by cable is done at this computer only.
-    document.querySelector('#add-phone').hidden = !!window.concert.session?.away;
+    // Setting a phone up by cable: at this computer, or by an administrator on the network (the server says if it is kept to the PC).
+    document.querySelector('#add-phone').hidden = !!window.concert.session?.away && window.concert.session?.role !== 'admin';
   }
   if (part === '/recordings') window.concert.tabs(document.querySelector('#recordings-tabs'), window.concert.recordingTabs, '/recordings');
   const page = window.concert.pages.find(p => p[0] === (window.concert.under[part] || part));
@@ -1386,12 +1386,39 @@ async function drawAll() {
         // The dashboard on the camera network, for a tablet.
         const net = access.network, offer = node('label', ''), box = document.createElement('input'); box.type = 'checkbox'; box.checked = net.wanted;
         box.onchange = () => change({ network: box.checked });
-        offer.append(box, node('span', ' Offer this dashboard to the camera network, for a tablet. Only an operator can log in from there; the administrator logs in at this computer.')); accessPanel.append(offer);
+        const away = !!window.concert.session?.away;
+        box.disabled = away;                           // switching it off from there would shut the page being used
+        offer.append(box, node('span', ' Offer this dashboard to the camera network, for a tablet or a laptop. Operators and setup techs log in there; administrators too, once allowed below.')); accessPanel.append(offer);
         if (net.wanted !== net.running) accessPanel.append(node('small', `Restart the manager to ${net.wanted ? 'start' : 'stop'} offering it.`));
         else if (net.running) {
           accessPanel.append(node('small', `On the tablet, joined to the camera Wi-Fi, open ${net.addresses[0]}${net.addresses.length > 1 ? ` (or ${net.addresses.slice(1).join(', ')})` : ''}. If this computer has a firewall, open the port once: sudo ufw allow in ${net.interface ? `on ${net.interface} ` : ''}to any port ${net.port} proto tcp`));
           accessPanel.append(node('small', `To stop the tablet warning about the certificate: on the tablet open ${net.addresses[0]}authority.crt, install the profile it downloads, then switch on full trust for “MCVSAID (this installation)” (on an iPad: Settings › General › About › Certificate Trust Settings). This is done once; it covers this dashboard and Stage Shots.`));
           if (!access.operators) { const need = node('small', 'Nobody can log in from the network until there is an operator account (Users page).'); need.className = 'recording-warning'; accessPanel.append(need); }
+        }
+        // Administering from the camera network (twofactor.py): switched on here at the PC, with an authenticator code.
+        const remote = access.remote_admin;
+        if (remote) {
+          const block = node('article', ''); block.className = 'fold';
+          block.append(node('h3', 'Administering from the camera network'));
+          block.append(node('p', `For a PC that is out of reach once it is set up. An administrator logs in on the network dashboard with their password and a six-digit code from an authenticator app, or on a device they chose to trust when they last gave the code (for ${remote.trust_days} days). Their administrator rights rest after ${remote.rest_minutes} minutes without using them, and changing accounts, the network or the fleet asks for the password again. Every such login is in the audit log and listed below.`));
+          const label = node('label', ''), on = document.createElement('input'); on.type = 'checkbox'; on.checked = remote.on;
+          on.disabled = (away && !remote.on) || (!remote.on && !remote.admins_with_code);
+          on.onchange = async () => {
+            if (!on.checked && !await concert.sure(`Stop administering from the camera network?${away ? '\nYou are on the network: this login becomes an operator at once, and only an administrator at the manager PC can switch it back on.' : '\nAdministrators logged in from the network become operators at once.'}`, { danger: away })) { on.checked = true; return; }
+            change({ remote_admin: on.checked });
+          };
+          label.append(on, node('span', ' Let administrators work from the camera network, with an authenticator code')); block.append(label);
+          if (!remote.admins_with_code) { const need = node('small', 'No administrator has an authenticator code yet: set one up on the Users page first.'); need.className = 'recording-warning'; block.append(need); }
+          else block.append(node('small', `${remote.admins_with_code} of ${remote.admins} administrator${remote.admins === 1 ? '' : 's'} ${remote.admins_with_code === 1 ? 'has' : 'have'} a code. One without a code is an operator on the network.`));
+          if (remote.on && !net.wanted) { const need = node('small', 'Offer the dashboard to the camera network (above) for this to be used.'); need.className = 'recording-warning'; block.append(need); }
+          block.append(node('p', away ? 'Kept to the manager PC (changed only there):' : 'Keep these to this PC, out of reach of an administrator on the network:'));
+          for (const [group, words] of Object.entries(remote.groups)) {
+            const line = node('label', ''), keep = document.createElement('input'); keep.type = 'checkbox'; keep.checked = remote.pc_only.includes(group); keep.disabled = away;
+            keep.onchange = () => change({ pc_only: Object.keys(remote.groups).filter(g => g === group ? keep.checked : remote.pc_only.includes(g)) });
+            line.append(keep, node('span', ` ${words}`)); block.append(line);
+          }
+          block.append(node('small', 'Switching this on, and what is kept here, are always done at this PC.'));
+          accessPanel.append(block);
         }
         // Who is logged in now, and a way to log any of them out.
         accessPanel.append(node('p', 'Logged in now:'));
@@ -2192,7 +2219,7 @@ async function drawAll() {
         tools.append(command('Status', 'status.get'), command('Telemetry', 'metrics.get'), command('Restart stream', 'stream.restart'), command('Reboot phone', 'system.reboot', true));
         upkeep.append(tools);
         if (role === 'admin') { const manage = node('div', ''); manage.className = 'camera-controls'; manage.append(renameButton(camera), asideButton(camera), removeButton(camera)); upkeep.append(manage); }
-      } else if (role === 'admin' && !window.concert.session?.away) {
+      } else if (role === 'admin') {
         // An empty slot is where a new camera goes: say how.
         const add = document.createElement('a'); add.href = '/phones'; add.className = 'button primary'; add.textContent = 'Add a phone…';
         card.append(node('p', 'No phone is paired in this slot.'), add);

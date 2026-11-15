@@ -9,7 +9,7 @@
   async function api(path, body) {
     const response = await fetch(path, body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': session?.csrf || '' }, body: JSON.stringify(body) });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok) { const error = new Error(data.detail || `The manager answered ${response.status}`); error.status = response.status; throw error; }
+    if (!response.ok) { const error = new Error(data.detail?.message || data.detail || `The manager answered ${response.status}`); error.status = response.status; error.detail = data.detail; throw error; }
     return data;
   }
   const say = text => { $('#said').textContent = text || ''; };
@@ -122,8 +122,13 @@
   // -- logging in -------------------------------------------------------------------------------------------------------
   $('#login').onsubmit = async event => {
     event.preventDefault(); say('');
-    try { enter(await api('/api/login', { name: $('#username').value, password: $('#password').value })); $('#password').value = ''; }
-    catch (error) { say(error.message); }
+    // An administrator from the network gives the authenticator code too (twofactor.py): the field appears when it is asked for.
+    const login = { name: $('#username').value, password: $('#password').value, ...($('#code-line').hidden ? {} : { code: $('#code').value }) };
+    try { enter(await api('/api/login', login)); $('#password').value = ''; $('#code').value = ''; $('#code-line').hidden = true; }
+    catch (error) {
+      if (error.detail?.code_needed) { $('#code-line').hidden = false; $('#code').value = ''; $('#code').focus(); }
+      say(error.message);
+    }
   };
   $('#logout').onclick = async () => { try { await api('/api/logout', {}); } catch (error) { /* gone already */ } clearTimeout(timer); enter(null); };
 

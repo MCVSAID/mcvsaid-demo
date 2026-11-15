@@ -11,3 +11,5 @@
 .performer .consent { font-size:.9em; } .warn { color:#ffd17a; } .indent { margin-left:28px; } .indent input { min-width:16em; }
 #settings summary { cursor:pointer; color:#eef4f8; font-weight:600; } #settings small { display:block; }
 .thumbs figcaption { font-size:.72em; line-height:1.25; max-width:96px; color:#b7c6d4; margin-top:2px; } .thumbs figcaption.good { color:#9fd6a8; } .thumbs figcaption.poor { color:#ffd17a; }
+
+#once img.qr { display:block; background:#fff; padding:8px; border-radius:6px; margin:8px 0; width:220px; height:220px; } #once .key { font-family:ui-monospace,monospace; letter-spacing:.05em; user-select:all; } #accounts ul.devices { margin:6px 0 0; padding-left:18px; }

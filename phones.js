@@ -190,7 +190,7 @@ async function refresh() {
 async function enter(session) {
   csrf = session.csrf; window.concert.session = session; window.concert.nav(session.role);
   document.querySelector('#password').value = ''; document.querySelector('#login').hidden = true; document.querySelector('#setup').hidden = false;
-  if (session.role !== 'admin' || session.away) { trouble.hidden = false; trouble.textContent = 'Phones are set up by the administrator, at the PC they are plugged into.'; return; }
+  if (session.role !== 'admin') { trouble.hidden = false; trouble.textContent = 'Phones are set up by an administrator: at the PC they are plugged into, or from the camera network with an authenticator code.'; return; }
   await refresh();
   setInterval(() => { if (!document.hidden) refresh(); }, 2500);
 }

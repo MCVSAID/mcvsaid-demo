@@ -1658,12 +1658,14 @@
     const state = S.answers['/api/users'] || (S.answers['/api/users'] = { users: [], roles: { admin: 'administrator', operator: 'operator', stage: 'Stage Shots' } });
     const list = state.users, roles = Object.keys(state.roles), made = () => `demo-${Math.random().toString(36).slice(2, 10)}`;
     const admins = list.filter(u => u.role === 'admin').length;
+    // An administrator's authenticator code, for administering from the camera network: nothing to scan in a demo.
+    if (path.endsWith('/second-step')) return answer({ detail: 'In the demo there is no authenticator code to set up: on a real manager, an administrator scans a QR code here with an authenticator app.' }, 409);
     if (path === '/api/users') {
       const name = String(body.name || '').trim().replace(/\s+/g, ' ');
       if (!name || name.length > 40) return answer({ detail: 'A name is 1 to 40 characters' }, 400);
       if (list.some(u => u.name.toLowerCase() === name.toLowerCase())) return answer({ detail: `There is already an account called ${name}` }, 400);
       if (!roles.includes(body.role)) return answer({ detail: `role must be one of ${roles.join(', ')}` }, 400);
-      list.push({ id: Math.random().toString(16).slice(2, 14), name, role: body.role, since: now(), you: false, logged_in: 0 }); save();
+      list.push({ id: Math.random().toString(16).slice(2, 14), name, role: body.role, since: now(), you: false, logged_in: 0, second_step: { code: false, backups_left: 0, devices: [] } }); save();
       return answer({ ...state, ...(body.password ? {} : { password_once: made() }) });
     }
     const user = list.find(u => u.id === path.split('/').pop());
