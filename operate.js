@@ -28,6 +28,16 @@ async function api(path, body) {
   return data;
 }
 async function act(path, body) { try { const answer = await api(path, body); result.textContent = ''; return answer; } catch (error) { concert.fail(error); return null; } }
+// What a camera last answered to a controller's or the buttons' reading (operate_control's said): a refusal shown, as
+// "S23+ 2: CAMERA_NOT_RUNNING …", rather than a press that silently does nothing; cleared once it works again.
+const refused = new Map();
+function controlAnswer(id, answer) {
+  const said = answer?.said || null;
+  if (said === (refused.get(id) || null)) return;
+  const name = state?.cameras?.find(c => c.id === id)?.name || 'Camera';
+  if (said) { refused.set(id, said); result.textContent = `${name}: ${said}`; }
+  else { if (result.textContent === `${name}: ${refused.get(id)}`) result.textContent = ''; refused.delete(id); }
+}
 const send = (camera, command, parameters = {}) => act(`/api/cameras/${encodeURIComponent(camera)}/commands`, { request_id: crypto.randomUUID(), command, parameters });
 
 async function enter(session) {
@@ -264,7 +274,7 @@ function onscreenPad(id) {
   const sendReading = () => {
     const scale = aimLevel / DEFAULT_AIM, held = v => Math.max(-100, Math.min(100, Math.round(v * scale)));
     api('/api/operate/control', { camera_id: id, ...reading, pan: held(reading.pan || 0), tilt: held(reading.tilt || 0), zoom_speed: zoomTimes() })
-      .catch(error => { if (!/rate limit/i.test(error.message)) concert.fail(error); });
+      .then(answer => controlAnswer(id, answer)).catch(error => { if (!/rate limit/i.test(error.message)) concert.fail(error); });
   };
   const release = () => { if (!timer) return; clearInterval(timer); timer = null; reading = { pan: 0, tilt: 0, zoom: 0 }; sendReading(); };
   const hold = (label, title, values, kind) => {
@@ -404,7 +414,7 @@ function poll(time) {
     const moved = !last.active || Math.abs(pan - (last.pan || 0)) >= 8 || Math.abs(tilt - (last.tilt || 0)) >= 8 || Math.abs(zoom - (last.zoom || 0)) >= 0.08;
     if ((active && (time - last.sent >= EVERY_MS || (moved && time - last.sent >= SOONEST_MS))) || (!active && last.active)) {
       last.sent = time; last.pan = pan; last.tilt = tilt; last.zoom = zoom;
-      api('/api/operate/control', { camera_id: camera, pan, tilt, zoom, zoom_speed: zoomTimes() }).catch(error => { if (!/rate limit/i.test(error.message)) concert.fail(error); });
+      api('/api/operate/control', { camera_id: camera, pan, tilt, zoom, zoom_speed: zoomTimes() }).then(answer => controlAnswer(camera, answer)).catch(error => { if (!/rate limit/i.test(error.message)) concert.fail(error); });
     }
     pads.set(pad.index, { buttons: pad.buttons.map(b => b.pressed), sent: last.sent, active, pan: last.pan, tilt: last.tilt, zoom: last.zoom });
   }
