@@ -1,8 +1,10 @@
 // The host's recipe page (kitchen.html). Asks the manager for the recipe being cooked and where the cooking is
 // (/api/kitchen) every couple of seconds, so the operator's moves and the director's own show here too; Next and Back
 // (buttons, a swipe, or the arrow keys) move that place for everyone (/api/kitchen/step), and its On screen buttons show or put away the recipe card and pop the step's name up on the
-// programme (/api/kitchen/screen). What is this device's alone
-// is kept in it: the ingredients ticked, the timers running and the text size.
+// programme (/api/kitchen/screen). Prompter (its button, or P) is the step alone, as large as it goes, asked for every
+// second, so a step the host calls out ("step two", "moving on", "let's make the sauce": speech.py) is on this screen
+// at once, flashed, with who moved it. What is this device's alone is kept in it: the ingredients ticked, the timers
+// running, the text size and Prompter.
 (() => {
   const $ = id => document.getElementById(id);
   const store = {
@@ -10,14 +12,29 @@
     set(key, value) { try { localStorage.setItem('kitchen.' + key, JSON.stringify(value)); } catch (e) { /* kept for this visit only */ } },
   };
   let state = null, view = 'step', busy = false, lastOk = Date.now();
-  let scale = store.get('scale', 1);
+  let scale = store.get('scale', 1), prompter = store.get('prompter', false), shownAt = undefined, poller = null;
   let timers = store.get('timers', []);          // [{id, label, ends, seconds, rang}]
 
   // -- text size --------------------------------------------------------------------------------------------------
-  const setScale = value => { scale = Math.min(1.8, Math.max(0.8, Math.round(value * 10) / 10)); document.documentElement.style.setProperty('--scale', scale); store.set('scale', scale); };
+  const setScale = value => { scale = Math.min(prompter ? 2.4 : 1.8, Math.max(0.8, Math.round(value * 10) / 10)); document.documentElement.style.setProperty('--scale', scale); store.set('scale', scale); };
   setScale(scale);
   $('smaller').onclick = () => setScale(scale - 0.1);
   $('larger').onclick = () => setScale(scale + 0.1);
+  // The text goes up to 2.4x in Prompter, where the step is all there is.
+  const setPrompter = on => {
+    prompter = !!on; store.set('prompter', prompter); setScale(scale);
+    document.body.classList.toggle('prompter', prompter);
+    $('prompt').setAttribute('aria-pressed', String(prompter));
+    if (prompter) show('step');
+    clearInterval(poller); poller = setInterval(load, prompter ? 1000 : 2000);
+    if (state) draw();
+  };
+  $('prompt').onclick = () => setPrompter(!prompter);
+  // The foot's height, as laid out, so the page ends above it whatever the buttons wrap to.
+  new ResizeObserver(() => {
+    const foot = !$('controls').hidden ? $('controls') : !$('follow').hidden ? $('follow') : null;
+    document.body.style.setProperty('--foot', (foot ? foot.offsetHeight : 0) + 'px');
+  }).observe(document.body);
 
   // -- views ------------------------------------------------------------------------------------------------------
   const show = name => {
@@ -144,11 +161,25 @@
       $('label').textContent = at.label + (state.finished ? ' · done' : '');
       $('short').hidden = !at.short; $('short').textContent = at.short || '';
       $('text').textContent = at.text;
+      const by = state.moved?.number === state.current ? state.moved.by : null;
+      $('moved').textContent = by === 'voice' ? '· called out' : by === 'operator' ? '· by the operator' : by && by !== 'host' ? '· by the director' : '';
     } else {
+      $('moved').textContent = '';
       $('label').textContent = 'Ready when you are';
       $('short').hidden = false; $('short').textContent = recipe.title;
       $('text').textContent = `${recipe.ingredients.length} ingredients, ${steps.length} steps. Check the ingredients, then press Start.`;
     }
+    // A new step: flashed and scrolled to its top, so a glance finds it.
+    if (shownAt !== undefined && shownAt !== state.current) {
+      const view = $('view-step'); view.classList.remove('arrived'); void view.offsetWidth; view.classList.add('arrived');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+    shownAt = state.current;
+    // In Prompter, what the host may say to move the steps, and when words do not move them.
+    const voice = state.voice || {};
+    $('voice').hidden = !prompter || !voice.listening || !voice.steps;
+    $('voice').textContent = !voice.live ? '🎙 Calling out a step moves it once recording starts; till then, Next or a swipe'
+      : '🎙 Listening: “step 2”, “next step”, “moving on”, or the step in your own words';
     const chips = $('step-timers'); chips.replaceChildren();
     for (const t of at ? times(at.text) : []) {
       const chip = document.createElement('button'); chip.className = 'chip';
@@ -174,18 +205,17 @@
 
     const screen = state.screen || {};
     $('screen').hidden = !screen.allowed;
-    $('screen-note').textContent = !state.cooking ? '(the manager is not in Cooking mode)' : screen.in_obs ? '' : '(the overlay is not in OBS yet)';
+    $('screen').title = $('screen-note').textContent = !state.cooking ? '(the manager is not in Cooking mode)' : screen.in_obs ? '' : '(the overlay is not in OBS yet)';
     $('card').textContent = screen.card_up ? 'Hide recipe' : 'Show recipe';
     $('card').setAttribute('aria-pressed', String(!!screen.card_up));
     $('card').disabled = busy || !state.cooking;
     $('pop').disabled = busy || !at || !state.cooking;
     $('moves').hidden = !state.can_move;
     $('controls').hidden = !state.can_move && !screen.allowed; $('follow').hidden = state.can_move || !!screen.allowed;
-    document.body.style.setProperty('--foot', ($('controls').hidden ? 3.5 : (screen.allowed ? 4.5 : 0) + (state.can_move ? 5 : 0) + 1.5) + 'em');
     $('back').disabled = busy || !at || index === 0;
     $('next').disabled = busy || state.finished;
     $('next').textContent = !at ? 'Start ›' : coming ? 'Next ›' : 'Finish ✓';
-    show(view);
+    show(prompter ? 'step' : view);
   };
 
   // -- the manager ---------------------------------------------------------------------------------------------------
@@ -230,6 +260,7 @@
   $('back').onclick = () => move('back');
   document.addEventListener('keydown', e => {
     if (e.target.closest('input')) return;
+    if (e.key === 'p' || e.key === 'P') { setPrompter(!prompter); return; }
     if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown') { e.preventDefault(); move('next'); }
     if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); move('back'); }
   });
@@ -248,5 +279,5 @@
   document.addEventListener('visibilitychange', () => { awake(); if (document.visibilityState === 'visible') load(); });
   awake();
 
-  drawTimers(); load(); setInterval(load, 2000);
+  drawTimers(); setPrompter(prompter); load();
 })();
