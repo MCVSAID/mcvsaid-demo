@@ -110,3 +110,34 @@ body.prompter #upnext { margin-top: 0.8em; font-size: 0.95em; }
   .on { padding: 0 0.7em; } .move { min-width: 2.8em; padding: 0 0.8em; }
   .moves { gap: 0.3em; } .move.primary { min-width: 5em; }
 }
+
+/* Recording: REC in the header while the programme is recorded, red and counting, and "Not recording" in grey (amber
+   once the cooking has begun); Record and Stop at the foot, which want an operator's login (the dialog). */
+.rec { display: inline-flex; align-items: center; gap: 0.35em; padding: 0.3em 0.7em; border-radius: 999px; font-size: 0.8em; font-weight: 700;
+  font-variant-numeric: tabular-nums; white-space: nowrap; border: 1px solid var(--line); color: var(--soft); background: var(--card); }
+.rec[hidden] { display: none; }
+.rec.on-air { background: var(--warn); border-color: var(--warn); color: #fff; }
+.rec.on-air::before { content: ""; width: 0.6em; height: 0.6em; border-radius: 50%; background: #fff; animation: ring 1.6s ease-in-out infinite; }
+.rec.late { color: var(--accent); border-color: var(--accent); }
+@media (prefers-reduced-motion: reduce) { .rec.on-air::before { animation: none; } }
+#record { color: var(--warn); border-color: var(--warn); }
+#record.stop { background: var(--warn); color: #fff; }
+dialog#login, dialog#sure { border: 1px solid var(--line); border-radius: 1em; background: var(--card); color: var(--ink); padding: 1em 1.2em; width: min(26em, calc(100vw - 32px)); font-size: var(--chrome); }
+dialog#login::backdrop, dialog#sure::backdrop { background: rgba(0, 0, 0, 0.45); }
+#login h2 { margin: 0 0 0.3em; font-size: 1.15em; }
+#login p { margin: 0 0 0.8em; color: var(--soft); font-size: 0.9em; }
+#login label { display: flex; flex-direction: column; gap: 0.2em; margin-bottom: 0.7em; font-size: 0.9em; }
+#login label[hidden] { display: none; }
+#login input { font: inherit; padding: 0.5em 0.6em; border-radius: 0.5em; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+#login-said { color: var(--warn) !important; min-height: 1.2em; }
+#login .row { display: flex; justify-content: flex-end; gap: 0.5em; }
+/* A phone: the record button joins the one row at the foot (its word goes, as Back's does), so a little room is taken
+   from the gaps and the On screen buttons' sides. */
+@media (max-width: 560px) {
+  .rec { padding: 0.25em 0.55em; } .rec:not(.on-air)::after { content: "○"; }
+  footer, .screen { gap: 0.3em; } .on { padding: 0 0.6em; } #record { min-width: 2.5em; padding: 0; }
+}
+#sure h2 { margin: 0 0 0.3em; font-size: 1.15em; }
+#sure p { margin: 0 0 0.9em; color: var(--soft); font-size: 0.9em; }
+#sure .row { display: flex; justify-content: flex-end; gap: 0.5em; flex-wrap: wrap; }
+.move.danger { background: var(--warn); border-color: var(--warn); color: #fff; }

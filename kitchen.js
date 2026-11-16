@@ -4,7 +4,9 @@
 // programme (/api/kitchen/screen). Prompter (its button, or P) is the step alone, as large as it goes, asked for every
 // second, so a step the host calls out ("step two", "moving on", "let's make the sauce": speech.py) is on this screen
 // at once, flashed, with who moved it. What is this device's alone is kept in it: the ingredients ticked, the timers
-// running, the text size and Prompter.
+// running, the text size and Prompter. REC in the header says the programme is being recorded and for how long, and
+// Record and Stop at the foot start and stop it (/api/kitchen/record), as the Director page's do: they want an
+// operator's login, asked for here the first time, where nothing else on this page does.
 (() => {
   const $ = id => document.getElementById(id);
   const store = {
@@ -143,13 +145,36 @@
   };
 
   // -- drawing the recipe ---------------------------------------------------------------------------------------------
+  // -- recording ----------------------------------------------------------------------------------------------------
+  // The manager says how long it has been recording at each answer (every second or two); the clock counts between.
+  let recordSince = null;
+  const drawRecording = () => {
+    const rec = state?.recording || {}, badge = $('rec');
+    if (rec.on) recordSince = recordSince && Math.abs((Date.now() - recordSince) / 1000 - rec.seconds) < 3 ? recordSince : Date.now() - rec.seconds * 1000;
+    else recordSince = null;
+    badge.hidden = !state;
+    badge.className = 'rec' + (rec.on ? ' on-air' : state?.current ? ' late' : '');
+    // On a phone, the words go and the time stays: "● 7:12", "○" (.wide, as Back's word goes).
+    const word = (wide, rest) => { const w = document.createElement('span'); w.className = 'wide'; w.textContent = wide; return [w, rest]; };
+    badge.replaceChildren(...(rec.on ? word('REC ', clock((Date.now() - recordSince) / 1000)) : word('Not recording', '')));
+    badge.title = rec.on ? 'The programme is being recorded' : state?.current ? 'Cooking has begun and the programme is not being recorded' : 'The programme is not being recorded';
+    $('recorder').hidden = !rec.allowed;
+    $('record').replaceChildren(rec.on ? '■' : '●', ...word(rec.on ? ' Stop' : ' Record', ''));
+    $('record').classList.toggle('stop', !!rec.on);
+    $('record').setAttribute('aria-label', rec.on ? 'Stop recording the programme' : 'Record the programme to file');
+    $('record').disabled = busy;
+  };
+  setInterval(() => { if (recordSince) drawRecording(); }, 1000);
+
   const draw = () => {
+    drawRecording();
     const recipe = state?.recipe;
     $('empty').hidden = !!recipe;
     $('views').hidden = !recipe;
     if (!recipe) {
       $('title').textContent = 'Recipe'; $('where').textContent = state?.cooking === false ? 'The manager is not in Cooking mode' : '';
-      $('controls').hidden = true; $('follow').hidden = true; show(view); return;
+      $('screen').hidden = true; $('moves').hidden = true;
+      $('controls').hidden = !state?.recording?.allowed; $('follow').hidden = true; show(view); return;
     }
     const steps = state.steps, at = state.current ? steps[state.current - 1] : null;
     $('title').textContent = recipe.title; document.title = recipe.title;
@@ -211,7 +236,8 @@
     $('card').disabled = busy || !state.cooking;
     $('pop').disabled = busy || !at || !state.cooking;
     $('moves').hidden = !state.can_move;
-    $('controls').hidden = !state.can_move && !screen.allowed; $('follow').hidden = state.can_move || !!screen.allowed;
+    const recordable = !!state.recording?.allowed;
+    $('controls').hidden = !state.can_move && !screen.allowed && !recordable; $('follow').hidden = state.can_move || !!screen.allowed || recordable;
     $('back').disabled = busy || !at || index === 0;
     $('next').disabled = busy || state.finished;
     $('next').textContent = !at ? 'Start ›' : coming ? 'Next ›' : 'Finish ✓';
@@ -254,6 +280,72 @@
     } catch (e) { said(e.message === 'Failed to fetch' ? 'Not reaching the manager: try again' : e.message); }
     busy = false; draw();
   };
+  // Record and Stop: the one login of the easy addresses (operate., remote., calibrate. and this one), asked for when
+  // there is none; Stop asks first, so a stray tap with floury hands does not end the file.
+  let session = null, loggedIn = null;
+  const knownSession = async () => {
+    try { const reply = await fetch('/api/session', { cache: 'no-store' }); session = reply.ok ? await reply.json() : null; } catch (e) { session = null; }
+    return session;
+  };
+  const askLogin = () => new Promise(resolve => {
+    loggedIn = resolve;
+    $('login-said').textContent = ''; $('code-line').hidden = true; $('password').value = ''; $('code').value = '';
+    $('login').showModal(); $('username').focus();
+  });
+  $('login-cancel').onclick = () => { $('login').close(); loggedIn?.(null); loggedIn = null; };
+  $('login').addEventListener('cancel', () => { loggedIn?.(null); loggedIn = null; });
+  $('login-form').onsubmit = async event => {
+    event.preventDefault();
+    const login = { name: $('username').value, password: $('password').value, ...($('code-line').hidden ? {} : { code: $('code').value }) };
+    try {
+      const reply = await fetch('/api/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(login) });
+      const body = await reply.json().catch(() => ({}));
+      if (!reply.ok) {
+        // An administrator from the camera network gives the authenticator code too (twofactor.py).
+        if (body.detail?.code_needed) { $('code-line').hidden = false; $('code').value = ''; $('code').focus(); }
+        throw new Error(body.detail?.message || body.detail || `The manager said no (${reply.status})`);
+      }
+      session = body; $('password').value = ''; $('login').close(); loggedIn?.(session); loggedIn = null;
+    } catch (e) { $('login-said').textContent = e.message === 'Failed to fetch' ? 'Not reaching the manager: try again' : e.message; }
+  };
+  // Stop asks in a dialog of the page's own, never the browser's own confirm box, which a browser can stop showing and then
+  // answer Cancel by itself (test_dialogs.py).
+  const stopAsked = () => new Promise(resolve => {
+    const box = $('sure');
+    box.returnValue = '';
+    box.addEventListener('close', () => resolve(box.returnValue === 'yes'), { once: true });
+    box.showModal(); $('sure-yes').focus();
+  });
+  const record = async start => {
+    const send = () => fetch('/api/kitchen/record', { method: 'POST', headers: { 'content-type': 'application/json', 'x-csrf-token': session?.csrf || '' }, body: JSON.stringify({ record: start }) });
+    let reply = await send();
+    // No login yet, or one made on another page since: asked who this is, and then for a login if there is none.
+    if (reply.status === 401 || reply.status === 403) {
+      if (!(await knownSession()) && !(await askLogin())) return null;
+      reply = await send();
+    }
+    const body = await reply.json().catch(() => ({}));
+    if (!reply.ok) throw new Error(body.detail?.message || body.detail || `The manager said no (${reply.status})`);
+    return body;
+  };
+  $('record').onclick = async () => {
+    const on = !!state?.recording?.on;
+    if (busy || !state?.recording?.allowed) return;
+    if (on && !(await stopAsked())) return;
+    busy = true; draw();
+    // OBS starts and stops as far behind as the cameras run (up to 10 s, Director.record_lag), and a stopped file is
+    // read back and checked before the answer comes: said meanwhile, so dimmed buttons are not taken for a fault.
+    said(on ? 'Stopping: OBS is finishing the file…' : 'Starting the recording…');
+    try {
+      const fresh = await record(!on);
+      if (fresh) state = fresh;
+      else said('');
+      if (fresh) { said(on ? 'Recording stopped' : 'Recording'); setTimeout(() => { if ($('said').textContent.startsWith('Recording')) said(''); }, 4000); }
+    } catch (e) { said(e.message === 'Failed to fetch' ? 'Not reaching the manager: try again' : e.message); }
+    busy = false; draw();
+  };
+  knownSession();
+
   $('card').onclick = () => onScreen({ card: state?.screen?.card_up ? 'hide' : 'show' });
   $('pop').onclick = () => onScreen({ pop: true });
   $('next').onclick = () => move('next');
