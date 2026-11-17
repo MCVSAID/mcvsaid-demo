@@ -4,7 +4,9 @@
 // programme (/api/kitchen/screen). Prompter (its button, or P) is the step alone, as large as it goes, asked for every
 // second, so a step the host calls out ("step two", "moving on", "let's make the sauce": speech.py) is on this screen
 // at once, flashed, with who moved it. What is this device's alone is kept in it: the ingredients ticked, the timers
-// running, the text size and Prompter. REC in the header says the programme is being recorded and for how long, and
+// running, the text size and Prompter. Once a recording starts, and until a step begins, the Step view is the
+// ingredients for the host to go over (ingredients_first): each ticked as the manager hears it named, and when all
+// are, the first step (the preparation's, if any) comes up by itself; "prep step one", "next step" or Next does it too. REC in the header says the programme is being recorded and for how long, and
 // Record and Stop at the foot start and stop it (/api/kitchen/record), as the Director page's do: they want an
 // operator's login, asked for here the first time, where nothing else on this page does.
 (() => {
@@ -13,7 +15,7 @@
     get(key, fallback) { try { const v = localStorage.getItem('kitchen.' + key); return v === null ? fallback : JSON.parse(v); } catch (e) { return fallback; } },
     set(key, value) { try { localStorage.setItem('kitchen.' + key, JSON.stringify(value)); } catch (e) { /* kept for this visit only */ } },
   };
-  let state = null, view = 'step', busy = false, lastOk = Date.now();
+  let state = null, view = 'step', busy = false, lastOk = Date.now(), wasFirst = false;
   let scale = store.get('scale', 1), prompter = store.get('prompter', false), shownAt = undefined, poller = null;
   let timers = store.get('timers', []);          // [{id, label, ends, seconds, rang}]
 
@@ -176,7 +178,7 @@
       $('screen').hidden = true; $('moves').hidden = true;
       $('controls').hidden = !state?.recording?.allowed; $('follow').hidden = true; show(view); return;
     }
-    const steps = state.steps, at = state.current ? steps[state.current - 1] : null;
+    const steps = state.steps, at = state.current ? steps[state.current - 1] : null, first = state.ingredients_first || {};
     $('title').textContent = recipe.title; document.title = recipe.title;
     $('where').textContent = state.finished ? 'All done' : at ? `${at.label} of ${steps.filter(s => s.section === at.section).length}` + (at.section === 'prep' ? ' (prep)' : '') : `${steps.length} steps`;
     if (JSON.stringify([recipe.title, recipe.ingredients, recipe.equipment]) !== drawnIngredients) drawIngredients();
@@ -187,13 +189,30 @@
       $('short').hidden = !at.short; $('short').textContent = at.short || '';
       $('text').textContent = at.text;
       const by = state.moved?.number === state.current ? state.moved.by : null;
-      $('moved').textContent = by === 'voice' ? '· called out' : by === 'operator' ? '· by the operator' : by && by !== 'host' ? '· by the director' : '';
+      $('moved').textContent = by === 'voice' ? '· called out' : by === 'operator' ? '· by the operator' : by === 'ingredients' ? '· ingredients all named' : by && by !== 'host' ? '· by the director' : '';
+    } else if (first.on) {
+      const start = steps.find(s => s.status === 'to come'), named = new Set(first.named || []), left = recipe.ingredients.length - named.size;
+      $('moved').textContent = '';
+      $('label').textContent = `Ingredients · ${named.size} of ${recipe.ingredients.length}`;
+      $('short').hidden = false; $('short').textContent = 'Tell everyone what goes in';
+      const call = start ? (start.section === 'prep' ? `“prep step ${start.number === 1 ? 'one' : start.number}”` : `“step ${start.number === 1 ? 'one' : start.number}”`) : '';
+      $('text').textContent = !start ? '' : prompter ? `Then ${start.label}: say ${call}.` : first.hearing ? `Each is ticked as you say it. After the last, ${start.label} comes up; or say ${call} or “next step”, or tap ${start.label}.`
+        : `Then tap ${start.label}, or say ${call} or “next step”.`;
     } else {
       $('moved').textContent = '';
       $('label').textContent = 'Ready when you are';
       $('short').hidden = false; $('short').textContent = recipe.title;
-      $('text').textContent = `${recipe.ingredients.length} ingredients, ${steps.length} steps. Check the ingredients, then press Start.`;
+      $('text').textContent = `${recipe.ingredients.length} ingredients, ${steps.length} steps. Check the ingredients, then press Start.`
+        + (!state.recording?.on && recipe.ingredients.length ? ' When recording starts, the ingredients come up here to go over first.' : '');
     }
+    // The ingredients to go over, in the Step view, and brought to the front as the recording starts.
+    $('listing').hidden = !!at || !first.on;
+    if (!at && first.on) {
+      const named = new Set(first.named || []);
+      $('listing').replaceChildren(...recipe.ingredients.map((line, n) => { const li = document.createElement('li'); li.textContent = line; li.className = named.has(n) ? 'named' : ''; return li; }));
+      if (!wasFirst) { view = 'step'; window.scrollTo({ top: 0, behavior: 'smooth' }); }
+    }
+    wasFirst = !at && !!first.on;
     // A new step: flashed and scrolled to its top, so a glance finds it.
     if (shownAt !== undefined && shownAt !== state.current) {
       const view = $('view-step'); view.classList.remove('arrived'); void view.offsetWidth; view.classList.add('arrived');
@@ -240,7 +259,7 @@
     $('controls').hidden = !state.can_move && !screen.allowed && !recordable; $('follow').hidden = state.can_move || !!screen.allowed || recordable;
     $('back').disabled = busy || !at || index === 0;
     $('next').disabled = busy || state.finished;
-    $('next').textContent = !at ? 'Start ›' : coming ? 'Next ›' : 'Finish ✓';
+    $('next').textContent = !at ? (first.on && coming ? `${coming.label} ›` : 'Start ›') : coming ? 'Next ›' : 'Finish ✓';
     show(prompter ? 'step' : view);
   };
 
