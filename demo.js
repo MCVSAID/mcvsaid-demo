@@ -1719,6 +1719,19 @@
     save();
     return answer({ ...state, ...(body.password === 'new' ? { password_once: made() } : {}) });
   }
+  // What the demo cannot do, answered as the manager refuses a request, in words the page shows: each needs real
+  // cameras, phones, files or OBS. (A setting it can show is merged below instead, and "shown but not kept".)
+  const REFUSED = [
+    [/^\/api\/cameras\/[^/]+$/, 'In the demo the six simulated cameras stay: on a real manager this frees the camera’s slot.'],
+    [/^\/api\/colour\/(capture|calibrate|obs|settings)$/, 'In the demo the colour stays as the demonstration manager matched it: its pictures are drawn stills, with no camera to take, fit or set again.'],
+    [/^\/api\/creator\/preview$/, 'In the demo there is no live picture to look for people in: on a real manager the camera’s picture is looked at now.'],
+    [/^\/api\/face-blur\/(experimental|remove)$/, 'In the demo face blur stays as it is shown: on a real manager this changes OBS’s scenes.'],
+    [/^\/api\/locations\/(export|import)$/, 'In the demo there are no location files to save or bring in: on a real manager a location is kept in a file with its passphrase.'],
+    [/^\/api\/network\/move$/, 'In the demo the cameras are on no network to move: on a real manager each phone is told to join the new one.'],
+    [/^\/api\/offload\//, 'In the demo there are no recordings on the cameras to copy, move or delete: on a real manager they come over Wi-Fi to the library folder.'],
+    [/^\/api\/people\/picture$/, 'In the demo there is no live picture to take a performer’s from: the pictures shown were drawn by the demonstration manager.'],
+    [/^\/api\/phones\/(code|[^/]+\/setup)$/, 'In the demo no phones are plugged into this computer: on a real manager a new phone is set up from here, or by the code it scans.'],
+  ];
   function merge(path, body) {
     const target = S.answers[path];
     if (target && typeof target === 'object' && body && typeof body === 'object' && !Array.isArray(body)) {
@@ -1837,6 +1850,11 @@
       const recipeAnswer = { '/api/recipe': loadPost, '/api/recipe/step': stepPost, '/api/recipe/edit': editPost, '/api/recipe/voice': voicePost, '/api/overlay': overlayPost, '/api/recipe/prep': prepPost }[path];
       if (recipeAnswer) return recipeAnswer(body);
     }
+    // OBS's scenes looked over (obs.py), as the manager answers: the demo's stand-in OBS already has one for each camera.
+    if (path === '/api/obs/scenes') return answer({ sources_made: [], scenes_made: [], cameras: cams().cameras.length, unused: [] });
+    // A larger stream's cost to this computer (capacity.py): the demo's made-up answer, well within what it can decode.
+    if (path === '/api/capacity/estimate') return answer({ warnings: [], decoder_percent: 20 });
+    const refused = REFUSED.find(([pattern]) => pattern.test(path)); if (refused) return answer({ detail: refused[1] }, 409);
     return merge(path, body);
   };
 
