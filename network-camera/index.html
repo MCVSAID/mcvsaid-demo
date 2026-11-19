@@ -1,4 +1,4 @@
-<!doctype html><html lang="en"><meta charset="utf-8"><script src="/demo.js?v=ae7b19b97c96"></script><meta name="viewport" content="width=device-width,initial-scale=1"><title>Add a network camera · MCVSAID</title><link rel="stylesheet" href="/style.css">
+<!doctype html><html lang="en"><meta charset="utf-8"><script src="/demo.js?v=7ef1e457611d"></script><meta name="viewport" content="width=device-width,initial-scale=1"><title>Add a network camera · MCVSAID</title><link rel="stylesheet" href="/style.css">
 <link rel="stylesheet" href="/phones.css">
 <body><noscript><style>#login{display:none}</style><p style="padding:24px;font:17px/1.5 sans-serif">This is the MCVSAID demo: the dashboard with seven simulated cameras, run entirely in your browser. There is no server behind it and no login. Switch on JavaScript to try it.</p></noscript><header><p class="crumbs"><a href="/system#devices">System</a> › Cameras &amp; devices</p><h1>Add a network camera</h1></header>
 <form id="login"><label>Your name <input id="username" type="text" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="40"></label><label>Password <input id="password" type="password" autocomplete="current-password" required></label><button>Log in</button></form>
@@ -26,7 +26,7 @@
 <ol>
 <li>Press <b>Refresh OBS scenes</b> on the Show page: it makes the camera’s NDI source in OBS, in its lowest-delay mode, with its full-screen scene and its split screens.</li>
 <li>Its card on the Cameras page says whether OBS shows its picture. Once it does, the director can cut to it.</li>
-<li>Set its <b>delay</b> on its card (Maintenance) so that it lines up with the phones: it has no timing strip to be measured by, so it is set by eye.</li>
+<li>Its <b>delay</b> is set for you. It has no timing strip to be measured by, so with OBS sync on the manager watches its picture beside the phones’ and, once the same things have been seen to happen in both, lines it up with them and keeps it so. Its card (Maintenance) says when it was last timed; the delay can be set there by hand as a starting point.</li>
 </ol>
 <p><small>A PTZ camera is aimed and zoomed on the Operate page once its card has its control address; its picture size, frame rate and exposure are set on the camera itself. A network camera has no battery, temperature, lens, recording or app for the manager to look after, so none of those is shown for it.</small></p></section>
 <pre id="result" aria-live="polite"></pre></main><script src="/nav.js"></script><script src="/network-camera.js"></script></body></html>

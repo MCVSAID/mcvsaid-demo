@@ -453,7 +453,7 @@ async function fleetAction(action, cameras) {
 const notRight = camera => (camera.readiness?.checks || []).filter(check => check.status !== 'ok');
 const problems = camera => notRight(camera).map(check => `${check.label}: ${check.detail}`).join('; ');
 // A network camera's card (netcams.py): a camera that is not a phone, taken into OBS over NDI. Only what applies to
-// it: whether OBS has and shows it, the NDI source it is taken from, and the delay it is held by, set by hand. Nothing
+// it: whether OBS has and shows it, the NDI source it is taken from, and the delay it is held by: timed by its picture against the phones', and moved as their delay is. Nothing
 // of a phone's (arming, streaming and recording buttons, battery, temperature, storage, lens, gimbal, cooler, app).
 function networkCard(camera, { card, head, chip, facts, alerts, actions, more, picture, upkeep, role, director, sync }) {
   const t = camera.telemetry || {}, off = busy.has(camera.id);
@@ -464,16 +464,16 @@ function networkCard(camera, { card, head, chip, facts, alerts, actions, more, p
   else chip('No picture', 'bad');
   const fact = text => { const made = node('span', text); made.className = 'fact'; facts.append(made); return made; };
   fact(`NDI: ${camera.ndi_name}`).title = 'The NDI source OBS takes its picture from';
-  fact(camera.delay_ms ? `Held by ${camera.delay_ms} ms` : 'Not held back').title = 'Its delay in OBS, set by hand under Maintenance';
+  fact(camera.delay_ms || camera.delay_follows ? `Held by ${camera.delay_ms} ms${camera.delay_follows ? ', following the phones' : ''}` : 'Not held back').title = camera.delay_follows ? 'Its delay in OBS: set by hand under Maintenance, and moved since as the phones’ delay moved' : 'Its delay in OBS, set by hand under Maintenance';
   card.append(facts);
   const ready = readinessPanel(camera);
   if (ready && camera.readiness.overall === 'ok' && ready.childElementCount === 1) chip('Ready', 'ok'); else if (ready) card.append(ready);
   card.append(alerts, actions);
-  const change = async (body, said) => {
+  const change = async (body, said, more) => {
     busy.add(camera.id);
     try {
       const done = await api(`/api/cameras/${encodeURIComponent(camera.id)}/network`, { method: 'POST', body: JSON.stringify(body) });
-      result.textContent = said + (done.obs_problem ? ` OBS was not changed (${done.obs_problem}): save it again when OBS is running.` : done.obs_source ? ` Its OBS source “${done.obs_source}” takes it too.` : '');
+      result.textContent = said + (more ? more(done) : '') + (done.obs_problem ? ` OBS was not changed (${done.obs_problem}): save it again when OBS is running.` : done.obs_source ? ` Its OBS source “${done.obs_source}” takes it too.` : '');
     } catch (error) { concert.fail(error); }
     busy.delete(camera.id); refresh();
   };
@@ -484,16 +484,22 @@ function networkCard(camera, { card, head, chip, facts, alerts, actions, more, p
   save.onclick = () => { const name = source.value.trim(); if (name && name !== camera.ndi_name) change({ ndi_name: name }, `${camera.name} is now taken from “${name}”.`); };
   const sourceRow = node('label', 'NDI source name '); sourceRow.append(source, node('span', ' '), save);
   picture.append(sourceRow, node('small', 'As OBS lists it, for example STAGE-PTZ (Camera 1). Its size, frame rate and exposure are set on the camera itself; it is aimed and zoomed on the Operate page, once it has its control address (Following, below).'));
-  // Maintenance: its delay, which nothing measures, so it is set by hand.
+  // Maintenance: its delay. The manager times it against the phones by what the pictures show and sets it; it can be set by hand too.
   const delay = document.createElement('input'); delay.type = 'number'; delay.min = 0; delay.max = sync?.most_hold_ms || 6000; delay.step = 10; delay.value = camera.delay_ms; delay.setAttribute('aria-label', 'Delay in milliseconds');
   delay.disabled = off;
   const set = node('button', 'Set delay'); set.disabled = off;
-  set.onclick = () => { const ms = Number(delay.value); if (!(ms >= 0 && ms <= Number(delay.max))) { result.textContent = `A delay is from 0 to ${delay.max} ms.`; return; } if (ms !== camera.delay_ms) change({ delay_ms: ms }, `${camera.name} is held by ${ms} ms from the next sync round.`); };
+  set.onclick = () => { const ms = Number(delay.value); if (!(ms >= 0 && ms <= Number(delay.max))) { result.textContent = `A delay is from 0 to ${delay.max} ms.`; return; } if (ms !== camera.delay_ms || !camera.delay_follows) change({ delay_ms: ms }, `${camera.name} is held by ${ms} ms from the next sync round`, done => done.follows ? ', and follows the phones from there.' : '. The phones are not being lined up just now, so it stays at that: set it again once they are and it follows them.'); };
   const delayRow = node('label', 'Delay '); delayRow.append(delay, node('span', ' ms '), set);
   const target = sync?.target_ms;
-  upkeep.append(delayRow, node('small', `Holds its picture, and its sound with it, in OBS. It has no timing strip, so nothing measures it: set it by eye against a phone camera until a clap lands on the same frame.${target ? ` The phones are lined up ${Math.round(target)} ms behind real life just now.` : ''}`));
+  upkeep.append(delayRow, node('small', `Holds its picture, and its sound with it, in OBS. It has no timing strip, so nothing measures it: the manager watches its picture beside the phones’ and, when the same things are seen to happen in both, sets this by itself and keeps it right through the show. Its sound is a second check, and stands in when the pictures are still. It moves with the phones’ own delay in between. Set by hand, it is a starting point until it has been timed.${target ? ` The phones are lined up ${Math.round(target)} ms behind real life just now.` : ''}`));
   const aligned = sync?.cameras?.[camera.id];
   if (aligned?.status) { const tag = node('p', `OBS sync: ${aligned.status}`); tag.className = 'app-version'; upkeep.append(tag); }
+  if (aligned?.timed || aligned?.untimed) {
+    const timed = aligned.timed, ago = timed ? Math.max(0, Math.round(Date.now() / 1000 - timed.at)) : 0;
+    const said = [timed ? `Last timed ${ago < 90 ? `${ago} s` : `${Math.round(ago / 60)} min`} ago ${timed.by === 'sound' ? 'by its sound ' : 'by its picture '}against ${timed.against}: ${Math.abs(timed.error_ms) <= 25 ? 'with the phones' : `${Math.abs(timed.error_ms)} ms ${timed.error_ms < 0 ? 'early' : 'late'}`}, ${timed.natural_ms} ms late by itself.${timed.by !== 'sound' && timed.sound_agrees != null ? ` Its sound agrees (within ${Math.abs(timed.sound_agrees)} ms).` : ''}` : 'Not timed against the phones yet.',
+      aligned.untimed ? `Last look: ${aligned.untimed}.` : ''].filter(Boolean).join(' ');
+    const tag = node('p', said); tag.className = 'app-version'; upkeep.append(tag);
+  }
   upkeep.append(node('p', `Slot ${camera.slot} · OBS source ${t.obs_source ? `“${t.obs_source}”` : 'not made yet'} · last seen in OBS ${camera.last_contact ? new Date(camera.last_contact * 1000).toLocaleTimeString() : 'never'}`));
   networkFollow(camera, { card, change, role, off });
   if (role === 'admin') { const manage = node('div', ''); manage.className = 'camera-controls'; manage.append(renameButton(camera), asideButton(camera), removeButton(camera)); upkeep.append(manage); }

@@ -1015,9 +1015,11 @@
       const delay = Number(body.delay_ms);
       if (!(delay >= 0 && delay <= 6000)) return answer({ detail: 'A delay is from 0 to 6000 ms' }, 400);
       camera.delay_ms = done.delay_ms = Math.round(delay);
-      const said = camera.delay_ms ? `held by ${camera.delay_ms} ms, set by hand` : 'not held back (no delay set)';
-      const line = checks.find(c => c.id === 'delay'); if (line) line.detail = camera.delay_ms ? said : 'not held back: set its delay on its card to line it up with the phones';
-      const aligned = cams().sync?.cameras?.[id]; if (aligned) { aligned.delay_ms = camera.delay_ms; aligned.status = said; }
+      // Set while the phones are being lined up, it follows them from then on (sync.py hold_network).
+      const follows = camera.delay_follows = done.follows = !!(cams().sync?.enabled && cams().sync?.target_ms);
+      const said = follows ? `held by ${camera.delay_ms} ms, following the phones` : camera.delay_ms ? `held by ${camera.delay_ms} ms, set by hand` : 'not held back (no delay set)';
+      const line = checks.find(c => c.id === 'delay'); if (line) line.detail = follows || !camera.delay_ms ? (camera.delay_ms || follows ? said : 'not held back: not timed against the phones yet (it is, once its picture and a phone’s show the same movement)') : `${said}: not timed against the phones yet`;
+      const aligned = cams().sync?.cameras?.[id]; if (aligned) { aligned.delay_ms = camera.delay_ms; aligned.follows = follows; aligned.status = said; }
     }
     if ('ndi_name' in body) {
       const name = String(body.ndi_name || '').split(/\s+/).filter(Boolean).join(' ');
