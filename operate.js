@@ -222,9 +222,13 @@ function draw() {
     if (camera.online && !tech() && !network) buttons.append(...capture(camera, t));      // a network camera is armed and started on itself
     if (steered) {
       const stop = node('button', 'Stop camera'); stop.title = 'Stop it turning and zooming. Controller: press B'; stop.onclick = () => stopCamera(camera.id);
-      const home = node('button', 'Go home'); home.title = 'Turn it to its own home position (straight ahead). Controller: press the right stick';
+      // Its home: where Set home kept it (one of the camera's own presets, with its zoom), else the camera's own.
+      const homeSet = !!camera.netfollow?.home?.set;
+      const home = node('button', 'Go home'); home.title = `${homeSet ? 'Turn it back to its home position, and its zoom there' : 'No home set here yet, so this is the camera’s own home (straight ahead): aim it, then Set home'}. Controller: press the right stick`;
       home.onclick = () => goHome(camera.id);
-      buttons.append(stop, home);
+      const sethome = node('button', homeSet ? 'Set home again' : 'Set home'); sethome.title = 'Keep where it points now, and its zoom, as its home position (saved on the camera as one of its presets)';
+      sethome.onclick = () => act(`/api/cameras/${encodeURIComponent(camera.id)}/gimbal-home`, { action: 'set' }).then(done => { if (done) result.textContent = done.did || `${camera.name}: home set`; refresh(); });
+      buttons.append(stop, home, sethome);
     }
     if (gimbal?.connected) {
       const stop = node('button', 'Stop gimbal'); stop.title = 'Stop the gimbal moving (the stream carries on). Controller: press B'; stop.onclick = () => send(camera.id, 'gimbal.stop');
@@ -462,7 +466,16 @@ function autoButtons(camera, auto) {
   if (!auto) return [];
   const made = [];
   for (const [kind, word, about] of [['tracking', 'Tracking', isNetwork(camera) ? 'its own tracker, aimed from the stage' : 'its gimbal following someone, aimed from the stage'], ['zoom', 'Auto zoom', 'the director’s crop of its picture in OBS']]) {
-    if (kind === 'tracking' && !(auto.tracking.gimbals || []).includes(camera.id) && !(steerable(camera) && camera.netfollow?.armed)) continue;
+    if (kind === 'tracking' && steerable(camera)) {
+      // A network PTZ camera's own tracker, on or off, whether or not the manager follows with it: shown as last set
+      // from here (the camera does not say), and told to the camera on every press.
+      const on = camera.netfollow?.tracking === true, b = node('button', `Tracking: ${on ? 'on' : camera.netfollow?.tracking == null ? 'not set' : 'off'}`);
+      b.setAttribute('aria-pressed', String(on)); b.classList.toggle('held', !on);
+      b.title = `${camera.name}'s own tracker${camera.netfollow?.tracking == null ? ' (not set from here yet: it is as the camera was left)' : ''}. On, it frames its own subject${camera.netfollow?.armed ? ', aimed from the stage' : ' where it points'}; off, it stays where you aim it. Controller: X`;
+      b.onclick = () => autoSend({ kind, on: !on }, camera.id);
+      made.push(b); continue;
+    }
+    if (kind === 'tracking' && !(auto.tracking.gimbals || []).includes(camera.id)) continue;
     const mine = auto[kind].cameras[camera.id]; if (!mine) continue;
     const b = node('button', `${word}: ${mine.on ? 'on' : 'off'}${mine.own && !mine.on ? ' (every camera off)' : ''}`);
     b.setAttribute('aria-pressed', String(mine.own)); b.classList.toggle('held', !mine.on);
@@ -594,8 +607,8 @@ function poll(time) {
       if (pressed(0) && !tech()) act('/api/director', { take: camera }).then(refresh);
       if (pressed(1)) stopCamera(camera);
       if (pressed(2) && !tech()) { const c = state.cameras.find(x => x.id === camera);
-        // A network camera's own tracker, where the manager follows with it: its Tracking switch, on or off.
-        const mine = state.auto?.tracking?.cameras?.[camera]; if (steerable(c) && c.netfollow?.armed && mine) autoSend({ kind: 'tracking', on: !mine.own }, camera);
+        // A network camera's own tracker: its tile's Tracking, on or off.
+        if (steerable(c) && state.auto) autoSend({ kind: 'tracking', on: c.netfollow?.tracking !== true }, camera);
         if (c?.gimbal?.connected) send(camera, 'gimbal.follow', c.gimbal.follow ? { on: false } : { on: true, who: 'face' }).then(refresh); }
       if (pressed(3) && !tech()) act('/api/operate/previous', {}).then(refresh);
     }

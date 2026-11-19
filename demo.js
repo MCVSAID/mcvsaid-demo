@@ -1114,6 +1114,14 @@
   function gimbalHomePost(id, body) {
     // A gimbal camera's home position: Set keeps the angles it reports now, Home turns it back (and stops following).
     const camera = cams().cameras.find(c => c.id === id); if (!camera) return answer({ detail: 'No such camera' }, 404);
+    // A network PTZ camera's home is one of its own presets (netcontrol.py): set where it points, and gone back to.
+    if (camera.kind === 'network' && camera.netfollow) {
+      if (!camera.has_control) return answer({ detail: `${camera.name} has no control address: give it on its card (Cameras) first` }, 409);
+      if (body.action === 'forget') camera.netfollow.home = { set: false, preset: null };
+      if (body.action === 'set') camera.netfollow.home = { set: true, preset: 60 };
+      save();
+      return answer({ home: camera.netfollow.home, did: body.action === 'set' ? `${camera.name}: home set where it points now (kept on the camera as preset 60)` : body.action === 'go' ? `${camera.name}: turning to its home position` : undefined });
+    }
     const g = camera.gimbal, a = camera.telemetry?.gimbal?.attitude || g?.attitude;
     if (!g?.home) return answer({ detail: 'Gimbal: the camera app cannot turn to a position' }, 409);
     if (!['set', 'go', 'forget', 'find'].includes(body.action)) return answer({ detail: 'action is set, go, forget or find' }, 400);
@@ -1201,7 +1209,7 @@
       if (before[c] === mine.cameras[c].on) continue;
       const camera = cams().cameras.find(x => x.id === c), g = camera.gimbal;
       // A network PTZ camera's onboard tracker (netcontrol.py): on or off, no phone to follow a face.
-      if (camera.kind === 'network') { if (camera.netfollow) { camera.netfollow.tracking_on = mine.cameras[c].on; camera.netfollow.state = mine.cameras[c].on ? (camera.netfollow.armed ? 'following' : null) : 'waiting'; if (!mine.cameras[c].on) camera.netfollow.why = 'its tracker is off'; } continue; }
+      if (camera.kind === 'network') { if (camera.netfollow) { camera.netfollow.tracking_on = mine.cameras[c].on; camera.netfollow.tracking = mine.cameras[c].on; camera.netfollow.state = mine.cameras[c].on ? (camera.netfollow.armed ? 'following' : null) : 'waiting'; if (!mine.cameras[c].on) camera.netfollow.why = 'its tracker is off'; } continue; }
       if (!g) continue;
       if (!mine.cameras[c].on) { if (g.follow) { autoHeld()[c] = { following: true, performer: false }; g.follow = null; if (camera.telemetry?.gimbal) camera.telemetry.gimbal.follow = null; } }
       else if (autoHeld()[c]) { delete autoHeld()[c]; g.follow = { state: 'following', hands_on: false, by: 'face', pace: 'normal' }; if (camera.telemetry?.gimbal) camera.telemetry.gimbal.follow = { ...g.follow }; }
