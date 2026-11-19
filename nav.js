@@ -28,7 +28,7 @@ window.concert = {
   handy: ['/', '/cameras', '/stage', '/director'],
   handyIn: { cooking: ['/', '/recipe', '/cameras', '/stage'], karaoke: ['/', '/karaoke', '/cameras', '/stage'] },     // in Cooking, the recipe is followed during the show
   // Pages that sit under one of the above, which is shown as the current one while they are open.
-  under: { '/recordings': '/offload', '/phones': '/system', '/locations': '/system', '/show': '/' },
+  under: { '/recordings': '/offload', '/phones': '/system', '/network-camera': '/system', '/locations': '/system', '/show': '/' },
   // Where the Show page (/) is reached from here: operate. and remote.<name> send / on to their own page (webnames.py),
   // so there it is /show, which the manager answers with the same page.
   showAt: /^(operate|remote)\./.test(location.hostname) ? '/show' : '/',
@@ -147,7 +147,7 @@ window.concert = {
       const subs = path === '/system' ? this.systemTabs : path === '/offload' ? this.recordingTabs : null;
       if (subs && path === current) {
         const inner = document.createElement('div'); inner.className = 'sub';
-        const open = here === '/phones' ? '/system#devices' : this.subCurrent || (here === '/system' ? `/system${location.hash || '#devices'}` : here);
+        const open = here === '/phones' || here === '/network-camera' ? '/system#devices' : this.subCurrent || (here === '/system' ? `/system${location.hash || '#devices'}` : here);
         for (const [href, text] of subs) {
           const item = document.createElement('a'); item.href = href; item.textContent = text;
           if (href === open) item.setAttribute('aria-current', 'location');

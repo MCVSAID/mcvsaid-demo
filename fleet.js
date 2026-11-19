@@ -8,7 +8,10 @@ const armedNow = c => c.online && c.telemetry?.armed === true;
 const streamingNow = c => !!(c.telemetry?.streaming || c.telemetry?.capture?.streamRequested);
 // Only a phone still on app 0.7.6 that was armed on its own screen starts a recording along with its stream.
 const recordsWithStream = c => !c.telemetry?.capabilities?.explicit_recording && c.telemetry?.armed === true && c.telemetry?.capture?.localRecordingWanted !== false && !c.telemetry?.recording;
-const FLEET = [
+// Every one of these is a command to a phone: a network camera (taken into OBS over NDI) takes none, and is neither
+// a target nor something left out with a reason.
+const phonesOnly = action => ({ ...action, targets: c => c.kind !== 'network' && action.targets(c), skipped: c => c.kind === 'network' ? null : action.skipped(c) });
+const EVERY = [
   { label: 'Arm all cameras', command: 'camera.arm', step: 'arming', did: 'armed',
     // Arming never switches recording on. Phones on app 0.7.6 need to be told; 0.7.7 and later never record unasked.
     parameters: c => c.telemetry?.capabilities?.stream_only_arm ? { local_recording: false } : {},
@@ -38,5 +41,6 @@ const FLEET = [
     detail: c => [streamingNow(c) ? 'streaming' : null, c.telemetry?.recording ? 'RECORDING' : null, c.telemetry?.capabilities?.device_owner ? null : 'cannot be re-armed from here'].filter(Boolean).join(', ') || null,
     skipped: c => !c.online && c.telemetry?.armed ? 'offline; was armed when last heard from' : null },
 ];
+const FLEET = EVERY.map(phonesOnly);
 window.concertFleet = { FLEET, armedNow, streamingNow, recordsWithStream };
 })();

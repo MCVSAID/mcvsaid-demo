@@ -1,0 +1,32 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><script src="/demo.js?v=36db48dcfe19"></script><meta name="viewport" content="width=device-width,initial-scale=1"><title>Add a network camera · MCVSAID</title><link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/phones.css">
+<body><noscript><style>#login{display:none}</style><p style="padding:24px;font:17px/1.5 sans-serif">This is the MCVSAID demo: the dashboard with seven simulated cameras, run entirely in your browser. There is no server behind it and no login. Switch on JavaScript to try it.</p></noscript><header><p class="crumbs"><a href="/system#devices">System</a> › Cameras &amp; devices</p><h1>Add a network camera</h1></header>
+<form id="login"><label>Your name <input id="username" type="text" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="40"></label><label>Password <input id="password" type="password" autocomplete="current-password" required></label><button>Log in</button></form>
+<main id="setup" hidden>
+<p>A camera that is not a phone, such as a PTZ camera on the network. OBS takes its picture over NDI; the manager knows it by a name, a slot and the NDI source it sends, and the director chooses it like any other camera.</p>
+<p id="trouble" class="recording-warning" hidden></p>
+<p id="plugin" hidden></p>
+<form id="add" autocomplete="off">
+<fieldset><legend>The camera</legend>
+<label>Name <input id="camera-name" type="text" maxlength="80" required placeholder="Stage PTZ"></label>
+<label>Slot <select id="camera-slot" required></select></label>
+<small id="slot-note"></small></fieldset>
+<fieldset><legend>Its NDI source</legend>
+<div id="found"></div>
+<label>NDI source name <input id="ndi-name" type="text" maxlength="255" required spellcheck="false" placeholder="STAGE-PTZ (Camera 1)"></label>
+<small>As NDI names it: the sending device, then the source in brackets. Choose one found above, or type it exactly as OBS lists it in an NDI source’s “Source name”.</small></fieldset>
+<button class="go">Add this camera</button></form>
+<section id="have" hidden><h2>Network cameras here</h2><ul id="have-list"></ul></section>
+<section id="guide"><h2>What it needs</h2>
+<ul>
+<li><b>In OBS: the NDI runtime and the DistroAV plugin</b> (both free; installed by an administrator of this computer, then OBS restarted). Without them OBS cannot take NDI: the camera can still be added here, and says it is not ready, and why, until they are there.</li>
+<li><b>The camera on the same network as this computer</b>, with NDI switched on in its own settings.</li>
+</ul>
+<h2>After adding it</h2>
+<ol>
+<li>Press <b>Refresh OBS scenes</b> on the Show page: it makes the camera’s NDI source in OBS, in its lowest-delay mode, with its full-screen scene and its split screens.</li>
+<li>Its card on the Cameras page says whether OBS shows its picture. Once it does, the director can cut to it.</li>
+<li>Set its <b>delay</b> on its card (Maintenance) so that it lines up with the phones: it has no timing strip to be measured by, so it is set by eye.</li>
+</ol>
+<p><small>Turning and zooming the camera is not done from here yet; its picture size, frame rate and exposure are set on the camera itself. A network camera has no battery, temperature, lens, recording or app for the manager to look after, so none of those is shown for it.</small></p></section>
+<pre id="result" aria-live="polite"></pre></main><script src="/nav.js"></script><script src="/network-camera.js"></script></body></html>

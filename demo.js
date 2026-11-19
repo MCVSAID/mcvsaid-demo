@@ -1006,6 +1006,28 @@
     save(); note(`In the demo the ${kind} moves at once; a real one connects to its new phone within a few seconds.`);
     return answer({ request_id: 'demo', state: 'SUCCEEDED', result: { type: 'ack', ok: true, demo: true } });
   }
+  // A network camera's delay or NDI source name changed on its card (routes/cameras.py network_change): kept on the
+  // camera, with the words of its readiness and sync lines that say them.
+  function networkPost(id, body) {
+    const camera = cams().cameras.find(c => c.id === id && c.kind === 'network'); if (!camera) return answer({ detail: 'No such network camera' }, 404);
+    const done = { camera_id: id }, checks = camera.readiness?.checks || [];
+    if ('delay_ms' in body) {
+      const delay = Number(body.delay_ms);
+      if (!(delay >= 0 && delay <= 6000)) return answer({ detail: 'A delay is from 0 to 6000 ms' }, 400);
+      camera.delay_ms = done.delay_ms = Math.round(delay);
+      const said = camera.delay_ms ? `held by ${camera.delay_ms} ms, set by hand` : 'not held back (no delay set)';
+      const line = checks.find(c => c.id === 'delay'); if (line) line.detail = camera.delay_ms ? said : 'not held back: set its delay on its card to line it up with the phones';
+      const aligned = cams().sync?.cameras?.[id]; if (aligned) { aligned.delay_ms = camera.delay_ms; aligned.status = said; }
+    }
+    if ('ndi_name' in body) {
+      const name = String(body.ndi_name || '').split(/\s+/).filter(Boolean).join(' ');
+      if (name.length < 1 || name.length > 255) return answer({ detail: 'Give the NDI source name as OBS lists it' }, 400);
+      camera.ndi_name = done.ndi_name = name; done.obs_source = camera.telemetry?.obs_source || null; done.obs_problem = null;
+      const line = checks.find(c => c.id === 'source'); if (line) line.detail = `“${done.obs_source}”, taking “${name}”`;
+      const listed = (S.answers['/api/network-cameras']?.cameras || []).find(c => c.id === id); if (listed) listed.ndi_name = name;
+    }
+    save(); return answer(done);
+  }
   function renamePost(id, body) {
     // As the manager does: 1 to 80 characters, no two cameras alike. Other pages keep the recorded name until Start over.
     const camera = cams().cameras.find(c => c.id === id); if (!camera) return answer({ detail: 'No such camera' }, 404);
@@ -1722,7 +1744,8 @@
   // What the demo cannot do, answered as the manager refuses a request, in words the page shows: each needs real
   // cameras, phones, files or OBS. (A setting it can show is merged below instead, and "shown but not kept".)
   const REFUSED = [
-    [/^\/api\/cameras\/[^/]+$/, 'In the demo the six simulated cameras stay: on a real manager this frees the camera’s slot.'],
+    [/^\/api\/cameras\/[^/]+$/, 'In the demo the simulated cameras stay: on a real manager this frees the camera’s slot.'],
+    [/^\/api\/network-cameras$/, 'In the demo the simulated cameras stay as they are: on a real manager this adds the network camera, and “Refresh OBS scenes” then makes its NDI source and scenes in OBS.'],
     [/^\/api\/colour\/(capture|calibrate|obs|settings)$/, 'In the demo the colour stays as the demonstration manager matched it: its pictures are drawn stills, with no camera to take, fit or set again.'],
     [/^\/api\/creator\/preview$/, 'In the demo there is no live picture to look for people in: on a real manager the camera’s picture is looked at now.'],
     [/^\/api\/face-blur\/(experimental|remove)$/, 'In the demo face blur stays as it is shown: on a real manager this changes OBS’s scenes.'],
@@ -1838,6 +1861,7 @@
     const aimed = path.match(/^\/api\/cameras\/([^/]+)\/gimbal-targets$/); if (aimed) return gimbalTargetPost(decodeURIComponent(aimed[1]), body);
     const planned = path.match(/^\/api\/cameras\/([^/]+)\/gimbal-(plan|performer)$/); if (planned) return (planned[2] === 'plan' ? gimbalPlanPost : gimbalPerformerPost)(decodeURIComponent(planned[1]), body);
     const named = path.match(/^\/api\/cameras\/([^/]+)\/name$/); if (named) return renamePost(decodeURIComponent(named[1]), body);
+    const networked = path.match(/^\/api\/cameras\/([^/]+)\/network$/); if (networked) return networkPost(decodeURIComponent(networked[1]), body);
     if (path === '/api/obs/names') return answer({ sources: {}, scenes: {}, skipped: [] });     // renaming in the demo already carried through
     if (path === '/api/stage' && (body.layout || body.widths || body.room || 'room_width_m' in body)) return stagePost(body);
     if (path === '/api/stage/room/fit') return fit(body);
@@ -1851,7 +1875,7 @@
       if (recipeAnswer) return recipeAnswer(body);
     }
     // OBS's scenes looked over (obs.py), as the manager answers: the demo's stand-in OBS already has one for each camera.
-    if (path === '/api/obs/scenes') return answer({ sources_made: [], scenes_made: [], cameras: cams().cameras.length, unused: [] });
+    if (path === '/api/obs/scenes') return answer({ sources_made: [], scenes_made: [], cameras: cams().cameras.length, unused: [], left_out: [] });
     // A larger stream's cost to this computer (capacity.py): the demo's made-up answer, well within what it can decode.
     if (path === '/api/capacity/estimate') return answer({ warnings: [], decoder_percent: 20 });
     const refused = REFUSED.find(([pattern]) => pattern.test(path)); if (refused) return answer({ detail: refused[1] }, 409);

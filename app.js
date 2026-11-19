@@ -74,6 +74,7 @@ function show(path) {
     window.concert.tabs(document.querySelector('#system-tabs'), SYSTEM.map(([id, name]) => [`#${id}`, name]), `#${systemTab}`, href => { history.pushState(null, '', `/system${href}`); show('/system'); });
     // Setting a phone up by cable: at this computer, or by an administrator on the network (the server says if it is kept to the PC).
     document.querySelector('#add-phone').hidden = !!window.concert.session?.away && window.concert.session?.role !== 'admin';
+    document.querySelector('#add-network-camera').hidden = window.concert.session?.role !== 'admin';
   }
   if (part === '/recordings') window.concert.tabs(document.querySelector('#recordings-tabs'), window.concert.recordingTabs, '/recordings');
   const page = window.concert.pages.find(p => p[0] === (window.concert.under[part] || part));
@@ -403,12 +404,15 @@ function renameButton(camera) {
   return button;
 }
 function removeButton(camera) {
-  const t = camera.telemetry || {}, capturing = camera.online && (t.streaming || t.recording || t.capture?.streamRequested);
+  // A network camera cannot be stopped from here and has nothing to lose by going: only being on air holds it (the manager says so).
+  const network = camera.kind === 'network';
+  const t = camera.telemetry || {}, capturing = !network && camera.online && (t.streaming || t.recording || t.capture?.streamRequested);
   const button = node('button', 'Remove camera…'); button.className = 'danger';
   button.disabled = !!capturing || busy.has(camera.id);
   button.title = capturing ? 'Stop its stream and recording first' : 'Unpair it for good';
   button.onclick = async () => {
-    if (!await concert.sure(`Remove ${camera.name} (slot ${camera.slot}) for good?\n\nIt is unpaired: its credential stops working, so the phone can no longer connect${camera.online ? ' (it is disconnected now)' : ''}, and its slot is free. What is set for it here is cleared: what it shows, its place on the stage picture, its microphone, telephoto, decoding and colour. Its recordings stay, and a restore point is kept (System › Locations & backups).\n\nTo use the phone again it must be paired again. To keep it for another time, use “Not used here” instead.`)) return;
+    if (!await concert.sure(network ? `Remove ${camera.name} (slot ${camera.slot})?\n\nIt is taken off the manager's list and its slot is free; what is set for it here (what it shows, its delay) goes with it. Its NDI source and scenes in OBS are left as they are: delete them there if they are not wanted. It can be added again on the Add a network camera page.`
+      : `Remove ${camera.name} (slot ${camera.slot}) for good?\n\nIt is unpaired: its credential stops working, so the phone can no longer connect${camera.online ? ' (it is disconnected now)' : ''}, and its slot is free. What is set for it here is cleared: what it shows, its place on the stage picture, its microphone, telephoto, decoding and colour. Its recordings stay, and a restore point is kept (System › Locations & backups).\n\nTo use the phone again it must be paired again. To keep it for another time, use “Not used here” instead.`)) return;
     try { const done = await api(`/api/cameras/${encodeURIComponent(camera.id)}`, { method: 'DELETE' }); result.textContent = `Removed ${done.removed}: slot ${done.slot} is free.`; } catch (error) { concert.fail(error); }
     refresh();
   };
@@ -448,6 +452,51 @@ async function fleetAction(action, cameras) {
 // look at says "Ready" and no more: the checks that passed are not listed.
 const notRight = camera => (camera.readiness?.checks || []).filter(check => check.status !== 'ok');
 const problems = camera => notRight(camera).map(check => `${check.label}: ${check.detail}`).join('; ');
+// A network camera's card (netcams.py): a camera that is not a phone, taken into OBS over NDI. Only what applies to
+// it: whether OBS has and shows it, the NDI source it is taken from, and the delay it is held by, set by hand. Nothing
+// of a phone's (arming, streaming and recording buttons, battery, temperature, storage, lens, gimbal, cooler, app).
+function networkCard(camera, { card, head, chip, facts, alerts, actions, more, picture, upkeep, role, director, sync }) {
+  const t = camera.telemetry || {}, off = busy.has(camera.id);
+  head.prepend(cardShot(camera, !!director?.usable?.includes(camera.id)));
+  chip('Network camera', 'quiet').title = 'Not a phone: OBS takes its picture over NDI';
+  if (!camera.online) chip('No OBS source', 'bad').title = 'OBS has no NDI source for it yet, or cannot take NDI: see below';
+  else if (t.streaming) chip('Sending a picture', 'on');
+  else chip('No picture', 'bad');
+  const fact = text => { const made = node('span', text); made.className = 'fact'; facts.append(made); return made; };
+  fact(`NDI: ${camera.ndi_name}`).title = 'The NDI source OBS takes its picture from';
+  fact(camera.delay_ms ? `Held by ${camera.delay_ms} ms` : 'Not held back').title = 'Its delay in OBS, set by hand under Maintenance';
+  card.append(facts);
+  const ready = readinessPanel(camera);
+  if (ready && camera.readiness.overall === 'ok' && ready.childElementCount === 1) chip('Ready', 'ok'); else if (ready) card.append(ready);
+  card.append(alerts, actions);
+  const change = async (body, said) => {
+    busy.add(camera.id);
+    try {
+      const done = await api(`/api/cameras/${encodeURIComponent(camera.id)}/network`, { method: 'POST', body: JSON.stringify(body) });
+      result.textContent = said + (done.obs_problem ? ` OBS was not changed (${done.obs_problem}): save it again when OBS is running.` : done.obs_source ? ` Its OBS source “${done.obs_source}” takes it too.` : '');
+    } catch (error) { concert.fail(error); }
+    busy.delete(camera.id); refresh();
+  };
+  // Picture & stream: where OBS takes it from.
+  const source = document.createElement('input'); source.type = 'text'; source.maxLength = 255; source.value = camera.ndi_name; source.size = 28; source.setAttribute('aria-label', 'NDI source name');
+  source.disabled = role !== 'admin' || off;
+  const save = node('button', 'Save'); save.disabled = role !== 'admin' || off;
+  save.onclick = () => { const name = source.value.trim(); if (name && name !== camera.ndi_name) change({ ndi_name: name }, `${camera.name} is now taken from “${name}”.`); };
+  const sourceRow = node('label', 'NDI source name '); sourceRow.append(source, node('span', ' '), save);
+  picture.append(sourceRow, node('small', 'As OBS lists it, for example STAGE-PTZ (Camera 1). Its size, frame rate and exposure are set on the camera itself; turning and zooming it is not done from here yet.'));
+  // Maintenance: its delay, which nothing measures, so it is set by hand.
+  const delay = document.createElement('input'); delay.type = 'number'; delay.min = 0; delay.max = sync?.most_hold_ms || 6000; delay.step = 10; delay.value = camera.delay_ms; delay.setAttribute('aria-label', 'Delay in milliseconds');
+  delay.disabled = off;
+  const set = node('button', 'Set delay'); set.disabled = off;
+  set.onclick = () => { const ms = Number(delay.value); if (!(ms >= 0 && ms <= Number(delay.max))) { result.textContent = `A delay is from 0 to ${delay.max} ms.`; return; } if (ms !== camera.delay_ms) change({ delay_ms: ms }, `${camera.name} is held by ${ms} ms from the next sync round.`); };
+  const delayRow = node('label', 'Delay '); delayRow.append(delay, node('span', ' ms '), set);
+  const target = sync?.target_ms;
+  upkeep.append(delayRow, node('small', `Holds its picture, and its sound with it, in OBS. It has no timing strip, so nothing measures it: set it by eye against a phone camera until a clap lands on the same frame.${target ? ` The phones are lined up ${Math.round(target)} ms behind real life just now.` : ''}`));
+  const aligned = sync?.cameras?.[camera.id];
+  if (aligned?.status) { const tag = node('p', `OBS sync: ${aligned.status}`); tag.className = 'app-version'; upkeep.append(tag); }
+  upkeep.append(node('p', `Slot ${camera.slot} · OBS source ${t.obs_source ? `“${t.obs_source}”` : 'not made yet'} · last seen in OBS ${camera.last_contact ? new Date(camera.last_contact * 1000).toLocaleTimeString() : 'never'}`));
+  if (role === 'admin') { const manage = node('div', ''); manage.className = 'camera-controls'; manage.append(renameButton(camera), asideButton(camera), removeButton(camera)); upkeep.append(manage); }
+}
 function readinessPanel(camera) {
   const report = camera.readiness;
   if (!report) return null;
@@ -570,6 +619,7 @@ async function refreshScenes(button) {
     if (done.scenes_made.length) parts.push(`made ${done.scenes_made.length} scene${done.scenes_made.length === 1 ? '' : 's'}`);
     scenesSaid = `${new Date().toLocaleTimeString()} OBS: ${parts.length ? parts.join(' and ') : `nothing missing for the ${done.cameras} cameras`}.`
       + (done.unused.length ? ` Sources with no camera on their port, left as they are: ${done.unused.join(', ')}.` : '')
+      + ((done.left_out || []).length ? ` Not made: ${done.left_out.map(l => `${l.camera} (${l.why})`).join('; ')}.` : '')
       + (done.sources_made.length ? ' A new source shows its picture once that camera is streaming.' : '');
   } catch (error) { scenesSaid = `Could not refresh OBS scenes: ${error.message}`; }
   button.disabled = false; refresh();
@@ -1219,7 +1269,8 @@ async function drawAll() {
       if (held && (!cut || held.at > cut.at)) program.append(node('small', `Last look ${new Date(held.at * 1000).toLocaleTimeString()}: ${held.reason}.`));
       if (director.ai?.enabled && director.looked) {
         // Look-ahead, camera by camera: whose pictures the model is seeing early, and for any that are not, since when and why.
-        const watch = director.lookahead || [], behind = watch.filter(w => !w.ahead), ahead = watch.length - behind.length;
+        const phoneless = id => cameras.find(c => c.id === id)?.kind === 'network';       // a network camera is only ever seen through OBS
+        const watch = (director.lookahead || []).filter(w => !phoneless(w.camera_id)), behind = watch.filter(w => !w.ahead), ahead = watch.length - behind.length;
         const line = node('small', !watch.length ? 'Look-ahead: no camera is being looked at yet.'
           : `Look-ahead: ${ahead} of ${watch.length} cameras seen from their own phones${ahead ? `, about ${Math.max(0, director.looked.ahead_seconds).toFixed(1)} s before OBS shows that moment` : ''}${director.planned ? ` · a cut to ${director.planned.pair ? director.planned.pair.map(named).join(' + ') : named(director.planned.camera_id)} is due in ${Math.max(0, director.planned.at - nowSeconds).toFixed(1)} s` : ''}.`);
         program.append(line);
@@ -1985,7 +2036,8 @@ async function drawAll() {
         shots.querySelector('summary').append(node('span', ` · ${made.summary}`));
         if (made.urgent) alerts.append(made.urgent);
       }
-      if (camera) {
+      if (camera?.kind === 'network') networkCard(camera, { card, head, chip, facts, alerts, actions, more, picture, upkeep, role, director, sync });
+      else if (camera) {
         const t = camera.telemetry || {};
         const sending = !!(t.streaming || t.capture?.streamRequested);
         // Its picture, small, beside its name (OBS's still of it, as on the Show page).
@@ -2222,7 +2274,8 @@ async function drawAll() {
       } else if (role === 'admin') {
         // An empty slot is where a new camera goes: say how.
         const add = document.createElement('a'); add.href = '/phones'; add.className = 'button primary'; add.textContent = 'Add a phone…';
-        card.append(node('p', 'No phone is paired in this slot.'), add);
+        const other = document.createElement('a'); other.href = '/network-camera'; other.className = 'button'; other.textContent = 'Add a network camera…';
+        card.append(node('p', 'No camera is in this slot.'), add, node('span', ' '), other);
       }
       // A Black Shark cooler on the phone: what it is doing stays in view, its fan is in a fold. Nothing for a phone without one.
       const chill = fold(`${key}:cooler`, 'Cooler');
