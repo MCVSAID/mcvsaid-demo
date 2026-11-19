@@ -495,7 +495,77 @@ function networkCard(camera, { card, head, chip, facts, alerts, actions, more, p
   const aligned = sync?.cameras?.[camera.id];
   if (aligned?.status) { const tag = node('p', `OBS sync: ${aligned.status}`); tag.className = 'app-version'; upkeep.append(tag); }
   upkeep.append(node('p', `Slot ${camera.slot} · OBS source ${t.obs_source ? `“${t.obs_source}”` : 'not made yet'} · last seen in OBS ${camera.last_contact ? new Date(camera.last_contact * 1000).toLocaleTimeString() : 'never'}`));
+  networkFollow(camera, { card, change, role, off });
   if (role === 'admin') { const manage = node('div', ''); manage.className = 'camera-controls'; manage.append(renameButton(camera), asideButton(camera), removeButton(camera)); upkeep.append(manage); }
+}
+
+// The following controls on a network PTZ camera's card (netcontrol.py / tenveo.py): the manager turns and tracks it
+// like a following gimbal. It chooses its own subject within the area it is aimed at and cannot be given a named
+// performer, so there is no performer picker — only the follow plan's parts, the tracker's mode and framing, its
+// on/off, and named shots that recall the camera's own presets.
+function networkFollow(camera, { card, change, role, off }) {
+  const nf = camera.netfollow || {};
+  const box = node('div', ''); box.className = 'network-follow';
+  box.append(node('h4', 'Following (onboard AI tracking)'));
+  const caveat = node('p', nf.caveat || 'The camera chooses its own subject within the area it is aimed at.'); caveat.className = 'app-version'; box.append(caveat);
+  // post(route, body) adds the camera's path, as follow.js does (the demo-coverage test's RESOLVED names the routes).
+  const post = async (route, body, said) => { busy.add(camera.id); try { const done = await api(`/api/cameras/${encodeURIComponent(camera.id)}/${route}`, { method: 'POST', body: JSON.stringify(body) }); if (said && done.did !== undefined) result.textContent = done.did || said; else if (said) result.textContent = said; } catch (e) { concert.fail(e); } busy.delete(camera.id); refresh(); };
+  // The camera's control address (administrator): kept on the record, never shown again, no password.
+  if (role === 'admin') {
+    const addr = document.createElement('input'); addr.type = 'text'; addr.maxLength = 255; addr.size = 16; addr.placeholder = '192.0.2.10'; addr.disabled = off; addr.setAttribute('aria-label', 'Camera control address');
+    const save = node('button', camera.has_control ? 'Change' : 'Set'); save.disabled = off;
+    save.onclick = () => { const a = addr.value.trim(); if (a) change({ control_address: a }, `${camera.name} can now be turned and tracked.`); };
+    const row = node('label', 'Control address '); row.append(addr, node('span', ' '), save);
+    if (camera.has_control) { const clr = node('button', 'Forget'); clr.disabled = off; clr.onclick = () => change({ control_address: '' }, `${camera.name} is no longer turned from here.`); row.append(node('span', ' '), clr); }
+    box.append(row, node('small', camera.has_control ? 'Kept on the record and never shown again; its control API needs no password.' : 'Its address on the camera network, so the manager can reach it. Needs no password.'));
+  } else if (!camera.has_control) {
+    box.append(node('p', 'An administrator can give the camera’s address so the manager can turn and track it.'));
+  }
+  if (nf.controllable) {
+    if (role === 'admin') {
+      const arm = document.createElement('input'); arm.type = 'checkbox'; arm.checked = !!nf.armed; arm.disabled = off;
+      arm.onchange = () => post('network-follow', { follow: arm.checked }, arm.checked ? `${camera.name}: the manager will aim and track it.` : `${camera.name}: following off.`);
+      const row = node('label', ''); row.append(arm, node('span', ' Let the manager turn and track it')); box.append(row);
+    }
+    // The onboard tracker's mode and framing.
+    const controls = node('div', ''); controls.className = 'camera-controls';
+    const modeSel = document.createElement('select'); modeSel.disabled = off; modeSel.setAttribute('aria-label', 'Tracker mode');
+    for (const m of nf.modes || []) { const o = node('option', m); o.value = m; o.selected = nf.mode === m; modeSel.append(o); }
+    modeSel.onchange = () => post('network-follow', { mode: modeSel.value }, `${camera.name}: tracker mode ${modeSel.value}.`);
+    const frameSel = document.createElement('select'); frameSel.disabled = off; frameSel.setAttribute('aria-label', 'Framing');
+    for (const f of nf.framings || []) { const o = node('option', f); o.value = f; o.selected = nf.framing === f; frameSel.append(o); }
+    frameSel.onchange = () => post('network-follow', { framing: frameSel.value }, `${camera.name}: framing ${frameSel.value}.`);
+    controls.append(node('label', 'Mode '), modeSel, node('label', ' Framing '), frameSel); box.append(controls);
+    // Its onboard tracking on or off, live (autoswitch.py), the same switch "stop tracking" uses aloud.
+    const track = node('button', nf.tracking_on ? 'Stop tracking' : 'Start tracking'); track.disabled = off;
+    track.onclick = async () => { busy.add(camera.id); try { const a = await api('/api/auto', { method: 'POST', body: JSON.stringify({ kind: 'tracking', on: !nf.tracking_on, camera_id: camera.id }) }); result.textContent = a.did; } catch (e) { concert.fail(e); } busy.delete(camera.id); refresh(); };
+    box.append(track);
+    if (nf.state) box.append(node('p', `${nf.state === 'following' ? '● ' : '○ '}${nf.why || nf.state} — subject ${nf.subject || 'chosen onboard'}`));
+    // The follow plan's parts (whom to favour). No performer picker: the camera cannot be handed a named person.
+    const plan = nf.plan || {}, parts = node('div', ''); parts.className = 'camera-controls';
+    for (const [key, label] of [['solos', 'a soloist'], ['prominent', 'a prominent instrument'], ['anyone', 'anyone in view'], ['zoom', 'frame tighter']]) {
+      const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = !!plan[key]; cb.disabled = off;
+      cb.onchange = () => post('gimbal-plan', { [key]: cb.checked }, `${camera.name}: follow plan updated.`);
+      const l = node('label', ''); l.append(cb, node('span', ` ${label}`)); parts.append(l);
+    }
+    box.append(node('p', `Follow plan: it aims at the ${plan.count || 0} performer${plan.count === 1 ? '' : 's'} it follows, in order, and whoever the sound favours; the camera frames whoever is in that area.`), parts);
+    // Named shots: the camera's own presets, recalled by name ("show the pot"); "Back" lets it follow again.
+    const targets = nf.targets || {}, shots = node('div', ''); shots.className = 'gimbal-targets';
+    if (targets.away) shots.append(node('p', `Showing “${targets.away.name}”.`));
+    for (const shot of targets.list || []) {
+      const row = node('div', ''); row.className = 'camera-controls';
+      const go = node('button', shot.name); go.disabled = off; go.onclick = () => post('gimbal-targets', { action: 'go', id: shot.id });
+      const del = node('button', 'Delete'); del.disabled = off; del.onclick = () => post('gimbal-targets', { action: 'delete', id: shot.id });
+      row.append(go, node('small', ` preset ${shot.preset} `), del); shots.append(row);
+    }
+    const name = document.createElement('input'); name.type = 'text'; name.maxLength = 40; name.size = 14; name.placeholder = 'the pot'; name.disabled = off; name.setAttribute('aria-label', 'Name this shot');
+    const saveShot = node('button', 'Save this shot'); saveShot.disabled = off;
+    saveShot.onclick = () => { const n = name.value.trim(); if (n) { name.value = ''; post('gimbal-targets', { action: 'save', name: n }, `${camera.name}: ${n} saved.`); } };
+    const back = node('button', targets.back || 'back'); back.disabled = off || !targets.away; back.onclick = () => post('gimbal-targets', { action: 'back' });
+    const shotRow = node('div', ''); shotRow.className = 'camera-controls'; shotRow.append(name, saveShot, back); shots.append(shotRow);
+    box.append(node('p', 'Named shots recall the camera’s own presets: aim it, name the shot and Save, then say its name ("show the pot"). "Back" lets it follow again.'), shots);
+  }
+  card.append(box);
 }
 function readinessPanel(camera) {
   const report = camera.readiness;

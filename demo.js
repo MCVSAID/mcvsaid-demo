@@ -1026,7 +1026,29 @@
       const line = checks.find(c => c.id === 'source'); if (line) line.detail = `“${done.obs_source}”, taking “${name}”`;
       const listed = (S.answers['/api/network-cameras']?.cameras || []).find(c => c.id === id); if (listed) listed.ndi_name = name;
     }
+    if ('control_address' in body) {
+      // The camera's control API address (netcontrol.py): kept, never shown; here it only turns the controls on or off.
+      const set = !!String(body.control_address || '').trim();
+      camera.has_control = done.has_control = set;
+      if (camera.netfollow) { camera.netfollow.controllable = set; camera.netfollow.has_address = set; if (!set) camera.netfollow.armed = false; }
+    }
     save(); return answer(done);
+  }
+  // Arming the manager's following of a network PTZ camera, and its onboard tracker's mode and framing (netcontrol.py).
+  function networkFollowPost(id, body) {
+    const camera = cams().cameras.find(c => c.id === id && c.kind === 'network'); if (!camera) return answer({ detail: 'No such network camera' }, 404);
+    const nf = camera.netfollow || (camera.netfollow = { modes: ['single', 'autoframe', 'zone', 'stage', 'hybrid'], framings: ['close', 'half', 'full', 'custom'] });
+    if ('follow' in body) {
+      if (typeof body.follow !== 'boolean') return answer({ detail: 'follow is true or false' }, 400);
+      if (body.follow && !camera.has_control) return answer({ detail: 'Give the camera’s control address first, so the manager can reach it' }, 409);
+      nf.armed = body.follow; nf.state = body.follow ? 'following' : null; nf.why = body.follow ? 'aimed at the stage area; the camera frames its own subject there' : null;
+    }
+    for (const key of ['mode', 'framing']) if (key in body) {
+      const allowed = key === 'mode' ? nf.modes : nf.framings;
+      if (!allowed.includes(body[key])) return answer({ detail: `the ${key === 'mode' ? 'tracker’s mode' : 'framing'} is ${allowed.join(', ')}` }, 400);
+      nf[key] = body[key];
+    }
+    save(); return answer({ camera_id: id, follow: nf.armed, mode: nf.mode, framing: nf.framing });
   }
   function renamePost(id, body) {
     // As the manager does: 1 to 80 characters, no two cameras alike. Other pages keep the recorded name until Start over.
@@ -1178,6 +1200,8 @@
     if (body.kind === 'tracking') for (const c of ids) {
       if (before[c] === mine.cameras[c].on) continue;
       const camera = cams().cameras.find(x => x.id === c), g = camera.gimbal;
+      // A network PTZ camera's onboard tracker (netcontrol.py): on or off, no phone to follow a face.
+      if (camera.kind === 'network') { if (camera.netfollow) { camera.netfollow.tracking_on = mine.cameras[c].on; camera.netfollow.state = mine.cameras[c].on ? (camera.netfollow.armed ? 'following' : null) : 'waiting'; if (!mine.cameras[c].on) camera.netfollow.why = 'its tracker is off'; } continue; }
       if (!g) continue;
       if (!mine.cameras[c].on) { if (g.follow) { autoHeld()[c] = { following: true, performer: false }; g.follow = null; if (camera.telemetry?.gimbal) camera.telemetry.gimbal.follow = null; } }
       else if (autoHeld()[c]) { delete autoHeld()[c]; g.follow = { state: 'following', hands_on: false, by: 'face', pace: 'normal' }; if (camera.telemetry?.gimbal) camera.telemetry.gimbal.follow = { ...g.follow }; }
@@ -1236,8 +1260,29 @@
     save();
     return answer({ did, failed, remote: remoteRead() });
   }
+  // A network PTZ camera's named shots are its own presets (netcontrol.py): no pan/tilt, never stale, recalled by name.
+  function networkTargetPost(camera, body) {
+    const t = camera.netfollow?.targets; if (!t) return answer({ detail: 'No such network camera' }, 404);
+    if (!['save', 'go', 'delete', 'back', 'change'].includes(body.action)) return answer({ detail: 'action is save, go, delete, back or change' }, 400);
+    if (!camera.has_control) return answer({ detail: 'Give the camera’s control address first, so its presets can be saved on the camera' }, 409);
+    const tidy = text => String(text || '').split(/\s+/).join(' ').trim().slice(0, 40);
+    const target = t.list.find(x => x.id === body.id);
+    if (['go', 'delete', 'change'].includes(body.action) && !target) return answer({ detail: 'No such target' }, 404);
+    if (body.action === 'go') { t.away = { id: target.id, name: target.name, since: now(), by: 'operator' }; save(); note('In the demo the camera says it is showing the preset; the pictures are drawn, so nothing moves.'); return answer({ did: `${camera.name}: showing ${target.name}`, targets: t }); }
+    if (body.action === 'back') { if (!t.away) return answer({ detail: 'no camera is on a saved target or has a spot remembered' }, 409); t.away = null; save(); return answer({ did: `${camera.name}: following again`, targets: t }); }
+    if (body.action === 'delete') { t.list = t.list.filter(x => x.id !== target.id); if (t.away?.id === target.id) t.away = null; save(); return answer({ targets: t }); }
+    if (body.action === 'change') { const name = 'name' in body ? tidy(body.name) : null; if (name) target.name = name; save(); return answer({ targets: t }); }
+    const name = tidy(body.name); if (!name) return answer({ detail: 'Give the target a name: what it shows, as you will say it ("the pot")' }, 400);
+    if (t.list.some(x => x.name.toLowerCase() === name.toLowerCase())) return answer({ detail: `${camera.name} already has a target called ${name}` }, 409);
+    if (t.list.length >= (t.most || 12)) return answer({ detail: `${camera.name} has ${t.most || 12} targets already: delete one first` }, 409);
+    const used = new Set(t.list.map(x => x.preset)); let preset = 1; while (used.has(preset)) preset++;
+    t.list.push({ id: 't' + Math.random().toString(36).slice(2, 8), name, phrases: [], preset, stale: false });
+    save(); note('In the demo the camera says the preset is saved; the pictures are drawn, so nothing moves.');
+    return answer({ did: `${camera.name}: ${name} saved as preset ${preset}`, targets: t });
+  }
   function gimbalTargetPost(id, body) {
     const camera = cams().cameras.find(c => c.id === id); if (!camera) return answer({ detail: 'No such camera' }, 404);
+    if (camera.kind === 'network') return networkTargetPost(camera, body);
     const t = camera.gimbal?.targets ? targetState(camera) : null;
     if (!t) return answer({ detail: 'Gimbal: the camera app cannot turn to a position' }, 409);
     if (!['save', 'update', 'change', 'delete', 'go', 'back', 'remember', 'clear'].includes(body.action)) return answer({ detail: 'action is save, update, change, delete, go, back, remember or clear' }, 400);
@@ -1862,6 +1907,7 @@
     const planned = path.match(/^\/api\/cameras\/([^/]+)\/gimbal-(plan|performer)$/); if (planned) return (planned[2] === 'plan' ? gimbalPlanPost : gimbalPerformerPost)(decodeURIComponent(planned[1]), body);
     const named = path.match(/^\/api\/cameras\/([^/]+)\/name$/); if (named) return renamePost(decodeURIComponent(named[1]), body);
     const networked = path.match(/^\/api\/cameras\/([^/]+)\/network$/); if (networked) return networkPost(decodeURIComponent(networked[1]), body);
+    const netfollowed = path.match(/^\/api\/cameras\/([^/]+)\/network-follow$/); if (netfollowed) return networkFollowPost(decodeURIComponent(netfollowed[1]), body);
     if (path === '/api/obs/names') return answer({ sources: {}, scenes: {}, skipped: [] });     // renaming in the demo already carried through
     if (path === '/api/stage' && (body.layout || body.widths || body.room || 'room_width_m' in body)) return stagePost(body);
     if (path === '/api/stage/room/fit') return fit(body);
