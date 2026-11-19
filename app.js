@@ -483,7 +483,7 @@ function networkCard(camera, { card, head, chip, facts, alerts, actions, more, p
   const save = node('button', 'Save'); save.disabled = role !== 'admin' || off;
   save.onclick = () => { const name = source.value.trim(); if (name && name !== camera.ndi_name) change({ ndi_name: name }, `${camera.name} is now taken from “${name}”.`); };
   const sourceRow = node('label', 'NDI source name '); sourceRow.append(source, node('span', ' '), save);
-  picture.append(sourceRow, node('small', 'As OBS lists it, for example STAGE-PTZ (Camera 1). Its size, frame rate and exposure are set on the camera itself; turning and zooming it is not done from here yet.'));
+  picture.append(sourceRow, node('small', 'As OBS lists it, for example STAGE-PTZ (Camera 1). Its size, frame rate and exposure are set on the camera itself; it is aimed and zoomed on the Operate page, once it has its control address (Following, below).'));
   // Maintenance: its delay, which nothing measures, so it is set by hand.
   const delay = document.createElement('input'); delay.type = 'number'; delay.min = 0; delay.max = sync?.most_hold_ms || 6000; delay.step = 10; delay.value = camera.delay_ms; delay.setAttribute('aria-label', 'Delay in milliseconds');
   delay.disabled = off;

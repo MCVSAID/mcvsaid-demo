@@ -1885,7 +1885,7 @@
     if (path === '/api/auto') return autoPost(body);
     const m = path.match(/^\/api\/cameras\/([^/]+)\/commands$/); if (m) return command(decodeURIComponent(m[1]), body);
     const fleet = path.match(/^\/api\/coolers\/(forget|repair)$/); if (fleet) return coolersPost(fleet[1]);
-    if (path === '/api/operate/control') return answer({ camera_id: body.camera_id, sent: body.pan || body.tilt ? 'gimbal.move' : null, zoom_percent: null, said: null });
+    if (path === '/api/operate/control') return answer({ camera_id: body.camera_id, sent: body.do || (body.pan || body.tilt ? 'gimbal.move' : null), zoom_percent: null, said: null });   // do: a network camera's stop or home
     if (path === '/api/operate/main' || path === '/api/operate/previous') return operatePost(path.endsWith('main'));
     if (path === '/api/operate/settings') { if (![12, 24].includes(body.rate)) return answer({ detail: 'rate is 12 or 24' }, 400); S.answers['/api/operate/settings'] = { rate: body.rate }; save(); return answer({ rate: body.rate }); }
     const moved = path.match(/^\/api\/cameras\/([^/]+)\/accessory$/); if (moved) return accessoryPost(decodeURIComponent(moved[1]), body);

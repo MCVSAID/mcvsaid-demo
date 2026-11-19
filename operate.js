@@ -3,6 +3,8 @@
 // real life), steered with Xbox controllers through the browser's Gamepad API (no driver or plugin), or the buttons.
 // Each controller drives one camera at a time (LB/RB to change); its readings go to the manager ten times a second while
 // a stick or trigger is held (/api/operate/control), and the phone stops its gimbal by itself half a second after the last.
+// A network PTZ camera is shown and steered here too: its picture from OBS, its moves over its own control API (the
+// manager stops it when the readings stop), its presets as its Positions.
 let csrf = '', state = null;
 // A setup tech (users.py) has this page to set each gimbal camera's positions before the show: aiming, zoom and the
 // Positions under each picture, and nothing that cuts, arms, streams or records.
@@ -61,14 +63,33 @@ document.querySelector('#login').onsubmit = async e => {
 fetch('/api/session').then(r => r.ok ? r.json() : null).then(session => { if (session) enter(session); }).catch(() => {});
 
 // Which cameras are shown: kept in this browser. At first, every camera in use, up to six (each shown is decoded live).
+// A camera added since the choice was made is shown too, until it is unticked: the choice is kept with the cameras
+// there were to choose from (operate.cameras.known), so one never offered is told from one turned off. (A network
+// camera added after the phones was left out, and looked as if Operate did not have it.) A choice kept before that
+// list was has only network cameras counted as new: they are the kind that came after it.
 function chosen() {
-  let ids = null;
-  try { ids = JSON.parse(localStorage.getItem('operate.cameras') || 'null'); } catch (error) { ids = null; }
+  let ids = null, known = null;
+  try { ids = JSON.parse(localStorage.getItem('operate.cameras') || 'null'); known = JSON.parse(localStorage.getItem('operate.cameras.known') || 'null'); } catch (error) { ids = null; }
   const usable = state.cameras.filter(c => c.in_use !== false);
   if (!Array.isArray(ids)) ids = usable.slice(0, 6).map(c => c.id);
+  else {
+    const added = usable.filter(c => !ids.includes(c.id) && (Array.isArray(known) ? !known.includes(c.id) : isNetwork(c)));
+    if (added.length || !Array.isArray(known)) { ids = [...ids, ...added.map(c => c.id)]; keepChoice(ids); }
+  }
   return usable.filter(c => ids.includes(c.id));
 }
-function choose(ids) { try { localStorage.setItem('operate.cameras', JSON.stringify(ids)); } catch (error) { /* kept for this visit only */ } draw(); }
+function keepChoice(ids) {
+  try { localStorage.setItem('operate.cameras', JSON.stringify(ids)); localStorage.setItem('operate.cameras.known', JSON.stringify(state.cameras.map(c => c.id))); } catch (error) { /* kept for this visit only */ }
+}
+function choose(ids) { keepChoice(ids); draw(); }
+// A network PTZ camera (netcams.py): no phone and no gimbal. Its picture comes from OBS, and it is turned and zoomed
+// over its own control API once its card has the address (has_control), with the same stick, arrows and triggers.
+const isNetwork = camera => camera?.kind === 'network';
+const steerable = camera => isNetwork(camera) && !!camera.has_control;
+const control = (id, body) => api('/api/operate/control', { camera_id: id, pan: 0, tilt: 0, zoom: 0, ...body }).then(answer => { controlAnswer(id, answer); return answer; }).catch(error => { if (!/rate limit/i.test(error.message)) concert.fail(error); });
+// Stop and home, for either kind: a phone is sent its gimbal's commands, a network camera is told through the manager.
+const stopCamera = id => isNetwork(state?.cameras.find(c => c.id === id)) ? control(id, { do: 'stop' }) : send(id, 'gimbal.stop');
+const targetsOf = camera => camera?.gimbal?.targets || (isNetwork(camera) ? camera.netfollow?.targets : null);
 
 // How many live pictures a second: 24 shows a zoom or a pan smoothly, for twice the work per camera watched.
 const rate = document.querySelector('#rate');
@@ -143,7 +164,7 @@ function draw() {
     choices.replaceChildren(...state.cameras.filter(c => c.in_use !== false).map(camera => {
       const label = node('label'), box = document.createElement('input'); box.type = 'checkbox'; box.checked = shown.some(c => c.id === camera.id);
       box.onchange = () => choose([...choices.querySelectorAll('input')].map((b, i) => b.checked ? state.cameras.filter(c => c.in_use !== false)[i].id : null).filter(Boolean));
-      label.append(box, node('span', ` ${camera.name}${camera.gimbal?.address ? ' (gimbal)' : ''}`)); return label;
+      label.append(box, node('span', ` ${camera.name}${camera.gimbal?.address ? ' (gimbal)' : isNetwork(camera) ? ' (network)' : ''}`)); return label;
     }));
   }
   // A tile for each camera shown; its picture is the live feed, set once so the stream is not restarted.
@@ -176,7 +197,10 @@ function draw() {
     const heat = temperature(camera); if (heat) heading.append(heat);
     const zoom = t.zoom_percent ? ` · zoom ${(t.zoom_percent / 100).toFixed(1)}×` : '';
     const line = tile.querySelector('.line');
-    line.textContent = `${!camera.online ? 'Offline' : gimbal?.summary || (gimbal ? 'Gimbal not connected' : 'No gimbal: zoom and cut only')}${camera.lens_now ? '' : zoom}${director.gimbal_out?.[camera.id] ? ` · kept off air: ${director.gimbal_out[camera.id]}` : ''}`;
+    const network = isNetwork(camera), steered = steerable(camera);
+    const about = network ? `Network camera · ${!camera.online ? 'OBS has no source for it yet (Refresh OBS scenes)' : !t.streaming ? 'no picture from it in OBS' : steered ? 'aim and zoom it from here' : 'cut only: give its control address on its card to aim and zoom it'}${camera.delay_ms ? ` · picture held ${camera.delay_ms} ms in OBS` : ''}`
+      : !camera.online ? 'Offline' : gimbal?.summary || (gimbal ? 'Gimbal not connected' : 'No gimbal: zoom and cut only');
+    line.textContent = `${about}${camera.lens_now ? '' : zoom}${director.gimbal_out?.[camera.id] ? ` · kept off air: ${director.gimbal_out[camera.id]}` : ''}`;
     if (camera.lens_now) line.append(' ', window.lensChip(camera.lens_now));
     const buttons = tile.querySelector('.buttons'); buttons.replaceChildren();
     if (!tech()) {
@@ -191,11 +215,17 @@ function draw() {
     }
     const pad = tile.querySelector('.onscreen');
     pad.hidden = !onscreen;
-    for (const b of pad.querySelectorAll('[data-pan], [data-tilt]')) b.disabled = !camera.online || !gimbal?.connected;
-    for (const b of pad.querySelectorAll('[data-zoom]')) b.disabled = !camera.online;
+    for (const b of pad.querySelectorAll('[data-pan], [data-tilt]')) b.disabled = network ? !steered : !camera.online || !gimbal?.connected;
+    for (const b of pad.querySelectorAll('[data-zoom]')) b.disabled = network ? !steered : !camera.online;
     if (!tech()) buttons.append(...autoButtons(camera, state.auto));
     // Arming, streaming and recording, as on its card: only what fits the camera's state; stopping asks first.
-    if (camera.online && !tech()) buttons.append(...capture(camera, t));
+    if (camera.online && !tech() && !network) buttons.append(...capture(camera, t));      // a network camera is armed and started on itself
+    if (steered) {
+      const stop = node('button', 'Stop camera'); stop.title = 'Stop it turning and zooming. Controller: press B'; stop.onclick = () => stopCamera(camera.id);
+      const home = node('button', 'Go home'); home.title = 'Turn it to its own home position (straight ahead). Controller: press the right stick';
+      home.onclick = () => goHome(camera.id);
+      buttons.append(stop, home);
+    }
     if (gimbal?.connected) {
       const stop = node('button', 'Stop gimbal'); stop.title = 'Stop the gimbal moving (the stream carries on). Controller: press B'; stop.onclick = () => send(camera.id, 'gimbal.stop');
       buttons.append(stop);
@@ -238,10 +268,10 @@ function draw() {
 // in place of what one had. The first four are on a controller too: hold Menu (≡) and press A, B, X or Y to go there,
 // Menu and the left stick to save a new one. Drawn again only when something in it changes, so a name being typed holds.
 function drawPositions(box, camera, onAir) {
-  const gimbal = camera.gimbal, targets = gimbal?.targets;
-  if (!targets) { box.replaceChildren(); delete box.dataset.signature; return; }
-  const off = !camera.online || !gimbal.connected;
-  const signature = JSON.stringify([targets.list, targets.mode, off, onAir, gimbal.stage?.calibrated, editing.get(camera.id)]);
+  const gimbal = camera.gimbal, targets = targetsOf(camera), preset = isNetwork(camera);
+  if (!targets || (preset && !steerable(camera) && !targets.list.length)) { box.replaceChildren(); delete box.dataset.signature; return; }
+  const off = preset ? !steerable(camera) : !camera.online || !gimbal.connected;
+  const signature = JSON.stringify([targets.list, targets.mode, off, onAir, gimbal?.stage?.calibrated, editing.get(camera.id)]);
   if (box.dataset.signature === signature) return;
   box.dataset.signature = signature;
   const post = async (body, did) => {
@@ -265,7 +295,7 @@ function drawPositions(box, camera, onAir) {
       return;
     }
     const label = node('span', target.name, 'name');
-    const where = node('span', `pan ${target.pan}°, tilt ${target.tilt}°${target.zoom_percent ? `, ${(target.zoom_percent / 100).toFixed(1)}×` : ''}${index < 4 ? ` · Menu + ${'ABXY'[index]}` : ''}`, 'where');
+    const where = node('span', `${preset ? `the camera's preset ${target.preset}` : `pan ${target.pan}°, tilt ${target.tilt}°${target.zoom_percent ? `, ${(target.zoom_percent / 100).toFixed(1)}×` : ''}`}${index < 4 ? ` · Menu + ${'ABXY'[index]}` : ''}`, 'where');
     const go = node('button', 'Go'); go.disabled = off || target.stale;
     go.title = target.stale ? 'The phone restarted since this was saved: aim it where its home was and Set home again to bring every position back, or aim it here and Update to here' : `Turn it to ${target.name} and zoom there, to check${onAir ? ' (it is on air: the audience sees it move)' : ''}`;
     go.onclick = async () => { if (onAir && !await window.concert.sure(`${camera.name} is on air. Turn it to ${target.name} anyway? The audience sees it move.`, { ok: 'Turn it' })) return; post({ action: 'go', id: target.id }); };
@@ -291,13 +321,14 @@ function drawPositions(box, camera, onAir) {
   const anyStale = targets.list.some(t => t.stale);
   parts.push(node('small', !targets.list.length
     ? `Aim and zoom it at something it should show on cue (the lead vocal, the piano), then Save as…. Kept for ${targets.mode_name}; used by Remote's keys${targets.voice ? ' and voice calls' : ''}.`
+    : preset ? 'Kept on the camera as its own presets, so they hold whatever restarts. Go holds the shot, with its tracker off.'
     : gimbal.stage?.calibrated ? 'Aimed from the stage (Stage layout): these hold across a restart of the phone.'
     : `${anyStale ? 'Some no longer line up. ' : ''}A restart of the phone moves these off: calibrate its aim from the stage (Stage layout) and they hold.`));
   box.replaceChildren(...parts);
 }
 const editing = new Map();                                              // camera id -> the position being renamed
 async function savePosition(camera, quick = false) {
-  const targets = camera.gimbal?.targets; if (!targets) return;
+  const targets = targetsOf(camera); if (!targets) return;
   const taken = new Set(targets.list.map(t => t.name.toLowerCase()));
   let number = targets.list.length + 1; while (taken.has(`position ${number}`)) number++;
   let name = `Position ${number}`;
@@ -312,7 +343,7 @@ async function savePosition(camera, quick = false) {
   refresh();
 }
 function goPosition(cameraId, index) {
-  const camera = state?.cameras.find(c => c.id === cameraId), target = camera?.gimbal?.targets?.list[index];
+  const camera = state?.cameras.find(c => c.id === cameraId), target = targetsOf(camera)?.list[index];
   if (!target) { result.textContent = `${camera?.name || 'This camera'} has no position ${index + 1}`; return; }
   if (target.stale) { result.textContent = `${camera.name}: ${target.name} no longer lines up (the phone restarted): aim it where its home was and Set home again, or aim it here and Update to here`; return; }
   act(`/api/cameras/${encodeURIComponent(cameraId)}/gimbal-targets`, { action: 'go', id: target.id }).then(answer => { if (answer?.did) result.textContent = answer.did; refresh(); });
@@ -379,7 +410,9 @@ function onscreenPad(id) {
   // The arrows go as fast as Aim says (HELD_PAN at the default), the zoom buttons as Zoom does.
   const sendReading = () => {
     const scale = aimLevel / DEFAULT_AIM, held = v => Math.max(-100, Math.min(100, Math.round(v * scale)));
-    api('/api/operate/control', { camera_id: id, ...reading, pan: held(reading.pan || 0), tilt: held(reading.tilt || 0), zoom_speed: zoomTimes() })
+    // The ■ on a network camera's tile is a stop said outright (do: stop), whatever set it moving.
+    const { stop, ...values } = reading, outright = stop && isNetwork(state?.cameras.find(c => c.id === id)) ? { do: 'stop' } : {};
+    api('/api/operate/control', { camera_id: id, ...values, ...outright, pan: held(values.pan || 0), tilt: held(values.tilt || 0), zoom_speed: zoomTimes() })
       .then(answer => controlAnswer(id, answer)).catch(error => { if (!/rate limit/i.test(error.message)) concert.fail(error); });
   };
   const release = () => { if (!timer) return; clearInterval(timer); timer = null; reading = { pan: 0, tilt: 0, zoom: 0 }; sendReading(); };
@@ -392,7 +425,7 @@ function onscreenPad(id) {
   };
   const aim = node('div', undefined, 'aim');
   aim.append(node('span'), hold('▲', 'Tilt up (hold)', { tilt: HELD_PAN }, 'tilt'), node('span'),
-    hold('◀', 'Pan left (hold)', { pan: -HELD_PAN }, 'pan'), hold('■', 'Stop the gimbal', { pan: 0, tilt: 0 }, 'pan'), hold('▶', 'Pan right (hold)', { pan: HELD_PAN }, 'pan'),
+    hold('◀', 'Pan left (hold)', { pan: -HELD_PAN }, 'pan'), hold('■', 'Stop it turning', { pan: 0, tilt: 0, stop: true }, 'pan'), hold('▶', 'Pan right (hold)', { pan: HELD_PAN }, 'pan'),
     node('span'), hold('▼', 'Tilt down (hold)', { tilt: -HELD_PAN }, 'tilt'), node('span'));
   const zoom = node('div', undefined, 'zoom');
   zoom.append(hold('−', 'Zoom out (hold)', { zoom: -HELD_ZOOM }, 'zoom'), node('span', 'Zoom'), hold('+', 'Zoom in (hold)', { zoom: HELD_ZOOM }, 'zoom'));
@@ -428,8 +461,8 @@ function drawAuto(auto) {
 function autoButtons(camera, auto) {
   if (!auto) return [];
   const made = [];
-  for (const [kind, word, about] of [['tracking', 'Tracking', 'its gimbal following someone, aimed from the stage'], ['zoom', 'Auto zoom', 'the director’s crop of its picture in OBS']]) {
-    if (kind === 'tracking' && !(auto.tracking.gimbals || []).includes(camera.id)) continue;
+  for (const [kind, word, about] of [['tracking', 'Tracking', isNetwork(camera) ? 'its own tracker, aimed from the stage' : 'its gimbal following someone, aimed from the stage'], ['zoom', 'Auto zoom', 'the director’s crop of its picture in OBS']]) {
+    if (kind === 'tracking' && !(auto.tracking.gimbals || []).includes(camera.id) && !(steerable(camera) && camera.netfollow?.armed)) continue;
     const mine = auto[kind].cameras[camera.id]; if (!mine) continue;
     const b = node('button', `${word}: ${mine.on ? 'on' : 'off'}${mine.own && !mine.on ? ' (every camera off)' : ''}`);
     b.setAttribute('aria-pressed', String(mine.own)); b.classList.toggle('held', !mine.on);
@@ -505,7 +538,7 @@ async function every(action) {
   } finally { everyBusy = ''; refresh(); }
 }
 
-function goHome(id) { return act(`/api/cameras/${encodeURIComponent(id)}/gimbal-home`, { action: 'go' }).then(refresh); }
+function goHome(id) { const c = state?.cameras.find(x => x.id === id); return isNetwork(c) ? control(id, { do: 'home' }).then(answer => { if (answer && !answer.said) result.textContent = `${c.name}: turning to its home position`; }) : act(`/api/cameras/${encodeURIComponent(id)}/gimbal-home`, { action: 'go' }).then(refresh); }
 
 document.querySelector('#main-stage').onclick = () => act('/api/operate/main', {}).then(refresh);
 document.querySelector('#previous').onclick = () => act('/api/operate/previous', {}).then(refresh);
@@ -556,11 +589,14 @@ function poll(time) {
     // Menu (≡) held: A, B, X and Y go to positions 1 to 4, the left stick saves a new one (named Position N).
     if (pad.buttons[9]?.pressed) {
       for (const [button, index] of [[0, 0], [1, 1], [2, 2], [3, 3]]) if (pressed(button)) goPosition(camera, index);
-      if (pressed(10)) { const c = state.cameras.find(x => x.id === camera); if (c?.gimbal?.targets) savePosition(c, true); }
+      if (pressed(10)) { const c = state.cameras.find(x => x.id === camera); if (targetsOf(c)) savePosition(c, true); }
     } else {
       if (pressed(0) && !tech()) act('/api/director', { take: camera }).then(refresh);
-      if (pressed(1)) send(camera, 'gimbal.stop');
-      if (pressed(2) && !tech()) { const c = state.cameras.find(x => x.id === camera); if (c?.gimbal?.connected) send(camera, 'gimbal.follow', c.gimbal.follow ? { on: false } : { on: true, who: 'face' }).then(refresh); }
+      if (pressed(1)) stopCamera(camera);
+      if (pressed(2) && !tech()) { const c = state.cameras.find(x => x.id === camera);
+        // A network camera's own tracker, where the manager follows with it: its Tracking switch, on or off.
+        const mine = state.auto?.tracking?.cameras?.[camera]; if (steerable(c) && c.netfollow?.armed && mine) autoSend({ kind: 'tracking', on: !mine.own }, camera);
+        if (c?.gimbal?.connected) send(camera, 'gimbal.follow', c.gimbal.follow ? { on: false } : { on: true, who: 'face' }).then(refresh); }
       if (pressed(3) && !tech()) act('/api/operate/previous', {}).then(refresh);
     }
     if (pressed(8) && !tech()) act('/api/operate/main', {}).then(refresh);
