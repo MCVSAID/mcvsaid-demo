@@ -1,5 +1,6 @@
 'use strict';
-// Set up › Calibrate (calibration.html, calibrate.py): the address of the calibrate page for a phone, with its QR code;
+// Set up › Calibrate (calibration.html, calibrate.py): before the show, what is lined up and what is not (preshow.py);
+// the address of the calibrate page for a phone, with its QR code;
 // the run going on (started from that phone), followed here and stopped from here if need be; and what was measured.
 (() => {
   const $ = selector => document.querySelector(selector);
@@ -31,6 +32,7 @@
     try { state = await api('/api/calibrate'); window.concert.polled(true); }
     catch (error) { if (error.status === 401) { location.reload(); return; } window.concert.polled(false); }
     if (state) draw(state);
+    try { preshow(await api('/api/preshow')); } catch (error) { if (error.status === 401) { location.reload(); return; } }
     timer = setTimeout(refresh, state?.run?.state === 'running' ? 1000 : 3000);
   }
 
@@ -38,6 +40,37 @@
     const sig = JSON.stringify({ ...state, run: state.run && { ...state.run, yours: undefined } });
     if (sig === drawn) return; drawn = sig;
     phone(state); now(state); cameras(state);
+  }
+
+  // Before the show (preshow.py): each thing with its state, what is known of it, and the one thing to do about it.
+  const STATES = { ready: ['Ready', 'ok'], todo: ['Needs doing', 'fail'], unknown: ['Cannot tell', 'warn'], idle: ['Not in use', ''] };
+  let shown = '';
+  function preshow(report) {
+    const sig = JSON.stringify({ ...report, at: undefined });
+    if (sig === shown) return; shown = sig;
+    const body = $('#preshow-body'); body.replaceChildren();
+    const worst = report.counts.todo ? 'todo' : report.counts.unknown ? 'unknown' : 'ready';
+    const head = node('p', undefined, 'preshow-said'); head.append(node('span', STATES[worst][0], `badge ${STATES[worst][1]}`), node('b', ` ${report.said}.`));
+    body.append(head);
+    for (const group of report.groups) {
+      body.append(node('h3', group.title));
+      if (group.empty) { body.append(node('p', group.empty, 'hint')); continue; }
+      const list = node('ul', undefined, 'preshow-list');
+      for (const item of group.items) {
+        const row = node('li', undefined, `preshow-${item.state}`);
+        const [word, cls] = STATES[item.state] || STATES.unknown;
+        const said = node('div'); said.append(node('b', item.label), node('span', ` ${item.detail}`));
+        if (item.action) {
+          const action = node('p', undefined, 'preshow-action'); action.append(node('span', 'To do: '));
+          if (item.href) { const link = node('a', item.action); link.href = item.href; action.append(link); } else action.append(node('span', item.action));
+          action.append(node('span', '.'));
+          said.append(action);
+        }
+        row.append(node('span', word, `badge ${cls}`), said);
+        list.append(row);
+      }
+      body.append(list);
+    }
   }
 
   function phone(state) {
@@ -60,12 +93,12 @@
     const body = $('#now-body'); body.replaceChildren();
     const run = state.run;
     if (!run) { body.append(node('p', 'Nothing has been calibrated from a phone since the manager started.', 'hint')); return; }
-    const what = { sync: 'Sound', timing: 'Network camera timing' }[run.kind] || 'Colour';
+    const what = { sync: 'Sound', timing: 'Network camera timing', walk: 'Camera by camera' }[run.kind] || 'Colour';
     const when = new Date(run.started * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
     const head = node('p'); head.append(node('b', `${what}, `), node('span', `started ${when} by ${run.by_name}: `),
       node('span', run.state === 'running' ? run.said : run.state === 'done' ? 'done.' : `${run.state}. ${run.problem || ''}`, run.state === 'failed' ? 'bad' : ''));
     body.append(head);
-    if (run.state === 'running' && run.kind !== 'sync') {
+    if (run.state === 'running' && run.kind !== 'sync') {      // a walk stops between cameras, or once the camera on air has been measured
       const stop = node('button', 'Stop'); stop.type = 'button'; stop.className = 'danger';
       stop.onclick = async () => { try { draw(await api('/api/calibrate/stop', { anyone: true })); } catch (error) { concert.fail(error); } };
       body.append(stop);
@@ -89,6 +122,15 @@
       for (const c of Object.values(run.result.cameras)) list.append(node('li', c.why ? `${c.name}: not timed: ${c.why}` : `${c.name}: ${c.own_ms} ms late by itself, now held by ${c.held_ms} ms (was ${c.from_ms}); ${c.pairs} flashes seen with ${c.against.join(' and ')}, ±${c.spread_ms} ms`, c.why ? 'bad' : ''));
       body.append(list);
       body.append(node('p', 'The picture matching keeps each camera there from now on, and its card on Cameras says how it was last timed.', 'hint'));
+    }
+    if (run.kind === 'walk' && run.result) {
+      const list = node('ul'), r = run.result;
+      for (const c of Object.values(r.cameras || {})) list.append(node('li', `${c.name}: ${c.set_ms != null ? `lip sync set to ${c.set_ms} ms, measured alone in the programme (${c.pairs} flashes, ±${c.spread_ms} ms)` : c.skipped ? 'skipped' : `not measured: ${c.why}`}`, c.why ? 'bad' : ''));
+      if (r.timing && !r.timing.skipped) for (const c of Object.values(r.timing.cameras || {})) list.append(node('li', c.why ? `${c.name}: not timed: ${c.why}` : `${c.name}: held by ${c.held_ms} ms`, c.why ? 'bad' : ''));
+      if (r.timing?.why) list.append(node('li', `Network cameras not timed: ${r.timing.why}`, 'bad'));
+      if (r.sound) list.append(node('li', r.sound.kept ? 'Programme sound left as it was' : `Programme sound: ${r.sound.camera}${{ muted: ' alone', aligned: ', the others joined in time', mixed: ' leading the programme mix' }[r.sound.others] || ''}`));
+      if (r.mix && !r.mix.skipped) list.append(node('li', r.mix.trim_ms != null ? `Programme mix: timing set to ${r.mix.trim_ms} ms` : `Programme mix not measured: ${r.mix.why}`, r.mix.why ? 'bad' : ''));
+      body.append(list);
     }
     if (run.kind === 'sync' && run.result?.calibration?.cameras) {
       const list = node('ul');

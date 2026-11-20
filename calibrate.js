@@ -31,6 +31,7 @@
     try { state = await api('/api/calibrate'); }
     catch (error) { if (error.status === 401) { enter(null); return; } say(error.message); }
     if (state) take(state);
+    if (state) api('/api/preshow').then(due).catch(() => {});
     const fast = state?.run?.state === 'running' && state.run.yours;
     timer = setTimeout(refresh, fast ? 300 : 2000);
   }
@@ -48,10 +49,20 @@
     $('#last').textContent = run ? summary(run) : '';
   }
 
+  // What is due, from the Before the show list (preshow.py): the lip sync and timing items the walk would do.
+  function due(report) {
+    const items = report.groups.flatMap(g => g.items).filter(i => /^(lip-sync|timed|programme|mix-trim):?/.test(i.id) && i.state !== 'ready' && i.state !== 'idle');
+    $('#due').textContent = items.length ? `Due now: ${items.map(i => i.label).join('; ')}. It takes you from camera to camera: at each one you hold this phone in front of it and tap, and the manager puts that camera on air with its own microphone and sets its lip sync; then the network cameras, and where the programme’s sound comes from.`
+      : 'Nothing is due: every camera’s lip sync and each network camera’s timing are as measured. It can still take you round every camera again, or straight to where the programme’s sound comes from.';
+  }
+
   function summary(run) {
-    const what = { sync: 'Sound', timing: 'Network camera timing' }[run.kind] || 'Colour';
+    const what = { sync: 'Sound', timing: 'Network camera timing', walk: 'Camera by camera' }[run.kind] || 'Colour';
     if (run.state === 'running') return `${what}: ${run.said}${run.yours ? '' : ` (started by ${run.by_name})`}`;
     if (run.state !== 'done') return `${what}: ${run.problem || run.state}`;
+    if (run.kind === 'walk') {
+      return 'Camera by camera, done.\n' + Object.values(run.result?.cameras || {}).map(c => `${c.name}: ${c.set_ms != null ? `lip sync ${c.set_ms} ms` : c.skipped ? 'skipped' : `not measured, ${c.why}`}`).join('\n');
+    }
     if (run.kind === 'sync') {
       const cameras = run.result?.calibration?.cameras || {};
       return 'Sound measured.\n' + Object.entries(cameras).map(([name, r]) => `${name}: ${r.set_ms != null ? `lip sync ${r.set_ms} ms` : `not measured, ${r.why}`}`).join('\n');

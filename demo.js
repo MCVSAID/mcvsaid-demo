@@ -955,6 +955,7 @@
     if (path === '/api/remote') return remoteRead();
     if (path === '/api/programme-sound') return programmeSound();
     if (path === '/api/calibrate') return calibrateRead();
+    if (path === '/api/preshow') return preshowRead();
     if (path === '/api/teleprompter') return promptRead();
     if (path === '/api/karaoke') return karaokeRead();
     if (path.startsWith('/api/teleprompter/scripts/')) return promptText(decodeURIComponent(path.slice('/api/teleprompter/scripts/'.length)));
@@ -982,6 +983,8 @@
           ? { name: c.name, own_ms: 310, held_ms: 590, from_ms: 600, against: phones, pairs: 13, spread_ms: 8.5 }
           : { name: c.name, why: 'no phone camera saw the page flashing with it' }])) };
         Object.assign(run, { state: 'done', said: 'Done', show: null, ended: t });
+        S.netTimed = { at: t, cameras: run.result.cameras };
+      } else if (run.kind === 'walk') { walkOn(run, t);
       } else if (run.kind === 'colour') {
         if (run.step < CAL_STEPS.length && run.answered >= run.step && t >= run.nextAt) {
           const [show, said] = CAL_STEPS[run.step]; Object.assign(run, { step: run.step + 1, show, said, nextAt: t + 1.5 });
@@ -996,6 +999,80 @@
     }
     return { ...base, phone: 'https://calibrate.mcvsaid.local/calibrate', run: run ? { ...run } : (base.run ? { ...base.run, yours: false } : null) };
   }
+  // The camera-by-camera run (calibrate.py's walk), as the manager drives it: a question at each camera, a few seconds
+  // of flashing while it "measures" that camera alone, then the network cameras, then where the sound comes from. In
+  // the demo the fourth camera sees no flashes the first time and is measured when tried again.
+  function walkAsk(run) {
+    const next = run.queue[0];
+    if (!next) { Object.assign(run, { state: 'done', said: 'Done', show: null, ask: null, ended: now() }); return; }
+    const ask = next.kind === 'camera' ? { kind: 'camera', camera: next.name, said: next.again ? `${next.name} was not measured: ${next.again}. Still in front of it? Try again, or go on.`
+        : `Go to ${next.name} (camera ${next.n} of ${next.of}). Hold this phone an arm’s length in front of it, screen and speaker towards the camera, sound turned up.`, options: [['go', 'Measure this camera'], ['skip', 'Skip it']] }
+      : next.kind === 'network' ? { kind: 'network', said: `Now the network camera: hold the phone still where ${next.names} and at least one phone camera both see it.`, options: [['go', 'Time it'], ['skip', 'Skip']] }
+      : next.kind === 'mix' ? { kind: 'mix', said: `Last, the programme mix’s own timing: go back to ${next.leader} and hold the phone in front of it.`, options: [['go', 'Measure the mix'], ['skip', 'Skip']] }
+      : { kind: 'sound', said: 'Where should the programme’s sound come from?', cameras: next.cameras, now: { camera: S.programmeSound?.camera || null, others: S.programmeSound?.others || 'aligned' }, mix: true,
+          options: [['muted', 'One camera’s microphone alone'], ['aligned', 'Every microphone joined, lined up in time with that camera’s'], ['mixed', 'The programme mix: every microphone kept in time and mixed as one'], ['keep', 'Leave it as it is']] };
+    run.step++; Object.assign(run, { ask: { ...ask, step: run.step }, show: null, said: ask.said });
+  }
+  function walkStart(all) {
+    const list = (cams()?.cameras || []).filter(c => c.id), phones = list.filter(c => c.kind !== 'network'), network = list.filter(c => c.kind === 'network');
+    const due = phones.filter(c => all || S.calibration?.cameras?.[c.name]?.set_ms == null);
+    const run = { id: Math.random().toString(16).slice(2, 14), kind: 'walk', state: 'running', step: 0, show: null, ask: null, said: 'Starting', started: now(), ended: null,
+      by_name: S.answers['/api/session']?.name || 'Morgan', answered: 0, problem: null, yours: true, until: null,
+      result: { cameras: {}, timing: null, sound: null, mix: null, visited: due.map(c => c.name) },
+      queue: [...due.map((c, i) => ({ kind: 'camera', id: c.id, name: c.name, n: i + 1, of: due.length, late: [15, 60, 25, 40, 30, 20][phones.indexOf(c) % 6], fails: phones.indexOf(c) === 3 })),
+        ...(network.length && (all || !S.netTimed) ? [{ kind: 'network', names: network.map(c => c.name).join(' and '), cameras: network }] : []),
+        { kind: 'sound', cameras: phones.map(c => ({ id: c.id, name: c.name })) }] };
+    walkAsk(run);
+    return run;
+  }
+  function walkOn(run, t) {
+    // What was being measured has been: its result, and the next question.
+    if (!run.until || t < run.until) return;
+    const done = run.queue[0]; run.until = null;
+    if (done.kind === 'camera') {
+      if (done.fails && !done.again) {
+        const why = 'saw 0 flashes (hold the sync page where the camera sees it)';
+        run.result.cameras[done.id] = { name: done.name, why }; done.again = why;
+        S.calibration = { at: t, mixed: false, programme: { why, camera: done.name }, cameras: { ...(S.calibration?.cameras || {}), [done.name]: { why, flashes: 0, beeps: 9 } } };
+      } else {
+        const found = { offset_ms: done.late + 70, pairs: 9, spread_ms: 6.5, set_ms: -done.late - 70 };
+        run.result.cameras[done.id] = { name: done.name, ...found }; run.queue.shift();
+        S.calibrated = { ...(S.calibrated || {}), [done.id]: found.set_ms };
+        S.calibration = { at: t, mixed: false, programme: { offset_ms: found.offset_ms, pairs: 9, spread_ms: 6.5, camera: done.name }, cameras: { ...(S.calibration?.cameras || {}), [done.name]: found } };
+      }
+    } else if (done.kind === 'network') {
+      const phones = (cams()?.cameras || []).filter(c => c.kind !== 'network').slice(0, 2).map(c => c.name);
+      run.result.timing = { phones, cameras: Object.fromEntries(done.cameras.map(c => [c.id, { name: c.name, own_ms: 310, held_ms: 590, from_ms: 600, against: phones, pairs: 13, spread_ms: 8.5 }])) };
+      S.netTimed = { at: t, cameras: run.result.timing.cameras }; run.queue.shift();
+    } else if (done.kind === 'mix') {
+      run.result.mix = { trim_ms: 941 }; run.queue.shift();
+      S.calibration = { ...(S.calibration || { cameras: {} }), at: t, mixed: true, programme: { offset_ms: -81, pairs: 8, spread_ms: 3, mix_trim_ms: 941 } };
+    }
+    walkAsk(run);
+  }
+  function walkChoose(body) {
+    const run = S.calRun;
+    if (!run || run.id !== body.run) return answer({ detail: 'Not your calibration' }, 409);
+    if (run.state !== 'running' || !run.ask || run.ask.step !== body.step) return answer({ detail: 'That question is no longer being asked' }, 409);
+    const asked = run.queue[0], choice = body.choice; run.answered = body.step; run.ask = null;
+    if (asked.kind === 'sound') {
+      run.queue.shift();
+      const camera = choice && asked.cameras.find(c => c.id === choice.camera);
+      if (camera && ['muted', 'aligned', 'mixed'].includes(choice.others)) {
+        S.programmeSound = { camera: camera.id, others: choice.others }; run.result.sound = { camera: camera.name, others: choice.others };
+        if (choice.others === 'mixed') run.queue.push({ kind: 'mix', leader: camera.name });
+      } else run.result.sound = { kept: true, others: S.programmeSound?.others || 'aligned' };
+      walkAsk(run);
+    } else if (choice === 'go') {
+      Object.assign(run, { show: 'flash', until: now() + 5, said: asked.kind === 'camera' ? `Measuring ${asked.name}: its picture is on air and its own microphone is the only one open. Hold still, about 15 seconds`
+        : asked.kind === 'network' ? `Timing ${asked.names} against the phones by the flashes both see. Hold still, about 20 seconds` : 'Measuring the programme mix against the picture. Hold still, about 15 seconds' });
+    } else {
+      if (asked.kind === 'camera') run.result.cameras[asked.id] = run.result.cameras[asked.id] || { name: asked.name, skipped: true };
+      else if (asked.kind === 'network') run.result.timing = { skipped: true }; else run.result.mix = { skipped: true };
+      run.queue.shift(); walkAsk(run);
+    }
+    save(); return answer(calibrateRead());
+  }
   function calibrateSync() {
     // Calibrate sync (avsync.py), as the manager answers: in the demo the first three cameras saw the flashes.
     const list = (cams()?.cameras || []).filter(c => c.id), found = {}, set = {};
@@ -1005,8 +1082,62 @@
       if (late == null) found[c.name] = { why: 'saw 0 flashes (hold the sync page where the camera sees it)', flashes: 0, beeps: 9 };
       else { found[c.name] = { offset_ms: late, pairs: 9, spread_ms: 6.5, set_ms: -late - 70 }; set[c.id] = -late - 70; }
     });
-    S.calibrated = set; S.calibration = { at: Date.now() / 1000, cameras: found, programme: { offset_ms: 85, pairs: 8, spread_ms: 9, camera: list[0]?.name } };
+    S.calibrated = set; S.calibration = { at: Date.now() / 1000, cameras: found, programme: { offset_ms: 85, pairs: 8, spread_ms: 9, camera: list[0]?.name }, mixed: S.programmeSound?.others === 'mixed' };
     return S.calibration;
+  }
+  // Before the show (preshow.py), as the manager reports it, from what the demo has been asked to do: lip sync as
+  // Calibrate sound last left each camera, the programme measured since Programme sound was changed, the mix's
+  // timing, each network camera timed (the calibrate page's timing run) and its input volume, the relay, and the
+  // connections (in the demo the last phone dropped once, a quarter of an hour ago).
+  function preshowRead() {
+    calibrateRead();                                    // a run that has just finished counts at once
+    const t = now(), clock = at => new Date(at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+    const all = (cams()?.cameras || []).filter(c => c.id), phones = all.filter(c => c.kind !== 'network'), network = all.filter(c => c.kind === 'network');
+    const sound = programmeSound(), mixed = sound.others === 'mixed', cal = S.calibration, began = S.preshowBegan || (S.preshowBegan = t - 2400);
+    const item = (id, label, state, detail, action, href) => ({ id, label, state, detail, action: state === 'todo' || state === 'unknown' ? action || null : null, href: (state === 'todo' || state === 'unknown') && action ? href || null : null });
+    const flash = 'Calibrate sound from the calibrate page on a phone, held where this camera sees it', flashAll = 'Calibrate sound from the calibrate page on a phone, held where the cameras see it';
+    const timeIt = 'Time the network cameras from the calibrate page on a phone, held where this camera and a phone camera both see it';
+    const lips = phones.map(c => {
+      const mine = sound.cameras.find(x => x.id === c.id) || {}, read = cal?.cameras?.[c.name];
+      if (!mine.in_programme) return item(`lip-sync:${c.id}`, `${c.name}: lip sync`, 'idle', `Not heard as Programme sound is set (${mine.why}), so its lip sync does not matter now.`);
+      if (read?.set_ms != null) return item(`lip-sync:${c.id}`, `${c.name}: lip sync`, 'ready', `${read.set_ms} ms, measured at ${clock(cal.at)} (${read.pairs} flashes, ±${read.spread_ms} ms), and its stream has run since ${clock(began)}.`);
+      return item(`lip-sync:${c.id}`, `${c.name}: lip sync`, 'todo', `${read?.why ? `Not measured: the last reading, at ${clock(cal.at)}, failed: ${read.why}. ` : 'Not measured. '}It is on every camera's lip sync (${S.lipSync || 0} ms).`, flash);
+    });
+    const what = !sound.camera ? 'every camera, each with its own picture' : mixed ? `the programme mix, led by ${all.find(c => c.id === sound.camera)?.name}` : all.find(c => c.id === sound.camera)?.name;
+    const programme = [!cal ? item('programme', 'Programme sound against the picture', 'todo', `Programme sound is ${what}. It has not been measured against the picture in the last day (or since measurements were forgotten).`, flashAll)
+      : S.soundChangedAt >= cal.at ? item('programme', 'Programme sound against the picture', 'todo', `Programme sound was changed at ${clock(S.soundChangedAt)} (now ${what}), after the programme was last measured, at ${clock(cal.at)}: what was measured was the sound as it was then.`, flashAll)
+      : item('programme', 'Programme sound against the picture', 'ready', `Programme sound is ${what}. Measured at ${clock(cal.at)}: it was ${cal.programme.offset_ms} ms off the picture, and ${cal.mixed ? 'the mix’s timing' : 'each camera’s lip sync'} was set from that. Programme sound has not been changed since.`)];
+    if (mixed) {
+      programme.push(item('mix-on-air', 'Programme mix: in the programme', 'ready', 'OBS is playing the mix, and it is in the programme.'));
+      programme.push(cal?.mixed && !(S.soundChangedAt >= cal.at) ? item('mix-trim', 'Programme mix: its timing', 'ready', '941 ms, as Calibrate sound measured it here.')
+        : item('mix-trim', 'Programme mix: its timing', 'todo', 'On its usual timing (860 ms), not measured here: as it was measured once, on other cameras. Voices can be off the mouths by a few hundred milliseconds.', `${flashAll}, with the mix on air: it sets the mix’s timing`));
+    }
+    const timed = S.netTimed ? { ended: S.netTimed.at, result: S.netTimed } : null;
+    const net = network.flatMap(c => {
+      const found = timed?.result?.cameras?.[c.id], input = sound.inputs.find(x => x.id === c.id), rows = [];
+      rows.push(found && !found.why ? item(`timed:${c.id}`, `${c.name}: timed against a phone`, 'ready', `Timed at ${clock(timed.ended)} by the calibrate page's flashes against ${found.against[0]}: ${found.own_ms} ms late by itself, and held to match.`)
+        : item(`timed:${c.id}`, `${c.name}: timed against a phone`, 'todo', found?.why ? `Not timed: ${found.why}.` : 'Not timed: too little happening in both pictures. It is held by 600 ms, as last set.', timeIt));
+      if (input) rows.push(input.volume <= 15 ? item(`input:${c.id}`, `${c.name}: input volume`, 'todo', `${input.volume} of ${input.most}: low enough to be close to silent.`, 'Set its input volume (Sound › Programme sound)', '/sound#programme')
+        : item(`input:${c.id}`, `${c.name}: input volume`, 'ready', `${input.volume} of ${input.most}${input.guard ? ', guarded (loudest lately -11.4 dB).' : ', not guarded.'}`));
+      if (mixed) {
+        const heard = sound.mix.cameras[c.name];
+        rows.push(c.id === sound.camera ? item(`mix:${c.id}`, `${c.name}: in the programme mix`, 'ready', 'It is the camera Programme sound comes from.')
+          : heard && !heard.in_mix ? item(`mix:${c.id}`, `${c.name}: in the programme mix`, 'idle', 'Left out of the mix, as set on the Sound page.')
+          : item(`mix:${c.id}`, `${c.name}: in the programme mix`, 'ready', `In the mix, ${Math.abs(heard?.behind_ms ?? 0)} ms ${(heard?.behind_ms ?? 0) >= 0 ? 'behind' : 'ahead of'} the leading camera and kept there.`));
+      }
+      return rows;
+    });
+    const version = cams()?.manager_version || 'this release', dropped = phones.length > 2 ? phones[phones.length - 1] : null;
+    const links = all.map(c => c === dropped ? item(`connection:${c.id}`, `${c.name}: connection`, 'todo', `Dropped its connection 1 time in the last hour, last at ${clock(began + 1500)}. The reason reported: the camera Wi-Fi was lost for 6 s.`, 'See its card on Cameras: its Wi-Fi, its heat and its battery', '/cameras')
+      : item(`connection:${c.id}`, `${c.name}: connection`, 'ready', c.kind === 'network' ? 'Showing a picture, without a break in the last hour.' : 'Connected, with no drop in the last hour.'));
+    const groups = [{ id: 'lip-sync', title: 'Lip sync, camera by camera', items: lips, empty: null }, { id: 'programme', title: 'Programme sound', items: programme, empty: null },
+      ...(net.length ? [{ id: 'network', title: 'Network cameras', items: net, empty: null }] : []),
+      { id: 'relay', title: 'Camera relay', items: [item('relay', 'Camera relay: same release as the manager', 'ready', `Both are on ${version}.`)], empty: null },
+      { id: 'connections', title: 'Connections in the last hour', items: links, empty: null }];
+    const counts = { ready: 0, todo: 0, unknown: 0, idle: 0 };
+    groups.forEach(g => g.items.forEach(i => counts[i.state]++));
+    const said = counts.todo ? `${counts.todo} thing${counts.todo === 1 ? '' : 's'} to do before the show` : 'Sound and cameras are lined up';
+    return { at: t, counts, said, groups };
   }
   function programmeSound() {
     // The chosen camera leads; in the demo every other camera is lined up with it, the third a few milliseconds moved.
@@ -1960,6 +2091,7 @@
       if (body.mix_db) { S.mixDb = { ...(S.mixDb || {}), [body.mix_db.camera]: body.mix_db.db }; save(); return answer(programmeSound()); }
       if (body.others && !['aligned', 'muted', 'auto', 'mixed'].includes(body.others)) return answer({ detail: 'others is aligned, muted, auto or mixed' }, 400);
       S.programmeSound = body.camera ? { camera: body.camera, others: body.others || 'muted' } : null;
+      S.soundChangedAt = now();
       save(); return answer(programmeSound());
     }
     if (path === '/api/sync/calibrate') {
@@ -1968,18 +2100,20 @@
       calibrateSync(); save(); return answer(programmeSound());
     }
     if (path === '/api/calibrate/start') {
-      if (!['sync', 'colour', 'timing'].includes(body.kind)) return answer({ detail: 'Send kind (sync, colour or timing), and for colour reference and obs' }, 400);
+      if (!['sync', 'colour', 'timing', 'walk'].includes(body.kind)) return answer({ detail: 'Send kind (sync, colour, timing or walk), for colour reference and obs, and for walk all (true: every camera, not only those due)' }, 400);
       if (S.calRun?.state === 'running') return answer({ detail: `A ${S.calRun.kind} calibration is already going on, started by ${S.calRun.by_name}` }, 409);
       S.calRun = { id: Math.random().toString(16).slice(2, 14), kind: body.kind, state: 'running', step: 0, show: body.kind === 'colour' ? null : 'flash', said: body.kind === 'sync' ? 'Measuring: keep the phone flashing where every camera sees it (about 15 seconds)' : body.kind === 'timing' ? 'Timing: keep the phone flashing where a network camera and a phone camera both see it (about 20 seconds)' : 'Starting',
         started: now(), ended: null, by_name: S.answers['/api/session']?.name || 'Morgan', answered: 0, result: null, problem: null, yours: true, obs: body.obs !== false, nextAt: now() + 0.5 };
+      if (body.kind === 'walk') S.calRun = walkStart(body.all === true);
       save(); return answer(calibrateRead());
     }
+    if (path === '/api/calibrate/choose') return walkChoose(body);
     if (path === '/api/calibrate/shown') {
       if (!S.calRun || S.calRun.id !== body.run) return answer({ detail: 'Not your calibration' }, 409);
       S.calRun.answered = Math.max(S.calRun.answered, Number(body.step) || 0); save(); return answer({ ok: true });
     }
     if (path === '/api/calibrate/stop') {
-      if (S.calRun?.state === 'running') Object.assign(S.calRun, { state: 'stopped', problem: 'Stopped', show: null, ended: now() });
+      if (S.calRun?.state === 'running') Object.assign(S.calRun, { state: 'stopped', problem: 'Stopped', show: null, ask: null, ended: now() });
       save(); return answer(calibrateRead());
     }
     if (path === '/api/explain') return explainPost(body);

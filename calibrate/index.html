@@ -1,4 +1,4 @@
-<!doctype html><html lang="en"><meta charset="utf-8"><script src="/demo.js?v=829b3c13d1de"></script><meta name="viewport" content="width=device-width,initial-scale=1"><title>Calibrate</title>
+<!doctype html><html lang="en"><meta charset="utf-8"><script src="/demo.js?v=7ed870294d80"></script><meta name="viewport" content="width=device-width,initial-scale=1"><title>Calibrate</title>
 <!-- The calibration pages, for a phone or tablet held in front of the cameras: at https://calibrate.mcvsaid.local
      (webnames.py) and at /calibrate on the dashboard. Logged in as a setup tech or an operator, it drives Calibrate
      (calibrate.py, calibrate.js): the manager measures sound, colour and the network cameras' timing from what this page shows. Without a login,
@@ -17,10 +17,18 @@
     </form>
     <div id="actions" hidden>
       <p id="who"></p>
+      <div class="choice" id="walk">
+        <b>Do what is due</b>
+        <span id="due">Takes you from camera to camera. At each one you hold this phone in front of it and tap; the
+        manager puts that camera on air with its own microphone and sets its lip sync. Then it times the network
+        cameras, and asks where the programme’s sound should come from: one camera, or every microphone joined in time.</span>
+        <a class="go" href="/sync-flash?manager=walk">Start with what is due</a>
+        <a class="go other" href="/sync-flash?manager=walk&amp;all=1">Every camera again</a>
+      </div>
       <a class="choice" href="/sync-flash?manager=1">
         <b>Calibrate sound</b>
         <span>Flashes and beeps while the manager measures each camera’s sound against its picture and sets its lip
-        sync. Hold it where every camera sees and hears it, about 15 seconds.</span>
+        sync. All at once, from one place: hold it where every camera sees and hears it, about 15 seconds.</span>
       </a>
       <a class="choice" id="timing" href="/sync-flash?manager=timing" hidden>
         <b>Time the network cameras</b>

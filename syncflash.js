@@ -7,12 +7,23 @@ let audio = null, lock = null, next = 0, step = 0;
 // From the calibrate page logged in: the manager measures while it flashes, and it stops by itself when the manager
 // has done, saying what was measured. ?manager=1 is calibrate.py's sound run (each camera's lip sync); ?manager=timing
 // its timing run (each network camera timed against the phones by the flashes both see, flashsync.py), which needs
-// the light only: no beeps.
+// the light only: no beeps. ?manager=walk is its camera-by-camera run ("Do what is due"): the page stays open for the
+// whole of it, shows what the manager asks at each camera (run.ask) with the answers to tap, and flashes and beeps only
+// while the manager says it is measuring (run.show === 'flash').
 const ASKED = new URLSearchParams(location.search).get('manager');
-const KIND = ASKED === 'timing' ? 'timing' : ASKED === '1' ? 'sync' : null;
+const KIND = ASKED === 'timing' ? 'timing' : ASKED === 'walk' ? 'walk' : ASKED === '1' ? 'sync' : null;
+const WALK = KIND === 'walk', ALL = new URLSearchParams(location.search).get('all') === '1';
+let flashing = !WALK, asked = 0;
 const MANAGER = KIND !== null, SILENT = KIND === 'timing';
 const SECONDS = SILENT ? 20 : 15;
 function measured(run) {
+  if (run.kind === 'walk') {
+    const r = run.result || {}, lines = Object.values(r.cameras || {}).map(c => `${c.name}: ${c.set_ms != null ? `lip sync ${c.set_ms} ms` : c.skipped ? 'skipped' : `not measured (${c.why})`}`);
+    if (r.timing && !r.timing.skipped) lines.push(r.timing.why ? `Network cameras: not timed (${r.timing.why})` : Object.values(r.timing.cameras || {}).map(c => `${c.name}: ${c.why ? `not timed (${c.why})` : `held by ${c.held_ms} ms`}`).join('; '));
+    if (r.sound) lines.push(r.sound.kept ? 'Programme sound: left as it was' : `Programme sound: ${r.sound.camera}${{ muted: ' alone', aligned: ', the others joined in time', mixed: ' leading the programme mix' }[r.sound.others] || ''}`);
+    if (r.mix && !r.mix.skipped) lines.push(r.mix.trim_ms != null ? `Programme mix: timing set to ${r.mix.trim_ms} ms` : `Programme mix: not measured (${r.mix.why})`);
+    return 'Done.\n' + (lines.join('\n') || 'Nothing was due.');
+  }
   if (run.kind === 'timing') {
     const cameras = Object.values(run.result?.cameras || {});
     return 'Timed. ' + cameras.map(c => `${c.name}: ${c.why ? `not timed (${c.why})` : `${c.own_ms} ms late by itself, held by ${c.held_ms} ms`}`).join('; ');
@@ -30,9 +41,10 @@ async function call(path, body) {
 async function measure() {
   try {
     csrf = (await call('/api/session')).csrf;
-    await call('/api/calibrate/start', { kind: KIND });
+    await call('/api/calibrate/start', WALK ? { kind: KIND, all: ALL } : { kind: KIND });
   } catch (error) { stop(error.message); return; }
-  document.getElementById('state').textContent = `Flashing while the manager measures (about ${SECONDS} seconds). Tap to stop.`;
+  document.getElementById('state').textContent = WALK ? '' : `Flashing while the manager measures (about ${SECONDS} seconds). Tap to stop.`;
+  if (WALK) { document.getElementById('walk').hidden = false; document.querySelector('#words p').hidden = true; }      // the questions take the page
   const look = async () => {
     let run = null;
     try { run = (await call('/api/calibrate')).run; } catch (error) { /* asked again */ }
@@ -41,23 +53,54 @@ async function measure() {
       stop(run.state === 'done' ? measured(run) : (run.problem || run.state));
       return;
     }
-    watching = setTimeout(look, 1000);
+    if (WALK && run) walk(run);
+    watching = setTimeout(look, WALK ? 500 : 1000);
   };
   watching = setTimeout(look, 1000);
+}
+// The camera-by-camera run: what the manager says, the answers to what it asks, and flashing only while it measures.
+function walk(run) {
+  const was = flashing;
+  flashing = run.show === 'flash';
+  if (flashing && !was && audio) next = audio.currentTime + 0.4;
+  document.getElementById('walk-said').textContent = run.said || '';
+  const options = document.getElementById('walk-options'), ask = run.ask;
+  if (!ask) { options.replaceChildren(); asked = 0; return; }
+  if (ask.step === asked) return;
+  asked = ask.step; options.replaceChildren();
+  const answer = async choice => {
+    options.replaceChildren();
+    try { await call('/api/calibrate/choose', { run: run.id, step: ask.step, choice }); } catch (error) { document.getElementById('walk-said').textContent = error.message; asked = 0; }
+  };
+  let select = null;
+  if (ask.kind === 'sound') {
+    select = document.createElement('select');
+    for (const camera of ask.cameras) select.append(new Option(camera.name, camera.id));
+    if (ask.cameras.some(c => c.id === ask.now.camera)) select.value = ask.now.camera;
+    const label = document.createElement('label'); label.textContent = 'Camera: '; label.append(select);
+    options.append(label);
+  }
+  ask.options.forEach(([value, words], index) => {
+    const button = document.createElement('button'); button.type = 'button'; button.textContent = words;
+    if (value === 'skip' || value === 'keep' || (ask.kind !== 'sound' && index)) button.className = 'other';
+    button.onclick = () => answer(select && value !== 'keep' ? { camera: select.value, others: value } : value);
+    options.append(button);
+  });
 }
 async function start() {
   audio = new (window.AudioContext || window.webkitAudioContext)();
   await audio.resume();
   try { lock = await navigator.wakeLock.request('screen'); } catch (e) { /* the screen may dim; keep tapping it */ }
   document.getElementById('start').hidden = true;
-  document.getElementById('state').textContent = 'Flashing. Tap to stop.';
-  document.body.onclick = stop;
+  document.getElementById('state').textContent = WALK ? '' : 'Flashing. Tap to stop.';
+  if (!WALK) document.body.onclick = stop;
   next = audio.currentTime + 1.0;
   schedule();
   if (MANAGER) measure();
 }
 function schedule() {
   if (!audio) return;
+  if (!flashing) { next = audio.currentTime + 0.4; setTimeout(schedule, 200); return; }      // between cameras: quiet and dark
   // The beep is put out early by the device's own sound latency, so it is heard as the screen lights.
   const late = (audio.outputLatency || 0) + (audio.baseLatency || 0);
   while (next < audio.currentTime + 2) {
@@ -80,7 +123,7 @@ function schedule() {
 function flash(at) {
   // Lit on the first screen refresh at or after the beep's moment.
   const paint = () => {
-    if (!audio) return;
+    if (!audio || !flashing) return;
     if (audio.currentTime < at) { requestAnimationFrame(paint); return; }
     // Too late to light with its beep (the page in the background, the device busy): skipped, never paired wrongly.
     if (audio.currentTime - at > 0.05) return;
@@ -98,9 +141,20 @@ function stop(said) {
   document.body.onclick = null; document.body.classList.remove('flash');
   document.getElementById('start').hidden = false;
   document.getElementById('state').textContent = told ? said : 'Stopped.';
+  document.getElementById('state').style.whiteSpace = 'pre-line';
+  document.getElementById('walk').hidden = true; asked = 0; flashing = !WALK;
+  if (WALK) document.querySelector('#words p').hidden = false;
 }
 document.getElementById('start').onclick = (event) => { event.stopPropagation(); start(); };
-if (MANAGER) {
+document.getElementById('walk-stop').onclick = async () => {
+  // Between cameras it stops at once; while a camera is on air being measured, once that measurement has finished.
+  try { const state = await call('/api/calibrate/stop', {}); if (state.run?.state !== 'running') stop('Stopped. What was measured until now is kept.'); } catch (error) { stop(error.message); }
+};
+if (WALK) {
+  document.querySelector('#words h1').textContent = ALL ? 'Every camera, one by one' : 'Do what is due';
+  document.querySelector('#words p').textContent = 'Turn this phone’s sound and brightness up and press Start. It then takes you from camera to camera: at each one, hold the phone in front of it and tap; the manager puts that camera on air with its own microphone and measures its lip sync while this flashes and beeps. Then the network cameras, and last where the programme’s sound comes from.';
+  document.getElementById('start').textContent = 'Start';
+} else if (MANAGER) {
   document.querySelector('#words p').textContent = SILENT
     ? 'Turn the screen’s brightness up, press Start, and hold the screen still where a network camera and at least one phone camera both see it. The manager times the network camera by the flashes both see, and it stops by itself when done (about 20 seconds). No sound is needed.'
     : 'Turn this device’s sound up, press Start, and hold the screen where every camera sees and hears it, about an arm’s length from the nearest. The manager measures while it flashes, and it stops by itself when done (about 15 seconds).';
