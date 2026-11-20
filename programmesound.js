@@ -93,10 +93,11 @@
   }
 
   async function refresh() {
-    const showing = typeof part !== 'undefined' && part === '/sound' && csrf && role === 'admin';
+    const showing = typeof part !== 'undefined' && part === '/sound' && soundTab === 'programme' && csrf && role === 'admin';
     panel.hidden = !showing;
     if (!showing || busy) return;
     try { state = await api('/api/programme-sound'); paint(false); } catch (error) { said = error.message; }
   }
+  document.addEventListener('sound-section', refresh);
   setInterval(refresh, 5000); refresh();
 })();

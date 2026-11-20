@@ -274,17 +274,18 @@ window.listenTo = (v, pick, disabled) => {
     const mine = state?.shots?.cameras.find(c => c.id === camera.id);
     if (!mine || !state.shots.on) return;
     const line = node('small', `Called aloud: ${quoted(mine.phrases.filter(p => !p.shared).slice(0, 6).map(p => p.phrase))}. `);
-    const go = document.createElement('a'); go.href = '/sound'; go.textContent = 'Phrases of its own (Sound)';
-    go.onclick = event => { if (event.metaKey || event.ctrlKey || event.shiftKey) return; event.preventDefault(); history.pushState(null, '', '/sound'); window.concert.pick?.('/sound'); };
+    const go = document.createElement('a'); go.href = '/sound#voice'; go.textContent = 'Phrases of its own (Sound)';
+    go.onclick = event => { if (event.metaKey || event.ctrlKey || event.shiftKey) return; event.preventDefault(); history.pushState(null, '', '/sound#voice'); window.concert.pick?.('/sound'); };
     line.append(go); line.className = 'card-setting'; shots.append(line);
   };
 
   async function refresh() {
     const showing = typeof part !== 'undefined' && (part === '/sound' || part === '/cameras') && csrf;
-    panel.hidden = !(showing && part === '/sound');
+    const open = showing && part === '/sound' && soundTab === 'voice';          // the Sound page's Voice shot calls section
+    panel.hidden = !open;
     if (!showing || busy) return;
-    try { state = await api('/api/voice'); fetchedAt = Date.now(); if (part === '/sound') paint(false); } catch (error) { said = error.message; }
+    try { state = await api('/api/voice'); fetchedAt = Date.now(); if (open) paint(false); } catch (error) { said = error.message; }
   }
-  document.addEventListener('event-mode', refresh);
+  document.addEventListener('event-mode', refresh); document.addEventListener('sound-section', refresh);
   setInterval(refresh, 3000); refresh();
 })();

@@ -16,7 +16,7 @@ window.concert = {
           ['/temperatures', 'Temperatures', 'Heat now and run by run', null, 'Show', 'heat'],
           ['/stage-layout', 'Stage layout', 'Where the cameras and performers stand: placed from the wide shot or by hand, the room map, the set', null, 'Set up', 'layout'],
           ['/director', 'Director', 'How shots are chosen, timing', null, 'Set up', 'director'],
-          ['/sound', 'Sound', 'Programme sound, lip sync and Calibrate sync, listening and voice calls', null, 'Set up', 'sound'],
+          ['/sound', 'Sound', 'Voice shot calls and what is listened to; programme sound, lip sync and Calibrate sync', null, 'Set up', 'sound'],
           ['/calibration', 'Calibrate', 'Sound and colour measured from a phone held up on stage: lip sync, a colour chart, the LUTs', 'tech', 'Set up', 'calibrate'],
           ['/power', 'Power', 'The smart plugs the chargers are on: switching them, and which gimbals and coolers each one charges', null, 'Set up', 'power'],
           ['/colour', 'Colour', 'White balance, exposure, chart calibration and LUTs', 'admin', 'Set up', 'colour'],
@@ -36,9 +36,11 @@ window.concert = {
   // Pages only for one kind of event (modes.py): shown in the side bar only while it is the one in use.
   onlyIn: { '/recipe': 'cooking', '/karaoke': 'karaoke' },
   inPlace: ['/', '/recipe', '/cameras', '/colour', '/director', '/sound', '/power', '/recordings', '/system', '/locations'],   // parts of the one main page: switched without loading anything
-  // The tabs within Recordings, the same on its two pages, and System's sections: under their page in the side bar.
+  // The tabs within Recordings, the same on its two pages, and System's and Sound's sections: under their page in the side bar.
   recordingTabs: [['/offload', 'Local recordings (phones)'], ['/recordings', 'PC recordings']],
   systemTabs: [['/system#devices', 'Cameras'], ['/system#updates', 'Updates'], ['/system#network', 'Network'], ['/system#logins', 'Logins'], ['/system#locations', 'Locations & backups'], ['/system#pc', 'This computer']],
+  // Sound's two sections (2026-11-20: "these are distinct"). Programme sound is the administrator's.
+  soundTabs: [['/sound#voice', 'Voice shot calls'], ['/sound#programme', 'Programme sound']],
   subCurrent: null,          // the section open within its page, as one of the addresses above
   latest: null, fedAt: 0,    // the last /api/cameras answer, for the status line and the counts beside the pages
   session: null,
@@ -156,10 +158,10 @@ window.concert = {
       if (path === current) link.setAttribute('aria-current', 'page');
       go(link, path); section.append(link);
       // The sections of the page that is open, under it.
-      const subs = path === '/system' ? this.systemTabs : path === '/offload' ? this.recordingTabs : null;
+      const subs = path === '/system' ? this.systemTabs : path === '/offload' ? this.recordingTabs : path === '/sound' && role === 'admin' ? this.soundTabs : null;
       if (subs && path === current) {
         const inner = document.createElement('div'); inner.className = 'sub';
-        const open = here === '/phones' || here === '/network-camera' ? '/system#devices' : this.subCurrent || (here === '/system' ? `/system${location.hash || '#devices'}` : here);
+        const open = here === '/phones' || here === '/network-camera' ? '/system#devices' : this.subCurrent || (here === '/system' ? `/system${location.hash || '#devices'}` : here === '/sound' ? `/sound${location.hash || '#voice'}` : here);
         for (const [href, text] of subs) {
           const item = document.createElement('a'); item.href = href; item.textContent = text;
           if (href === open) item.setAttribute('aria-current', 'location');

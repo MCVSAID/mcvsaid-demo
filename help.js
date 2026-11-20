@@ -133,7 +133,7 @@ function markdown(text) {
 let dialog, box, list, note, view = 'results', history = [], asking = false, picked = 0, shown = [];
 const pageOf = path => {
   const [base, tab] = path.split('#'), page = concert.pages.find(p => p[0] === (concert.under[base] || base));
-  const sub = tab ? concert.systemTabs.find(([href]) => href === path)?.[1] : base === '/recordings' ? 'PC recordings' : null;
+  const sub = tab ? [...concert.systemTabs, ...concert.soundTabs].find(([href]) => href === path)?.[1] : base === '/recordings' ? 'PC recordings' : null;
   return `${page ? page[1] : base}${sub ? ` › ${sub}` : ''}`;
 };
 const onlyIn = path => {

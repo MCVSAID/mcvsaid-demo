@@ -37,8 +37,8 @@ const PARTS = {
   '/cameras': ['#studio', '#bands', '#plug-switch', '#cameras'],
   '/colour': ['#colour'],
   '/director': ['#ai-setup', '#director-settings', '#explain', '#face-blur', '#obs-sync'],
-  // Sound in a page of its own (2026-10-25): the programme's sound and lip sync, and listening and voice calls.
-  '/sound': ['#programme-sound', '#voice-shots'],
+  // Sound in a page of its own (2026-10-25): listening and voice calls, and the programme's sound and lip sync, each a section (SOUND).
+  '/sound': ['#sound-tabs', '#voice-shots', '#programme-sound'],
   // Power in a page of its own (2026-11-06): the plugs the chargers are on, and what each one charges.
   '/power': ['#power', '#keep-awake'],
   '/recordings': ['#recordings-tabs', '#pc-recordings', '#relay'],
@@ -56,14 +56,20 @@ const SYSTEM = [
 ];
 // The tab an older link (/system#release, /locations) means.
 const systemTabOf = name => SYSTEM.find(([id, , panels]) => id === name || panels.includes(`#${name}`))?.[0] || 'devices';
+// Sound's sections, each a tab like System's: what is said aloud, and what the programme sounds like. Programme sound is
+// the administrator's, so anyone else has Voice shot calls alone, and no tabs.
+const SOUND = [['voice', 'Voice shot calls', '#voice-shots'], ['programme', 'Programme sound', '#programme-sound']];
+// The tab an older link (/sound#programme-sound) means.
+const soundTabOf = name => SOUND.find(([id, , panel]) => id === name || panel === `#${name}`)?.[0] || 'voice';
 const ADMIN_ONLY = ['/system', '/colour'];
-let part = '/', role = 'admin', systemTab = 'devices';
+let part = '/', role = 'admin', systemTab = 'devices', soundTab = 'voice';
 const powerOpen = new Set();             // the Power page's folds opened by hand (a plug's id, 'add', 'login'): kept so across refreshes
 let powerDirty = false;                  // something typed or ticked there and not yet saved: the page is not redrawn under it
 const powerPanel = document.querySelector('#power');
 function show(path) {
   if (path === '/locations') { path = '/system'; systemTab = 'locations'; }
   else if (path === '/system') systemTab = systemTabOf(location.hash.slice(1));
+  else if (path === '/sound') soundTab = role === 'admin' ? soundTabOf(location.hash.slice(1)) : 'voice';
   part = PARTS[path] ? path : '/';
   // The Recipe page is Cooking's: in another kind of event it is the Show page.
   if (part === '/recipe' && window.concert.mode && window.concert.mode.mode !== 'cooking') { part = '/'; history.replaceState(null, '', window.concert.at('/')); }
@@ -76,13 +82,19 @@ function show(path) {
     document.querySelector('#add-phone').hidden = !!window.concert.session?.away && window.concert.session?.role !== 'admin';
     document.querySelector('#add-network-camera').hidden = window.concert.session?.role !== 'admin';
   }
+  if (part === '/sound') {
+    const tabs = document.querySelector('#sound-tabs'); tabs.hidden = role !== 'admin';
+    for (const [id, , panel] of SOUND) document.querySelector(panel).hidden = id !== soundTab;
+    window.concert.tabs(tabs, SOUND.map(([id, name]) => [`#${id}`, name]), `#${soundTab}`, href => { history.pushState(null, '', `/sound${href}`); show('/sound'); });
+    document.dispatchEvent(new Event('sound-section'));          // voice.js and programmesound.js draw the one that is open
+  }
   if (part === '/recordings') window.concert.tabs(document.querySelector('#recordings-tabs'), window.concert.recordingTabs, '/recordings');
   const page = window.concert.pages.find(p => p[0] === (window.concert.under[part] || part));
-  const title = part === '/recordings' ? 'PC recordings' : part === '/system' ? SYSTEM.find(([id]) => id === systemTab)[1] : page[1];
+  const title = part === '/recordings' ? 'PC recordings' : part === '/system' ? SYSTEM.find(([id]) => id === systemTab)[1] : part === '/sound' ? SOUND.find(([id]) => id === soundTab)[1] : page[1];
   document.title = `${title} · MCVSAID`;
   document.querySelector('header h1').textContent = part === '/recordings' ? 'Recordings' : page[1];
   // The side bar marks the section that is open, and shows the pages' state.
-  window.concert.subCurrent = part === '/system' ? `/system#${systemTab}` : part === '/recordings' ? '/recordings' : null;
+  window.concert.subCurrent = part === '/system' ? `/system#${systemTab}` : part === '/sound' ? `/sound#${soundTab}` : part === '/recordings' ? '/recordings' : null;
   window.concert.nav(role, show);
   refresh();
 }
@@ -98,7 +110,7 @@ async function enter(session) {
   if (wanted) refresh().then(() => { if (!wanted.hidden) wanted.scrollIntoView({ block: 'start' }); });
   if (!polling) { polling = true; window.concert.every(refresh, 2000); }       // not while the page is hidden
 }
-window.addEventListener('hashchange', () => { if (csrf && part === '/system') show('/system'); });
+window.addEventListener('hashchange', () => { if (csrf && (part === '/system' || part === '/sound')) show(part); });
 window.addEventListener('popstate', () => { if (csrf) { show(location.pathname.replace(/\/+$/, '') || '/'); window.concert.nav(role, show); } });
 document.querySelector('#login').onsubmit = async event => {
   event.preventDefault();

@@ -67,7 +67,7 @@ input[type=checkbox], input[type=radio] { width:20px; height:20px; vertical-alig
 :where(label:has(> input[type=checkbox], > input[type=radio])) { display:inline-block; }
 summary { box-sizing:border-box; min-height:32px; padding-block:6px; cursor:pointer; }
 main section > h2, #devices-setup > h2 { margin:18px 0 6px; }
-#system-tabs + section > h2, #recordings-tabs + section > h2 { margin-top:6px; }
+#system-tabs + section > h2, #recordings-tabs + section > h2, #sound-tabs ~ #programme-sound > h2 { margin-top:6px; }
 .crumbs a { color:#8fcafa; }
 
 
