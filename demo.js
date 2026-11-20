@@ -1234,6 +1234,14 @@
       if (line) Object.assign(line, typed ? { status: 'ok', detail: 'its own stream is kept for its file, 62 Mb/s' }
         : { status: 'warn', detail: 'no file of its own is kept of a recording: give the address of its own stream (Picture & stream) for the camera relay to keep it' });
     }
+    if ('keep_stream' in body) {
+      // Stop keeping its stream / Keep its stream on its card: the relay stops or starts fetching it; its address stays.
+      if (typeof body.keep_stream !== 'boolean') return answer({ detail: 'keep_stream is true or false' }, 400);
+      camera.keeps_stream = done.keeps_stream = body.keep_stream; done.camera_files = camera.camera_files !== false; done.recording = !!cams().director?.recording;
+      const line = checks.find(c => c.id === 'capture');
+      if (line && camera.has_stream) Object.assign(line, body.keep_stream ? { status: 'ok', detail: 'its own stream is kept for its file, 62 Mb/s' }
+        : { status: 'warn', detail: 'its own stream is not being kept, so a recording has no file of its own from it: stopped on its card (Keep its stream starts it again)' });
+    }
     if ('control_address' in body) {
       // The camera's control API address (netcontrol.py): kept, never shown; here it only turns the controls on or off.
       const set = !!String(body.control_address || '').trim();

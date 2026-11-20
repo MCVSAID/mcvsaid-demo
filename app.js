@@ -489,6 +489,20 @@ function networkCard(camera, { card, head, chip, facts, alerts, actions, more, p
     } catch (error) { concert.fail(error); }
     busy.delete(camera.id); refresh();
   };
+  // Its own stream, kept by the camera relay for its camera file (relay.Pulled): stopped and started here, as Stop stream
+  // is for a phone, so that nothing of it is written to disk. Its address stays; OBS has its picture over NDI either way.
+  if (camera.has_stream && camera.camera_files && camera.in_use) {
+    const keeps = camera.keeps_stream !== false;
+    if (!keeps) chip('Stream not kept', 'quiet').title = 'The camera relay is not keeping its own stream, so nothing of it is written to this computer and a recording has no file of its own from it';
+    const keep = node('button', keeps ? 'Stop keeping its stream' : 'Keep its stream'); keep.disabled = off; if (keeps) keep.className = 'danger';
+    keep.title = keeps ? 'The camera relay stops fetching its own stream, so nothing of it is written to this computer. OBS goes on showing it.' : 'The camera relay fetches its own stream again and keeps it, for its file of each programme recording.';
+    keep.onclick = async () => {
+      if (keeps && director?.recording && !(await concert.sure(`The programme is being recorded. Stop keeping ${camera.name}’s stream? Its own file of this recording ends here.`, { ok: 'Stop keeping it', danger: true }))) return;
+      change({ keep_stream: !keeps }, keeps ? `${camera.name}’s own stream is no longer written to this computer. OBS still has its picture.` : `${camera.name}’s own stream is kept again.`,
+        done => keeps ? (done.recording ? ' Its file of this recording ends here.' : ' What was already kept is cleared in about ten minutes.') : (done.recording ? ' Its file of this recording comes in parts.' : ''));
+    };
+    actions.append(keep);
+  }
   // Picture & stream: where OBS takes it from.
   const source = document.createElement('input'); source.type = 'text'; source.maxLength = 255; source.value = camera.ndi_name; source.size = 28; source.setAttribute('aria-label', 'NDI source name');
   source.disabled = role !== 'admin' || off;
@@ -506,8 +520,8 @@ function networkCard(camera, { card, head, chip, facts, alerts, actions, more, p
     const row = node('label', 'Its own stream, for its camera file '); row.append(stream, node('span', ' '), set);
     if (camera.has_stream) { const clear = node('button', 'Forget'); clear.disabled = off; clear.onclick = () => change({ stream_address: '' }, `${camera.name}’s own stream is no longer kept.`); row.append(node('span', ' '), clear); }
     picture.append(row, node('small', (camera.has_stream ? 'Kept on the record and never shown again. ' : '') + 'NDI itself cannot be kept as it arrives, but the camera serves the same video over RTSP: its settings page gives the address. With it, and camera files on, the camera relay keeps that stream and every programme recording comes with this camera’s own file, as with the phones’. OBS goes on taking its picture over NDI.'
-      + (camera.camera_files ? '' : ' Camera files are off (Recordings › PC recordings), so nothing is kept now.')));
-  } else if (camera.has_stream) picture.append(node('small', 'Its own stream is kept by the camera relay for its file of each programme recording, with camera files on.'));
+      + (camera.camera_files ? (camera.has_stream && camera.keeps_stream === false ? ' Keeping it is stopped just now (Keep its stream, above), so nothing of it is written.' : '') : ' Camera files are off (Recordings › PC recordings), so nothing is kept now.')));
+  } else if (camera.has_stream) picture.append(node('small', camera.keeps_stream === false ? 'Keeping its own stream is stopped just now (Keep its stream, above): nothing of it is written, and a recording has no file of its own from it.' : 'Its own stream is kept by the camera relay for its file of each programme recording, with camera files on.'));
   // Maintenance: its delay. The manager times it against the phones by what the pictures show and sets it; it can be set by hand too.
   const delay = document.createElement('input'); delay.type = 'number'; delay.min = 0; delay.max = sync?.most_hold_ms || 6000; delay.step = 10; delay.value = camera.delay_ms; delay.setAttribute('aria-label', 'Delay in milliseconds');
   delay.disabled = off;
