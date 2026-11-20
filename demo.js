@@ -134,7 +134,7 @@
       reply = topic ? (hit.length ? `Cleared: ${topic[2]}.` : `Nothing to clear about the ${topic[2]}.`) : hit.length ? 'Cleared. Back to the brief.' : 'Nothing to clear: only the brief is in force.';
     } else {
       const topic = chatTopic(text), name = topic && topic[2], on = topic && (topic[1].startsWith('camera:') || /\d$/.test(name)) ? name : `the ${name}`;
-      const replaced = topic ? active.filter(w => w.topic === topic[1]) : [];
+      const replaced = active.filter(w => (topic && w.topic === topic[1]) || w.text.toLowerCase() === text.toLowerCase());
       let wishes = [{ id: mine.id, text, at: mine.at, until: mine.at + CHAT.lasts, topic: topic && topic[1], toward: way, about: name }, ...active.filter(w => !replaced.includes(w))];
       const dropped = wishes.slice(CHAT.most); wishes = wishes.slice(0, CHAT.most); chat().wishes = wishes;
       reply = !topic ? (way === 'less' ? 'Noted: less of that.' : 'On it.')

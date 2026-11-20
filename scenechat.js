@@ -2,13 +2,15 @@
 // Scene Chat (scenechat.py): guiding the director through the show in a few words, down the right of the Show and Stage
 // Shots pages. The standing brief at the top, the wishes in force under it, the show's chat, and a box to type into.
 // The director's replies are canned and come back at once: the model is never asked to answer the chat.
+// A wish already sent this show can be sent again: Again under it in the chat sends it as it was, and the up arrow in
+// the empty box brings earlier wishes back into it, to change before sending.
 //
 // Wide screens: a panel down the right, shut to a narrow strip with its button. Tablets: the same panel over the page,
 // opened from a button at the right edge. Phones: a sheet from the bottom, opened from a button above the bottom bar.
 (() => {
   const PAGES = ['/', '/stage'];
   const DOCK = 1180;                           // at least this wide, the panel sits beside the page instead of over it
-  let box = null, state = null, open = null, seen = 0, timer = null, editingBrief = false, sending = false, redraw = false, problem = '', pinned = true;
+  let box = null, state = null, open = null, seen = 0, timer = null, editingBrief = false, sending = false, redraw = false, problem = '', pinned = true, back = 0;
   const store = { get(key) { try { return localStorage.getItem(key); } catch (error) { return null; } }, set(key, value) { try { localStorage.setItem(key, value); } catch (error) { /* a private window */ } } };
   const el = (tag, text, className) => { const e = document.createElement(tag); if (text !== undefined && text !== null) e.textContent = text; if (className) e.className = className; return e; };
   const clock = at => new Date(at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -43,13 +45,16 @@
     };
     box.querySelector('.chat-say').onsubmit = async event => {
       event.preventDefault();
-      const input = box.querySelector('.chat-say textarea'), text = input.value.split(/\s+/).join(' ').trim();      // a wish is one line
-      if (!text || sending) return;
-      sending = true; input.disabled = true;
-      try { draw(await call({ say: text })); input.value = ''; grow(input); }
-      catch (error) { problem = error.message; state ? draw(state) : note(problem, true); }
-      finally { sending = false; input.disabled = !!(state && state.ai_tier === 'none'); input.focus(); }
+      const input = box.querySelector('.chat-say textarea');
+      if (await say(input.value)) { input.value = ''; grow(input); }
+      input.focus();
     };
+    // Again, under a wish sent earlier: the same words, sent as a new wish. What is being typed is left in the box.
+    box.querySelector('.chat-log').addEventListener('click', async event => {
+      const again = event.target.closest('button.again'); if (!again) return;
+      const id = again.closest('li').dataset.id, text = sent().find(m => m.id === id)?.text;
+      if (text && await say(text)) [...box.querySelectorAll('.chat-log button.again')].pop()?.focus({ preventScroll: true });     // the log was redrawn: on to the newest
+    });
     // The chat stays at its newest line while it is there, as the panel opens, the page is resized or the brief is opened.
     const log = box.querySelector('.chat-log');
     log.addEventListener('scroll', () => { pinned = log.scrollHeight - log.scrollTop - log.clientHeight < 40; });
@@ -58,7 +63,15 @@
     // with what is typed up to a few lines more.
     const area = box.querySelector('.chat-say textarea');
     area.addEventListener('keydown', event => { if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); box.querySelector('.chat-say').requestSubmit(); } });
-    area.addEventListener('input', () => grow(area));
+    area.addEventListener('input', () => { back = 0; grow(area); });
+    // Up in the empty box (or while stepping through them) brings back the wish sent before, and Down the one after.
+    area.addEventListener('keydown', event => {
+      if ((event.key !== 'ArrowUp' && event.key !== 'ArrowDown') || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey || event.isComposing) return;
+      if (!back && (event.key === 'ArrowDown' || area.value)) return;
+      const texts = [...new Set(sent().map(m => m.text).reverse())];          // newest first, each once
+      const to = back + (event.key === 'ArrowUp' ? 1 : -1); if (to > texts.length) return;
+      event.preventDefault(); back = to; area.value = to ? texts[to - 1] : ''; grow(area); area.setSelectionRange(area.value.length, area.value.length);
+    });
     const shade = el('div'); shade.id = 'chat-shade'; shade.onclick = () => show(false);
     document.body.append(shade, box, toggle);
     document.addEventListener('keydown', event => { if (event.key === 'Escape' && open && !wide() && !document.querySelector('dialog[open]')) { show(false); toggle.focus(); } });
@@ -82,6 +95,19 @@
     const mark = document.querySelector('#scene-chat-toggle .badge'); if (!mark) return;
     mark.hidden = open || !fresh; mark.textContent = fresh; mark.className = 'badge ok';
     mark.setAttribute('aria-label', `${fresh} new from the director`);
+  }
+
+  /** The wishes typed this show, oldest first: not the lines the chat wrote when the brief was changed. */
+  function sent() { return (state?.messages || []).filter(m => m.who === 'you' && !m.brief); }
+
+  /** Sends a wish, typed or sent again. Answers whether the manager took it. */
+  async function say(words) {
+    const input = box.querySelector('.chat-say textarea'), text = words.split(/\s+/).join(' ').trim();      // a wish is one line
+    if (!text || sending) return false;
+    sending = true; input.disabled = true; box.classList.add('sending');
+    try { draw(await call({ say: text })); back = 0; return true; }
+    catch (error) { problem = error.message; state ? draw(state) : note(problem, true); return false; }
+    finally { sending = false; box.classList.remove('sending'); input.disabled = !!(state && state.ai_tier === 'none'); }
   }
 
   function grow(area) { area.style.height = ''; area.style.height = `${Math.min(area.scrollHeight + 2, 160)}px`; }
@@ -143,8 +169,14 @@
       if (!data.messages.length) log.append(el('li', `Tell the director what you want as the show goes: “${data.examples.wish}”, “less on the ${words.crowd || 'crowd'}”, “clear”. Its replies are instant; the model reads your wishes on its next look.`, 'msg system'));
       for (const message of data.messages) {
         const item = el('li', null, `msg ${message.who}${message.system ? ' system' : ''}${message.brief ? ' brief' : ''}`);
-        item.append(el('span', message.text, 'text'), el('time', clock(message.at)));
-        item.querySelector('time').dateTime = new Date(message.at * 1000).toISOString();
+        const time = el('time', clock(message.at)); time.dateTime = new Date(message.at * 1000).toISOString();
+        item.append(el('span', message.text, 'text'));
+        if (message.who === 'you' && !message.brief) {
+          const again = el('button', 'Again', 'again'); again.type = 'button'; again.disabled = data.ai_tier === 'none';
+          again.title = 'Send this wish again'; again.setAttribute('aria-label', `Send again: “${message.text}”`);
+          const foot = el('span', null, 'foot'); foot.append(again, time);
+          item.dataset.id = message.id; item.append(foot);
+        } else item.append(time);
         log.append(item);
       }
       if (atFoot || !before || data.show.id !== before.show.id || data.reply) scrollDown();
