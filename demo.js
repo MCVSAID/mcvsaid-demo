@@ -1240,7 +1240,7 @@
       if (camera.kind === 'network') { if (camera.netfollow) { camera.netfollow.tracking_on = mine.cameras[c].on; camera.netfollow.tracking = mine.cameras[c].on; camera.netfollow.state = mine.cameras[c].on ? (camera.netfollow.armed ? 'following' : null) : 'waiting'; if (!mine.cameras[c].on) camera.netfollow.why = 'its tracker is off'; } continue; }
       if (!g) continue;
       if (!mine.cameras[c].on) { if (g.follow) { autoHeld()[c] = { following: true, performer: false }; g.follow = null; if (camera.telemetry?.gimbal) camera.telemetry.gimbal.follow = null; } }
-      else if (autoHeld()[c]) { delete autoHeld()[c]; g.follow = { state: 'following', hands_on: false, by: 'face', pace: 'normal' }; if (camera.telemetry?.gimbal) camera.telemetry.gimbal.follow = { ...g.follow }; }
+      else if (!g.follow) { delete autoHeld()[c]; g.follow = { state: 'following', hands_on: false, by: 'face', pace: 'normal' }; if (camera.telemetry?.gimbal) camera.telemetry.gimbal.follow = { ...g.follow }; }
     }
     const word = body.kind === 'tracking' ? 'Tracking' : 'Auto zoom', whom = id === undefined ? 'every camera' : named(id);
     const still = id !== undefined && body.on && !mine.all ? ` (still off: ${autoWhy(body.kind, id).toLowerCase()})` : '';
