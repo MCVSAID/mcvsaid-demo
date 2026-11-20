@@ -1058,6 +1058,19 @@
       if (body.follow && !camera.has_control) return answer({ detail: 'Give the camera’s control address first, so the manager can reach it' }, 409);
       nf.armed = body.follow; nf.state = body.follow ? 'following' : null; nf.why = body.follow ? 'aimed at the stage area; the camera frames its own subject there' : null;
     }
+    // The phone mounted beside it, and lining the two up (Set): as the manager checks them.
+    const beside = nf.beside || (nf.beside = { camera: null, name: null, set: false, lined: null, tilt_known: false, choices: cams().cameras.filter(c => c.kind !== 'network').map(c => ({ id: c.id, name: c.name })) });
+    if ('beside' in body) {
+      const phone = cams().cameras.find(c => c.id === body.beside && c.kind !== 'network');
+      if (body.beside !== null && !phone) return answer({ detail: 'beside is a phone camera here, or null for none' }, 400);
+      Object.assign(beside, { camera: phone ? phone.id : null, name: phone ? phone.name : null, set: false, lined: phone ? 'map' : null, tilt_known: false });
+    }
+    if ('beside_set' in body) {
+      if (typeof body.beside_set !== 'boolean') return answer({ detail: 'beside_set is true or false' }, 400);
+      if (!beside.camera) return answer({ detail: 'Say which phone is mounted beside it first' }, 409);
+      Object.assign(beside, { set: body.beside_set, lined: body.beside_set ? 'set' : 'map', tilt_known: body.beside_set });
+    }
+    if (nf.armed && beside.camera && ('beside' in body || 'beside_set' in body)) nf.why = `aimed at where ${beside.name}, beside it, sees them; the camera frames its own subject there`;
     for (const key of ['mode', 'framing']) if (key in body) {
       const allowed = key === 'mode' ? nf.modes : nf.framings;
       if (!allowed.includes(body[key])) return answer({ detail: `the ${key === 'mode' ? 'tracker’s mode' : 'framing'} is ${allowed.join(', ')}` }, 400);

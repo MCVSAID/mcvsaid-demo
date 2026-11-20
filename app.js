@@ -533,6 +533,28 @@ function networkFollow(camera, { card, change, role, off }) {
       arm.onchange = () => post('network-follow', { follow: arm.checked }, arm.checked ? `${camera.name}: the manager will aim and track it.` : `${camera.name}: following off.`);
       const row = node('label', ''); row.append(arm, node('span', ' Let the manager turn and track it')); box.append(row);
     }
+    // The phone mounted beside it (netcontrol.py): the camera is aimed from that phone's picture, with no guess at how
+    // far back anyone stands. Set lines the two up, with the camera aimed by hand at the middle of the phone's picture.
+    const beside = nf.beside || {};
+    if (role === 'admin') {
+      const pick = document.createElement('select'); pick.disabled = off; pick.setAttribute('aria-label', 'Phone mounted beside it');
+      const none = node('option', 'none'); none.value = ''; none.selected = !beside.camera; pick.append(none);
+      for (const c of beside.choices || []) { const o = node('option', c.name); o.value = c.id; o.selected = beside.camera === c.id; pick.append(o); }
+      pick.onchange = () => post('network-follow', { beside: pick.value || null }, pick.value ? `${camera.name}: aimed from the phone beside it, once the two are lined up.` : `${camera.name}: no phone beside it; aimed from the room map.`);
+      const line = node('div', ''); line.className = 'camera-controls';
+      const row = node('label', 'Phone mounted beside it '); row.append(pick); line.append(row); box.append(line);
+      if (beside.camera) {
+        const set = node('button', beside.set ? 'Set again' : 'Set'); set.disabled = off;
+        set.title = `Aim ${camera.name} by hand at whatever is in the middle of ${beside.name}'s picture, then press this. Nothing moves the camera: it is only asked where it points.`;
+        set.onclick = () => post('network-follow', { beside_set: true }, `${camera.name} is lined up with ${beside.name}.`);
+        line.append(set);
+        if (beside.set) { const forget = node('button', 'Forget'); forget.disabled = off; forget.onclick = () => post('network-follow', { beside_set: false }, `${camera.name}: lining up forgotten.`); line.append(forget); }
+      }
+    }
+    if (beside.camera) box.append(node('small', beside.lined === 'set' ? `Aimed from ${beside.name}'s picture, lined up by Set. Set again if either is moved.`
+      : beside.lined === 'map' ? `Aimed from ${beside.name}'s picture, lined up by the room map${beside.tilt_known ? '' : ' (across only: the phone has no tilt there)'}. Set is more exact: aim the camera at the middle of that phone's picture first.`
+      : `Not lined up with ${beside.name} yet: aim the camera at the middle of that phone's picture and press Set, or put both on the room map.`));
+    else if (role === 'admin') box.append(node('small', 'A phone fixed right beside the camera, showing the whole stage, lets it be aimed from that phone\u2019s picture.'));
     // The onboard tracker's mode and framing.
     const controls = node('div', ''); controls.className = 'camera-controls';
     const modeSel = document.createElement('select'); modeSel.disabled = off; modeSel.setAttribute('aria-label', 'Tracker mode');
