@@ -87,10 +87,10 @@
       const set = document.createElement('button'); set.textContent = 'Set'; set.disabled = busy;
       set.onclick = () => send({ input_volume: { camera: input.id, value: Math.max(1, Math.min(input.most, Math.round(Number(volume.value)) || input.volume)) } }, '/api/programme-sound', `Setting ${input.name}…`, 'Set on the camera.');
       const guard = document.createElement('input'); guard.type = 'checkbox'; guard.checked = !!input.guard; guard.disabled = busy;
-      guard.onchange = () => send({ input_guard: { camera: input.id, on: guard.checked } }, '/api/programme-sound', 'Saving…', guard.checked ? 'It will be turned down when it gets near the top.' : 'Left as set.');
-      const guarding = document.createElement('label'); guarding.append(guard, node('span', ' turn it down by itself when its sound gets near the top'));
+      guard.onchange = () => send({ input_guard: { camera: input.id, on: guard.checked } }, '/api/programme-sound', 'Saving…', guard.checked ? 'It will be turned down when it keeps getting near the top.' : 'Left as set.');
+      const guarding = document.createElement('label'); guarding.append(guard, node('span', ' turn it down by itself when its sound keeps getting near the top'));
       const g = input.guarding;
-      const heard = node('small', !input.guard ? '' : !g || !g.listening ? ' Not listening to it yet.' : ` Loudest in the last 10 s: ${g.peak_db == null ? '—' : `${g.peak_db} dB`}.${g.lowered ? ` Turned down from ${g.lowered.from} to ${g.lowered.to} at ${new Date(g.lowered.at * 1000).toLocaleTimeString()} (it reached ${g.lowered.peak_db} dB).` : ''} Never turned back up: do that here, between songs.`);
+      const heard = node('small', !input.guard ? '' : !g || !g.listening ? ' Not listening to it yet.' : ` Loudest in the last 10 s: ${g.peak_db == null ? '—' : `${g.peak_db} dB`}.${g.lowered ? ` Turned down from ${g.lowered.from} to ${g.lowered.to} at ${new Date(g.lowered.at * 1000).toLocaleTimeString()} (it reached ${g.lowered.peak_db} dB).` : ''}${g.stopped ? ` It has stopped at ${g.floor}, as far below where you set it as it goes: if it is still too loud, set it lower yourself.` : g.floor != null ? ` It goes no lower than ${g.floor}.` : ''} Never turned back up: do that here, between songs.`);
       row.append(node('span', `${input.name}: its own input volume `), volume, node('span', ` of ${input.most} `), set, node('span', ' '), guarding, heard,
         node('small', ' Set on the camera itself, for its sound in OBS and in the mix alike, at once. Turn it down until the loudest sound of the show stays clear of the top.'));
       parts.push(row);

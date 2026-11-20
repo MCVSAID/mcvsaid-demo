@@ -1018,7 +1018,7 @@
         behind_ms: [4.31, -11.87, 7.02, 2.4, -3.3][i % 5], drift_ppm: [22.1, -8.4, 3.9, 14.2, -17.6][i % 5], unsteady_ms: [0.0036, 0.0051, 0.0044, 0.0029, 0.0062][i % 5], read_ago: 2, flipped: false }])) } : null;
     // A network camera's own input volume (tenveo.py), as the manager reads it from the camera.
     const inputs = (cams()?.cameras || []).filter(c => c.kind === 'network').map(c => ({ id: c.id, name: c.name, volume: (S.inputVolume || {})[c.id] ?? 40, most: 60, guard: !!(S.inputGuard || {})[c.id],
-      guarding: (S.inputGuard || {})[c.id] ? { listening: true, peak_db: -11.4, lowered: null } : null }));
+      guarding: (S.inputGuard || {})[c.id] ? { listening: true, peak_db: -11.4, lowered: null, floor: Math.max(1, ((S.inputVolume || {})[c.id] ?? 40) - 12), stopped: false } : null }));
     return { lip_sync_ms: S.lipSync || 0, camera: chosen?.camera || null, others: chosen?.others || 'muted', inputs,
       automix: auto ? { open, heard: open, clarity_db: Object.fromEntries(list.slice(0, 3).map((c, i) => [c.name, [14.5, 4.2, 1.8][i]])), changes: 3 } : null, mix, measured: chosen ? { at: Date.now() / 1000 - 40, readings: {}, moved: list[2] ? { [list[2].name]: -6 } : {} } : null,
       calibration: S.calibration || null, flash_page: '/sync-flash',
