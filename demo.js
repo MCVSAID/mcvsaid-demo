@@ -1077,6 +1077,16 @@
       const line = checks.find(c => c.id === 'source'); if (line) line.detail = `“${done.obs_source}”, taking “${name}”`;
       const listed = (S.answers['/api/network-cameras']?.cameras || []).find(c => c.id === id); if (listed) listed.ndi_name = name;
     }
+    if ('stream_address' in body) {
+      // The address of the camera's own stream, which the camera relay fetches and keeps for its camera file
+      // (relay.Pulled): kept, never shown; here it only says whether its stream is kept, on its card and readiness.
+      const typed = String(body.stream_address || '').trim();
+      if (typed && !/^rtsps?:\/\/[^\s\/]+\S*$/i.test(typed)) return answer({ detail: 'Give the address of the camera’s own stream, as its settings page shows it, for example rtsp://192.0.2.10:554/live/av0' }, 400);
+      camera.has_stream = done.has_stream = !!typed; done.camera_files = camera.camera_files !== false;
+      const line = checks.find(c => c.id === 'capture');
+      if (line) Object.assign(line, typed ? { status: 'ok', detail: 'its own stream is kept for its file, 62 Mb/s' }
+        : { status: 'warn', detail: 'no file of its own is kept of a recording: give the address of its own stream (Picture & stream) for the camera relay to keep it' });
+    }
     if ('control_address' in body) {
       // The camera's control API address (netcontrol.py): kept, never shown; here it only turns the controls on or off.
       const set = !!String(body.control_address || '').trim();

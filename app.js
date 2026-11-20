@@ -496,6 +496,18 @@ function networkCard(camera, { card, head, chip, facts, alerts, actions, more, p
   save.onclick = () => { const name = source.value.trim(); if (name && name !== camera.ndi_name) change({ ndi_name: name }, `${camera.name} is now taken from “${name}”.`); };
   const sourceRow = node('label', 'NDI source name '); sourceRow.append(source, node('span', ' '), save);
   picture.append(sourceRow, node('small', 'As OBS lists it, for example STAGE-PTZ (Camera 1). Its size, frame rate and exposure are set on the camera itself; it is aimed and zoomed on the Operate page, once it has its control address (Following, below).'));
+  // Its own stream, for its camera file (relay.Pulled): the relay fetches it from the camera and keeps it, as it keeps a phone's. Kept, never shown again.
+  if (role === 'admin') {
+    const stream = document.createElement('input'); stream.type = 'text'; stream.maxLength = 500; stream.size = 28; stream.placeholder = 'rtsp://192.0.2.10:554/live/av0'; stream.disabled = off; stream.setAttribute('aria-label', 'Address of the camera’s own stream');
+    stream.autocomplete = 'off'; stream.spellcheck = false;
+    const kept = done => done.camera_files ? ' The camera relay keeps it from now on.' : ' Nothing is kept until camera files are switched on (Recordings › PC recordings).';
+    const set = node('button', camera.has_stream ? 'Change' : 'Set'); set.disabled = off;
+    set.onclick = () => { const a = stream.value.trim(); if (a) change({ stream_address: a }, `${camera.name} has its own file of each programme recording.`, kept); };
+    const row = node('label', 'Its own stream, for its camera file '); row.append(stream, node('span', ' '), set);
+    if (camera.has_stream) { const clear = node('button', 'Forget'); clear.disabled = off; clear.onclick = () => change({ stream_address: '' }, `${camera.name}’s own stream is no longer kept.`); row.append(node('span', ' '), clear); }
+    picture.append(row, node('small', (camera.has_stream ? 'Kept on the record and never shown again. ' : '') + 'NDI itself cannot be kept as it arrives, but the camera serves the same video over RTSP: its settings page gives the address. With it, and camera files on, the camera relay keeps that stream and every programme recording comes with this camera’s own file, as with the phones’. OBS goes on taking its picture over NDI.'
+      + (camera.camera_files ? '' : ' Camera files are off (Recordings › PC recordings), so nothing is kept now.')));
+  } else if (camera.has_stream) picture.append(node('small', 'Its own stream is kept by the camera relay for its file of each programme recording, with camera files on.'));
   // Maintenance: its delay. The manager times it against the phones by what the pictures show and sets it; it can be set by hand too.
   const delay = document.createElement('input'); delay.type = 'number'; delay.min = 0; delay.max = sync?.most_hold_ms || 6000; delay.step = 10; delay.value = camera.delay_ms; delay.setAttribute('aria-label', 'Delay in milliseconds');
   delay.disabled = off;
@@ -1955,17 +1967,19 @@ async function drawAll() {
     const panel = document.querySelector('#release');
     await paint(panel, true, async (panel) => {
       panel.replaceChildren(node('h2', 'Camera app'));
+      // Only phones run the camera app: a network camera has no version to report, so it is never counted or named here.
+      const phones = cameras.filter(c => c.kind !== 'network');
       if (release === undefined) { /* manager not yet restarted with update support */ }
       else if (!release) {
         panel.append(node('p', 'App updates: no release published. Bring the newest build from GitHub below, or publish a file with the manager’s “release” command.'));
         // With nothing published to compare against, still say when the cameras differ from each other.
-        const seen = [...new Set(cameras.map(c => c.app?.version_name || 'not reported'))];
-        if (seen.length > 1) { const warn = node('p', `Cameras are on different app versions: ${cameras.map(c => `${c.name} ${c.app?.version_name || 'not reported'}`).join('; ')}.`); warn.className = 'recording-warning'; panel.append(warn); }
+        const seen = [...new Set(phones.map(c => c.app?.version_name || 'not reported'))];
+        if (seen.length > 1) { const warn = node('p', `Cameras are on different app versions: ${phones.map(c => `${c.name} ${c.app?.version_name || 'not reported'}`).join('; ')}.`); warn.className = 'recording-warning'; panel.append(warn); }
       }
       else {
-        const behind = cameras.filter(c => c.app?.update_available).length;
+        const behind = phones.filter(c => c.app?.update_available).length;
         panel.append(node('p', `App release offered to cameras: ${release.version_name} · ${behind ? `${behind} camera${behind === 1 ? '' : 's'} not on it yet` : 'all paired cameras are on it'}`));
-        const odd = cameras.filter(c => versionOf(c, release).mismatch);
+        const odd = phones.filter(c => versionOf(c, release).mismatch);
         if (odd.length) { const warn = node('p', `App version mismatch: ${odd.map(c => `${c.name} is on ${c.app?.version_name || 'an older, unreported version'}`).join('; ')}. Published: ${release.version_name}.`); warn.className = 'recording-warning'; panel.append(warn); }
         const label = node('label', ''); const box = document.createElement('input'); box.type = 'checkbox'; box.checked = !!app_auto_update;
         box.onchange = async () => { try { await api('/api/settings/app-auto-update', { method: 'POST', body: JSON.stringify({ enabled: box.checked }) }); } catch (error) { concert.fail(error); } refresh(); };
