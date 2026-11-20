@@ -1064,8 +1064,8 @@
       } else run.result.sound = { kept: true, others: S.programmeSound?.others || 'aligned' };
       walkAsk(run);
     } else if (choice === 'go') {
-      Object.assign(run, { show: 'flash', until: now() + 5, said: asked.kind === 'camera' ? `Measuring ${asked.name}: its picture is on air and its own microphone is the only one open. Hold still, about 15 seconds`
-        : asked.kind === 'network' ? `Timing ${asked.names} against the phones by the flashes both see. Hold still, about 20 seconds` : 'Measuring the programme mix against the picture. Hold still, about 15 seconds' });
+      Object.assign(run, { show: asked.kind === 'network' ? 'flash-silent' : 'flash', until: now() + 5, said: asked.kind === 'camera' ? `Measuring ${asked.name}: its picture is on air and its own microphone is the only one open. Hold still, about 15 seconds`
+        : asked.kind === 'network' ? `Timing ${asked.names} against the phones by the flashes both see. No beeps for this one. Hold still, about 20 seconds` : 'Measuring the programme mix against the picture. Hold still, about 15 seconds' });
     } else {
       if (asked.kind === 'camera') run.result.cameras[asked.id] = run.result.cameras[asked.id] || { name: asked.name, skipped: true };
       else if (asked.kind === 'network') run.result.timing = { skipped: true }; else run.result.mix = { skipped: true };

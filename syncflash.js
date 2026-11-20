@@ -13,13 +13,13 @@ let audio = null, lock = null, next = 0, step = 0;
 const ASKED = new URLSearchParams(location.search).get('manager');
 const KIND = ASKED === 'timing' ? 'timing' : ASKED === 'walk' ? 'walk' : ASKED === '1' ? 'sync' : null;
 const WALK = KIND === 'walk', ALL = new URLSearchParams(location.search).get('all') === '1';
-let flashing = !WALK, asked = 0;
+let flashing = !WALK, asked = 0, quiet = false;      // quiet: the walk timing a network camera, by the light alone
 const MANAGER = KIND !== null, SILENT = KIND === 'timing';
 const SECONDS = SILENT ? 20 : 15;
 function measured(run) {
   if (run.kind === 'walk') {
     const r = run.result || {}, lines = Object.values(r.cameras || {}).map(c => `${c.name}: ${c.set_ms != null ? `lip sync ${c.set_ms} ms` : c.skipped ? 'skipped' : `not measured (${c.why})`}`);
-    if (r.timing && !r.timing.skipped) lines.push(r.timing.why ? `Network cameras: not timed (${r.timing.why})` : Object.values(r.timing.cameras || {}).map(c => `${c.name}: ${c.why ? `not timed (${c.why})` : `held by ${c.held_ms} ms`}`).join('; '));
+    if (r.timing && !r.timing.skipped) lines.push(r.timing.why ? `Network cameras: not timed (${r.timing.why})` : Object.values(r.timing.cameras || {}).map(c => `${c.name}: ${c.why ? `not timed (${c.why})` : `held by ${c.held_ms} ms (±${c.spread_ms} ms)`}`).join('; '));
     if (r.sound) lines.push(r.sound.kept ? 'Programme sound: left as it was' : `Programme sound: ${r.sound.camera}${{ muted: ' alone', aligned: ', the others joined in time', mixed: ' leading the programme mix' }[r.sound.others] || ''}`);
     if (r.mix && !r.mix.skipped) lines.push(r.mix.trim_ms != null ? `Programme mix: timing set to ${r.mix.trim_ms} ms` : `Programme mix: not measured (${r.mix.why})`);
     return 'Done.\n' + (lines.join('\n') || 'Nothing was due.');
@@ -61,7 +61,7 @@ async function measure() {
 // The camera-by-camera run: what the manager says, the answers to what it asks, and flashing only while it measures.
 function walk(run) {
   const was = flashing;
-  flashing = run.show === 'flash';
+  flashing = run.show === 'flash' || run.show === 'flash-silent'; quiet = run.show === 'flash-silent';
   if (flashing && !was && audio) next = audio.currentTime + 0.4;
   document.getElementById('walk-said').textContent = run.said || '';
   const options = document.getElementById('walk-options'), ask = run.ask;
@@ -105,9 +105,9 @@ function schedule() {
   const late = (audio.outputLatency || 0) + (audio.baseLatency || 0);
   while (next < audio.currentTime + 2) {
     const at = next, osc = audio.createOscillator(), gain = audio.createGain();
-    if (SILENT) gain.gain.value = 0;      // the sound's clock still times the flashes; nothing is heard
+    if (SILENT || quiet) gain.gain.value = 0;      // the sound's clock still times the flashes; nothing is heard
     osc.frequency.value = TONE; osc.connect(gain); gain.connect(audio.destination);
-    if (!SILENT) {
+    if (!SILENT && !quiet) {
       gain.gain.setValueAtTime(0, Math.max(0, at - late));
       gain.gain.linearRampToValueAtTime(0.9, Math.max(0, at - late) + 0.002);
       gain.gain.setValueAtTime(0.9, Math.max(0, at - late) + FLASH - 0.002);

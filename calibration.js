@@ -126,7 +126,7 @@
     if (run.kind === 'walk' && run.result) {
       const list = node('ul'), r = run.result;
       for (const c of Object.values(r.cameras || {})) list.append(node('li', `${c.name}: ${c.set_ms != null ? `lip sync set to ${c.set_ms} ms, measured alone in the programme (${c.pairs} flashes, ±${c.spread_ms} ms)` : c.skipped ? 'skipped' : `not measured: ${c.why}`}`, c.why ? 'bad' : ''));
-      if (r.timing && !r.timing.skipped) for (const c of Object.values(r.timing.cameras || {})) list.append(node('li', c.why ? `${c.name}: not timed: ${c.why}` : `${c.name}: held by ${c.held_ms} ms`, c.why ? 'bad' : ''));
+      if (r.timing && !r.timing.skipped) for (const c of Object.values(r.timing.cameras || {})) list.append(node('li', c.why ? `${c.name}: not timed: ${c.why}` : `${c.name}: held by ${c.held_ms} ms (${c.pairs} flashes, ±${c.spread_ms} ms${c.spread_ms > 20 ? ': loose, worth timing again' : ''})`, c.why || c.spread_ms > 20 ? 'bad' : ''));
       if (r.timing?.why) list.append(node('li', `Network cameras not timed: ${r.timing.why}`, 'bad'));
       if (r.sound) list.append(node('li', r.sound.kept ? 'Programme sound left as it was' : `Programme sound: ${r.sound.camera}${{ muted: ' alone', aligned: ', the others joined in time', mixed: ' leading the programme mix' }[r.sound.others] || ''}`));
       if (r.mix && !r.mix.skipped) list.append(node('li', r.mix.trim_ms != null ? `Programme mix: timing set to ${r.mix.trim_ms} ms` : `Programme mix not measured: ${r.mix.why}`, r.mix.why ? 'bad' : ''));
