@@ -60,12 +60,12 @@
     const body = $('#now-body'); body.replaceChildren();
     const run = state.run;
     if (!run) { body.append(node('p', 'Nothing has been calibrated from a phone since the manager started.', 'hint')); return; }
-    const what = run.kind === 'sync' ? 'Sound' : 'Colour';
+    const what = { sync: 'Sound', timing: 'Network camera timing' }[run.kind] || 'Colour';
     const when = new Date(run.started * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
     const head = node('p'); head.append(node('b', `${what}, `), node('span', `started ${when} by ${run.by_name}: `),
       node('span', run.state === 'running' ? run.said : run.state === 'done' ? 'done.' : `${run.state}. ${run.problem || ''}`, run.state === 'failed' ? 'bad' : ''));
     body.append(head);
-    if (run.state === 'running' && run.kind === 'colour') {
+    if (run.state === 'running' && run.kind !== 'sync') {
       const stop = node('button', 'Stop'); stop.type = 'button'; stop.className = 'danger';
       stop.onclick = async () => { try { draw(await api('/api/calibrate/stop', { anyone: true })); } catch (error) { concert.fail(error); } };
       body.append(stop);
@@ -83,6 +83,12 @@
       }
       body.append(table);
       if (run.result.reference) body.append(node('p', `Matched to ${run.result.reference}${run.result.in_obs ? ', and put in OBS' : ''}. The Colour page has each camera’s LUT.`, 'hint'));
+    }
+    if (run.kind === 'timing' && run.result?.cameras) {
+      const list = node('ul');
+      for (const c of Object.values(run.result.cameras)) list.append(node('li', c.why ? `${c.name}: not timed: ${c.why}` : `${c.name}: ${c.own_ms} ms late by itself, now held by ${c.held_ms} ms (was ${c.from_ms}); ${c.pairs} flashes seen with ${c.against.join(' and ')}, ±${c.spread_ms} ms`, c.why ? 'bad' : ''));
+      body.append(list);
+      body.append(node('p', 'The picture matching keeps each camera there from now on, and its card on Cameras says how it was last timed.', 'hint'));
     }
     if (run.kind === 'sync' && run.result?.calibration?.cameras) {
       const list = node('ul');

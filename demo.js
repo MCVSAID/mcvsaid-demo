@@ -932,6 +932,14 @@
       const t = now();
       if (run.kind === 'sync' && t - run.started > 13) {
         run.result = { calibration: calibrateSync(), cameras: [] }; Object.assign(run, { state: 'done', said: 'Done', show: null, ended: t });
+      } else if (run.kind === 'timing' && t - run.started > 18) {
+        // The timing run (flashsync.py), as the manager answers: each network camera timed by the flashes it and two
+        // phones saw, and held by what brings it to the phones (lined up 900 ms behind real life in the demo).
+        const phones = base.cameras.filter(c => !c.network && c.streaming).slice(0, 2).map(c => c.name);
+        run.result = { phones, cameras: Object.fromEntries(base.cameras.filter(c => c.network).map(c => [c.id, phones.length
+          ? { name: c.name, own_ms: 310, held_ms: 590, from_ms: 600, against: phones, pairs: 13, spread_ms: 8.5 }
+          : { name: c.name, why: 'no phone camera saw the page flashing with it' }])) };
+        Object.assign(run, { state: 'done', said: 'Done', show: null, ended: t });
       } else if (run.kind === 'colour') {
         if (run.step < CAL_STEPS.length && run.answered >= run.step && t >= run.nextAt) {
           const [show, said] = CAL_STEPS[run.step]; Object.assign(run, { step: run.step + 1, show, said, nextAt: t + 1.5 });
@@ -1877,9 +1885,9 @@
       calibrateSync(); save(); return answer(programmeSound());
     }
     if (path === '/api/calibrate/start') {
-      if (!['sync', 'colour'].includes(body.kind)) return answer({ detail: 'Send kind (sync or colour), and for colour reference and obs' }, 400);
+      if (!['sync', 'colour', 'timing'].includes(body.kind)) return answer({ detail: 'Send kind (sync, colour or timing), and for colour reference and obs' }, 400);
       if (S.calRun?.state === 'running') return answer({ detail: `A ${S.calRun.kind} calibration is already going on, started by ${S.calRun.by_name}` }, 409);
-      S.calRun = { id: Math.random().toString(16).slice(2, 14), kind: body.kind, state: 'running', step: 0, show: body.kind === 'sync' ? 'flash' : null, said: body.kind === 'sync' ? 'Measuring: keep the phone flashing where every camera sees it (about 15 seconds)' : 'Starting',
+      S.calRun = { id: Math.random().toString(16).slice(2, 14), kind: body.kind, state: 'running', step: 0, show: body.kind === 'colour' ? null : 'flash', said: body.kind === 'sync' ? 'Measuring: keep the phone flashing where every camera sees it (about 15 seconds)' : body.kind === 'timing' ? 'Timing: keep the phone flashing where a network camera and a phone camera both see it (about 20 seconds)' : 'Starting',
         started: now(), ended: null, by_name: S.answers['/api/session']?.name || 'Morgan', answered: 0, result: null, problem: null, yours: true, obs: body.obs !== false, nextAt: now() + 0.5 };
       save(); return answer(calibrateRead());
     }

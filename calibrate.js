@@ -1,7 +1,8 @@
 'use strict';
 // The calibrate page on a phone (calibrate.html): logged in as a setup tech or an operator, it starts Calibrate's runs
 // (calibrate.py) and, for colour, shows what the manager asks for, step by step, saying back each step it shows.
-// Sound is the sync flash page (syncflash.js, ?manager=1), which flashes while the manager measures.
+// Sound is the sync flash page (syncflash.js, ?manager=1), which flashes while the manager measures; timing the network
+// cameras is the same page without its beeps (?manager=timing), offered when there is a network camera.
 (() => {
   const $ = selector => document.querySelector(selector);
   let session = null, chart = null, painted = 0, lock = null, timer = null, turned = false;
@@ -39,6 +40,7 @@
     select.replaceChildren(new Option('the camera that sees the chart best', 'auto'), new Option('the chart’s own colours', 'chart'),
       ...state.cameras.map(c => new Option(c.name + (c.online ? '' : ' (not connected)'), c.id)));
     select.value = [...select.options].some(o => o.value === keep) ? keep : 'auto';
+    $('#timing').hidden = !state.cameras.some(c => c.network);
     const run = state.run;
     const mine = run && run.kind === 'colour' && run.yours && run.state === 'running';
     if (mine) showStep(run); else leaveRun();
@@ -47,12 +49,15 @@
   }
 
   function summary(run) {
-    const what = run.kind === 'sync' ? 'Sound' : 'Colour';
+    const what = { sync: 'Sound', timing: 'Network camera timing' }[run.kind] || 'Colour';
     if (run.state === 'running') return `${what}: ${run.said}${run.yours ? '' : ` (started by ${run.by_name})`}`;
     if (run.state !== 'done') return `${what}: ${run.problem || run.state}`;
     if (run.kind === 'sync') {
       const cameras = run.result?.calibration?.cameras || {};
       return 'Sound measured.\n' + Object.entries(cameras).map(([name, r]) => `${name}: ${r.set_ms != null ? `lip sync ${r.set_ms} ms` : `not measured, ${r.why}`}`).join('\n');
+    }
+    if (run.kind === 'timing') {
+      return 'Network cameras timed.\n' + Object.values(run.result?.cameras || {}).map(c => `${c.name}: ${c.why ? `not timed, ${c.why}` : `${c.own_ms} ms late by itself, held by ${c.held_ms} ms (against ${c.against.join(' and ')})`}`).join('\n');
     }
     const cameras = Object.values(run.result?.cameras || {});
     return `Colour matched to ${run.result?.reference}${run.result?.in_obs ? ', in OBS' : ''}.\n` + cameras.map(c => `${c.name}: ${c.problem ? c.problem : c.name === run.result?.reference ? 'the one the others match' : c.delta_e ? `ΔE ${c.delta_e.before.mean} → ${c.delta_e.after.mean}` : '—'}`).join('\n');

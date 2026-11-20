@@ -1,7 +1,7 @@
-<!doctype html><html lang="en"><meta charset="utf-8"><script src="/demo.js?v=7ef1e457611d"></script><meta name="viewport" content="width=device-width,initial-scale=1"><title>Calibrate</title>
+<!doctype html><html lang="en"><meta charset="utf-8"><script src="/demo.js?v=0f08268ed1bb"></script><meta name="viewport" content="width=device-width,initial-scale=1"><title>Calibrate</title>
 <!-- The calibration pages, for a phone or tablet held in front of the cameras: at https://calibrate.mcvsaid.local
      (webnames.py) and at /calibrate on the dashboard. Logged in as a setup tech or an operator, it drives Calibrate
-     (calibrate.py, calibrate.js): the manager measures sound and colour from what this page shows. Without a login,
+     (calibrate.py, calibrate.js): the manager measures sound, colour and the network cameras' timing from what this page shows. Without a login,
      the sync flash and the colour card still work on their own. -->
 <link rel="stylesheet" href="/calibrate.css">
 <body class="hub"><main>
@@ -21,6 +21,12 @@
         <b>Calibrate sound</b>
         <span>Flashes and beeps while the manager measures each camera’s sound against its picture and sets its lip
         sync. Hold it where every camera sees and hears it, about 15 seconds.</span>
+      </a>
+      <a class="choice" id="timing" href="/sync-flash?manager=timing" hidden>
+        <b>Time the network cameras</b>
+        <span>Flashes, without the beeps, while the manager times each network camera against the phones by the
+        flashes both see, and sets what it is held by in OBS. Hold it still where a network camera and at least one
+        phone camera both see it, about 20 seconds.</span>
       </a>
       <div class="choice" id="colour">
         <b>Calibrate colour</b>
