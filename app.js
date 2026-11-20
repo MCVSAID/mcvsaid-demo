@@ -469,7 +469,7 @@ const problems = camera => notRight(camera).map(check => `${check.label}: ${chec
 // of a phone's (arming, streaming and recording buttons, battery, temperature, storage, lens, gimbal, cooler, app).
 function networkCard(camera, { card, head, chip, facts, alerts, actions, more, picture, upkeep, role, director, sync }) {
   const t = camera.telemetry || {}, off = busy.has(camera.id);
-  head.prepend(cardShot(camera, !!director?.usable?.includes(camera.id)));
+  head.prepend(cardShot(camera, !!director?.usable?.includes(camera.id), director?.kept_out?.[camera.id]));
   chip('Network camera', 'quiet').title = 'Not a phone: OBS takes its picture over NDI';
   if (!camera.online) chip('No OBS source', 'bad').title = 'OBS has no NDI source for it yet, or cannot take NDI: see below';
   else if (t.streaming) chip('Sending a picture', 'on');
@@ -1153,17 +1153,19 @@ function showMonitor(cameras, director, said, named, direct) {
       thumb.append(img, node('span', ''), node('strong', ''), node('em', ''));
       m.thumbs.set(camera.id, thumb);
     }
-    const usable = director.usable.includes(camera.id), alone = director.on_air === camera.id && !director.pair, shown = members.includes(camera.id);
+    // kept: OBS has its picture, but the director keeps it out of the choosing (its gimbal lost its person, say). Its
+    // still stays, with the reason over it: "No picture" is only for a camera OBS has no picture from.
+    const usable = director.usable.includes(camera.id), kept = usable ? null : director.kept_out?.[camera.id], picture = usable || !!kept, alone = director.on_air === camera.id && !director.pair, shown = members.includes(camera.id);
     const [img, none, name, tag] = thumb.children;
     name.textContent = camera.name; tag.textContent = shown ? said.word : ''; tag.hidden = !shown;
-    none.textContent = usable ? '' : 'No picture'; none.hidden = usable;
-    thumb.className = `monitor-camera${shown ? ` shown ${said.kind}` : ''}`;
+    none.textContent = usable ? '' : kept ? kept.label : 'No picture'; none.hidden = usable;
+    thumb.className = `monitor-camera${shown ? ` shown ${said.kind}` : ''}${kept ? ' kept-out' : ''}`;
     thumb.disabled = !usable && !shown; thumb.setAttribute('aria-pressed', String(alone));
-    thumb.title = alone ? `${said.word} now` : usable ? `Cut to ${camera.name}` : 'Not usable right now: offline, not streaming, or no picture in OBS (or no “Cam” scene for it)';
+    thumb.title = alone ? `${said.word} now` : usable ? `Cut to ${camera.name}` : kept ? `OBS has its picture, but it is out of the choosing for now: ${kept.why}` : 'Not usable right now: offline, not streaming, or no picture in OBS (or no “Cam” scene for it)';
     thumb.onclick = async () => { if (alone || !usable) return; await direct({ take: camera.id }); monitor.soon = true; };
     // A camera OBS has no picture from is not asked for one; one that has just come back is asked at once.
-    const before = thumb.dataset.picture; thumb.dataset.picture = usable ? 'yes' : 'no';
-    if (!usable) { img.hidden = true; img.removeAttribute('src'); }
+    const before = thumb.dataset.picture; thumb.dataset.picture = picture ? 'yes' : 'no';
+    if (!picture) { img.hidden = true; img.removeAttribute('src'); }
     else if (before !== 'yes') monitorThumb(camera.id);
   }
   const order = cameras.map(c => c.id).join(' ');
@@ -1175,15 +1177,21 @@ function showMonitor(cameras, director, said, named, direct) {
 // each redraw, so it is not asked for again every two seconds.
 const cardShots = { imgs: new Map(), turn: 0, busy: false };
 const cardShotFetch = id => monitorPicture(`card:${id}`, `/api/stage/set/grab/${encodeURIComponent(id)}?width=320`, cardShots.imgs.get(id));
-function cardShot(camera, usable) {
+// kept: the director's kept_out entry for a camera OBS has a picture from but that is out of the choosing; its still
+// stays, with the reason under it in a strip.
+function cardShot(camera, usable, kept) {
   let img = cardShots.imgs.get(camera.id);
   if (!img) { img = document.createElement('img'); img.hidden = true; cardShots.imgs.set(camera.id, img); }
   img.alt = `What ${camera.name} sees`;
   const box = node('figure', ''); box.className = 'card-shot'; box.append(img);
   // A camera OBS has no picture from is not asked for one; one that has just come back is asked at once.
-  const before = img.dataset.picture; img.dataset.picture = usable ? 'yes' : 'no';
-  if (!usable) { img.hidden = true; img.removeAttribute('src'); box.append(node('span', 'No picture')); }
-  else if (before !== 'yes') cardShotFetch(camera.id);
+  const picture = usable || !!kept;
+  const before = img.dataset.picture; img.dataset.picture = picture ? 'yes' : 'no';
+  if (!picture) { img.hidden = true; img.removeAttribute('src'); box.append(node('span', 'No picture')); }
+  else {
+    if (kept) { const why = node('span', kept.label); why.className = 'kept-out'; why.title = `Out of the choosing for now: ${kept.why}`; box.append(why); }
+    if (before !== 'yes') cardShotFetch(camera.id);
+  }
   return box;
 }
 setInterval(async () => {
@@ -2165,7 +2173,7 @@ async function drawAll() {
         const t = camera.telemetry || {};
         const sending = !!(t.streaming || t.capture?.streamRequested);
         // Its picture, small, beside its name (OBS's still of it, as on the Show page).
-        head.prepend(cardShot(camera, !!director?.usable?.includes(camera.id)));
+        head.prepend(cardShot(camera, !!director?.usable?.includes(camera.id), director?.kept_out?.[camera.id]));
         // One chip per fact. An offline camera's are what it last reported.
         if (!camera.online) chip('Offline', 'bad').title = 'Not connected: what follows is what it last reported';
         if (t.armed) chip('Armed');

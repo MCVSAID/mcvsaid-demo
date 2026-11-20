@@ -407,13 +407,14 @@ window.concert = {
   },
 
   /** How to name what OBS has in its programme: "On air" only while OBS streams or records it, "Programme" when nothing
-   * goes out; and "(no picture)" when a camera in it is not streaming or shows nothing in OBS (not in director.usable).
+   * goes out; and "(no picture)" when a camera in it is not streaming or shows nothing in OBS (not in director.usable,
+   * nor in director.kept_out: a camera kept out of the choosing with its picture still in OBS is not blank).
    * OBS keeps its last scene when the cameras stop, and the director never cuts to a camera without a picture, so the
    * programme can name a camera that sends nothing: "On air: S20FE" then read as wrong (2026-10-17). */
   programme(director) {
     const out = !!(director.recording || director.streaming);
     const members = director.pair || (director.on_air ? [director.on_air] : []);
-    const blank = members.length > 0 && members.some(id => !(director.usable || []).includes(id));
+    const blank = members.length > 0 && members.some(id => !(director.usable || []).includes(id) && !director.kept_out?.[id]);
     return { word: out ? 'On air' : 'Programme', blank, suffix: blank ? ' (no picture)' : '', kind: blank ? 'warn' : out ? 'air' : 'off' };
   },
 

@@ -160,13 +160,13 @@ function draw() {
     const kind = kindOf(camera);
     if (tile.parentNode !== zones[kind]) zones[kind].append(tile);
     tile.dataset.kind = kind;
-    const live = usable.has(camera.id), on = camera.id === director.onAir || camera.id === director.on_air || pair.includes(camera.id), next = !on && planned.includes(camera.id);
+    const live = usable.has(camera.id), kept = live ? null : director.kept_out?.[camera.id], on = camera.id === director.onAir || camera.id === director.on_air || pair.includes(camera.id), next = !on && planned.includes(camera.id);
     tile.children[0].textContent = shows(camera); tile.children[1].textContent = camera.name;
-    tile.children[2].textContent = on ? 'ON AIR' : next ? 'NEXT' : picked === camera.id ? 'PICKED · LEFT' : !camera.online ? 'OFFLINE' : !live ? 'NO PICTURE'
+    tile.children[2].textContent = on ? 'ON AIR' : next ? 'NEXT' : picked === camera.id ? 'PICKED · LEFT' : !camera.online ? 'OFFLINE' : kept ? kept.label.toUpperCase() : !live ? 'NO PICTURE'
       : solo && (director.camera_focus?.[camera.id] || []).includes(solo.instrument) ? 'SOLO' : '';
     tile.classList.toggle('on-air', on); tile.classList.toggle('next', next); tile.classList.toggle('dead', !live && !on); tile.classList.toggle('picked', picked === camera.id);
     tile.classList.toggle('selected', arranging && selected === camera.id);
-    tile.setAttribute('aria-label', `${shows(camera)}, ${camera.name}${on ? ', on air' : next ? ', next' : !live ? ', no picture' : ''}; ${markWords(camera)}`);
+    tile.setAttribute('aria-label', `${shows(camera)}, ${camera.name}${on ? ', on air' : next ? ', next' : kept ? `, ${kept.label.toLowerCase()}` : !live ? ', no picture' : ''}; ${markWords(camera)}`);
     if (kind !== 'single') tile.style.order = String(along.get(camera.id));
     size(tile, camera); aim(tile, camera);
   });

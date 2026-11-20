@@ -82,6 +82,7 @@
     for (const plug of cams().power?.plugs || []) plug.checked = t;
     for (const c of cams().cameras) { const spot = c.gimbal?.targets?.spot; if (spot) spot.ago_seconds = Math.max(0, Math.round(t - spot.at)); }   // a spot remembered live, how long ago
     d.usable = cams().cameras.filter(c => c.online && (c.telemetry || {}).streaming).map(c => c.id);
+    d.kept_out = {};   // cameras with a picture in OBS but out of the choosing (gimbal lost its person, changing lens): none in the demo, where no gimbal loses anyone
     if (d.on_air && !d.usable.includes(d.on_air) && d.usable.length) cutTo(d.usable[0]);
     if (d.enabled && !(d.hold_until && d.hold_until > t) && t >= S.nextCut && d.usable.length > 1) {
       const choices = d.usable.filter(id => id !== d.on_air);
