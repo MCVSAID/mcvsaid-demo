@@ -27,11 +27,15 @@
       }
     }
     S.kinds = recorded.__kinds__ || {};
+    // Search (helpdesk.py): the places and the guide, as recorded. Half a megabyte that never changes, so it is kept out
+    // of what this tab saves; and no model runs behind the demo, so the assistant shows the guide's own words.
+    S.help = recorded['/api/help'] ? { ...recorded['/api/help'], assistant: { ready: false, why: 'This is a demo, with no model behind it: on an installation with Standard or Plus AI the assistant answers in words. Here the guide itself is shown.' } } : null;
+    delete S.answers['/api/help'];
     S.recordedFocus = recorded['/api/cameras'].director.camera_focus || {};
     delete S.answers.__kinds__;
     return S;
   });
-  const save = () => { try { const { kinds, ...rest } = S; sessionStorage.setItem(KEY, JSON.stringify(rest)); } catch (error) { /* full or private */ } };
+  const save = () => { try { const { kinds, help, ...rest } = S; sessionStorage.setItem(KEY, JSON.stringify(rest)); } catch (error) { /* full or private */ } };
   const cams = () => S.answers['/api/cameras'];
   const director = () => cams().director;
   const named = id => (cams().cameras.find(c => c.id === id) || {}).name;
@@ -903,6 +907,7 @@
     if (path === '/api/stage/place') return placing();
     if (path === '/api/coolers/job') return S.coolerJob || {};
     if (path === '/api/explain') return explainState();
+    if (path === '/api/help') return S.help;
     if (path === '/api/temperatures') {
       const exact = a[`${path}?${query}`]; if (exact) return exact;
       const key = Object.keys(a).find(k => k.startsWith('/api/temperatures?')); return key ? a[key] : { cameras: [] };
@@ -1871,6 +1876,14 @@
     if (path === '/api/remote/press') return remotePress(body);
     if (path === '/api/event-mode') return kindPost(body);
     if (path === '/api/scene-chat') return chatPost(body);
+    // Search's assistant (helpdesk.py): no model runs behind the demo, so it answers as a manager at No AI does, with
+    // the guide's own words (the search itself is the page's, and finds the same places and pieces as on an installation).
+    if (path === '/api/help/ask') {
+      if (typeof body.question !== 'string' || !body.question.trim()) return answer({ detail: 'Type a question first' }, 400);
+      const pieces = (S.help || { sections: [] }).sections;
+      const sources = (body.sections || []).map(id => pieces.find(piece => piece.id === id)).filter(Boolean).slice(0, 4).map(piece => ({ id: piece.id, doc: piece.doc, title: piece.title }));
+      return answer({ answer: null, how: 'guide', why: S.help ? S.help.assistant.why : null, sources, places: (body.places || []).slice(0, 6), ms: null });
+    }
     if (path === '/api/voice') return voiceShotPost(body);
     if (path === '/api/programme-sound') {
       // Programme sound from one camera (programmesound.py), as the manager answers; and lip sync on its own.

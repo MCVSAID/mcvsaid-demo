@@ -112,6 +112,13 @@ window.concert = {
       document.addEventListener('keydown', event => { if (event.key === 'Escape' && (document.body.classList.contains('menu-open') || document.body.classList.contains('rail-open'))) { const back = document.body.classList.contains('menu-open') ? '#menu-button' : '#widen'; this.menu(false); document.querySelector(back)?.focus(); } });
       this.every(() => this.poll(), 3000);
       this.askName();
+      // Search and the assistant (help.js), from anywhere: Ctrl or ⌘ with K, or / when nothing is being typed into.
+      document.addEventListener('keydown', event => {
+        const typing = event.target.closest?.('input, textarea, select, [contenteditable]');
+        if (((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 'k') || (event.key === '/' && !typing && !event.ctrlKey && !event.metaKey && !event.altKey)) { event.preventDefault(); this.search(); }
+      });
+      // Come here from the search on another page: what was looked for is gone to and marked, once it is drawn.
+      try { const find = sessionStorage.getItem('mcvsaid-find'); if (find) { sessionStorage.removeItem('mcvsaid-find'); this.reveal(find); } } catch (error) { /* a private window */ }
     }
     bar.replaceChildren();
     const here = location.pathname.replace(/\/+$/, '') || '/', current = this.under[here] || here;
@@ -134,6 +141,11 @@ window.concert = {
     // Under the name: the kind of event being directed, on every page. The administrator's to change.
     const kind = document.createElement('div'); kind.id = 'event-mode'; bar.append(kind); this.drawMode();
     if (!this.mode) this.loadMode();
+    // Search: where a button or a setting is, and how something is done, answered from the guide (help.js).
+    const find = document.createElement('button'); find.type = 'button'; find.id = 'search-open'; find.title = 'Find a button, a setting or a page, or ask how something is done (press /)';
+    find.innerHTML = `${this.icon('search')}<span class="label">Search</span><kbd aria-hidden="true">/</kbd>`; find.setAttribute('aria-keyshortcuts', '/ Control+K Meta+K');
+    find.onclick = () => { this.menu(false); this.search(); };
+    bar.append(find);
     const list = document.createElement('div'); list.className = 'groups'; bar.append(list);
     let group = null, section = null;
     for (const [path, title, about, , heading, icon] of visible) {
@@ -233,6 +245,52 @@ window.concert = {
       now.innerHTML = `${this.icon(`mode-${report.mode}`)}<span></span>`; now.querySelector('span').textContent = report.name;
       label.removeAttribute('for'); box.append(label, now, chip);
     }
+  },
+
+  /** Opens the search (help.js and help.css, fetched the first time it is asked for, so no page pays for them unasked). */
+  search() {
+    if (!this.session) return;
+    if (window.concertHelp) { window.concertHelp.open(); return; }
+    if (this.searchLoading) return;
+    this.searchLoading = true;
+    const loaded = (tag, set) => new Promise((resolve, reject) => { const made = document.createElement(tag); set(made); made.onload = resolve; made.onerror = reject; document.head.append(made); });
+    Promise.all([loaded('link', link => { link.rel = 'stylesheet'; link.href = '/help.css'; }), loaded('script', script => { script.src = '/help.js'; })])
+      .then(() => window.concertHelp.open(), () => { this.searchLoading = false; this.say('The search could not be loaded.', 'error'); });
+  },
+
+  /** Goes to a page, or a part of the main page, and marks what was looked for on it (reveal). */
+  goTo(path, find) {
+    const base = path.split('#')[0];
+    if (this.pick && this.inPlace.includes(base)) {
+      history.pushState(null, '', this.at(path)); this.pick(base); this.nav(this.role, this.pick); this.reveal(find); return;
+    }
+    const here = location.pathname.replace(/\/+$/, '') || '/';
+    if (here === base && !path.includes('#')) { this.reveal(find); return; }
+    try { if (find) sessionStorage.setItem('mcvsaid-find', find); } catch (error) { /* a private window: the page alone */ }
+    location.href = this.at(path);
+  },
+
+  /** Brings what was looked for into view and marks it for a few seconds: '#id', or the first words of a heading,
+   * button or fold. The pages draw after their first answer from the manager and again every second or two, so it is
+   * looked for until it is there, and marked again when a redraw has replaced it. A fold it is in is opened. */
+  reveal(find) {
+    if (!find) { clearInterval(this.revealing); window.scrollTo(0, 0); return; }
+    const words = find.toLowerCase();
+    const seek = () => {
+      const all = find.startsWith('#') ? [document.querySelector(find)] : [...document.querySelectorAll('h2, h3, summary, button, a.button, label, legend')].filter(e => !e.closest('#pages, #bottom-bar, dialog') && e.textContent.trim().toLowerCase().startsWith(words));
+      return all.find(e => e && !e.closest('[hidden]')) || null;
+    };
+    clearInterval(this.revealing); document.querySelectorAll('.found').forEach(marked => marked.classList.remove('found'));      // one thing marked at a time
+    let tries = 0, shown = false, marks = 0;
+    const timer = this.revealing = setInterval(() => {
+      const hit = seek();
+      if (!hit) { if (!shown && ++tries > 50) clearInterval(timer); return; }
+      for (let fold = hit.closest('details'); fold; fold = fold.parentElement?.closest('details')) if (!fold.open) fold.open = true;
+      if (!hit.getClientRects().length) { if (!shown && ++tries > 50) clearInterval(timer); return; }
+      if (!shown) { shown = true; hit.scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }); }
+      hit.classList.add('found');
+      if (++marks > 22) { clearInterval(timer); hit.classList.remove('found'); }
+    }, 150);
   },
 
   /** Opens or shuts the whole list of pages over a phone's screen. */
@@ -420,6 +478,11 @@ window.concert = {
       people: '<circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.6 2.7-6 6-6s6 2.4 6 6"/><path d="M16 4.5a3 3 0 0 1 0 6M18 14.4c1.9.8 3 2.8 3 5.6"/>',
       system: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.9 4.9 7 7M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1 7 17M17 7l2.1-2.1"/>',
       menu: '<path d="M4 6h16M4 12h16M4 18h16"/>',
+      search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/>',
+      // In the search's list: somewhere to go, a part of the guide, a question for the assistant.
+      go: '<path d="M5 12h13M13 6l6 6-6 6"/>',
+      guide: '<path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3z"/><path d="M9 9h6M9 13h6"/>',
+      ask: '<path d="M4 5h16v11H9l-5 4z"/><path d="M10 9a2 2 0 1 1 3 1.7c-.6.4-1 .8-1 1.5M12 14.2v.1"/>',
       power: '<path d="M9 3v5M15 3v5"/><path d="M6 8h12v4a6 6 0 0 1-12 0z"/><path d="M12 18v3"/>',
       calibrate: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/>',
       sound: '<path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/>',
