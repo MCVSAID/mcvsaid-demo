@@ -119,10 +119,46 @@
     return found.find(([word]) => has(text, word)) || null;
   }
   function chatActive() { const c = chat(); c.wishes = c.wishes.filter(w => w.until > now() || (said('director', `Wish expired: “${w.text}”`, { system: true }), false)); return c.wishes.sort((a, b) => b.at - a.at); }
+  // The split command (chatsplit.py): "split Keys and Drum Cam" puts the two on air side by side, and is no wish.
+  function chatCamera(words) {
+    const topic = chatTopic(words.trim()); if (!topic) return [];
+    if (topic[1].startsWith('camera:')) return [topic[1].slice(7)];
+    return cams().cameras.filter(c => ((director().camera_focus || {})[c.id] || []).includes(topic[1])).map(c => c.id);
+  }
+  function chatSplit(text) {
+    const lead = text.match(/^(?:(?:a|go|do|show|give me|put up)\s+(?:a\s+)?)?(?:split(?:[ -]?screen)?|side[ -]by[ -]side)\b[\s:,]*(?:(?:of|with|between|on|for)\s+)?(.*?)(?:[\s,]+(?:side[ -]by[ -]side|together))?[\s.!]*$/i);
+    const tail = text.match(/^(?:show\s+|put\s+|give me\s+)?(.+?)[\s,]+(?:side[ -]by[ -]side|(?:in|as|on)\s+(?:a\s+)?split(?:[ -]?screen)?|split(?:[ -]?screen)?)[\s.!]*$/i);
+    if (!lead && !tail) return null;
+    const rest = (lead || tail)[1], names = cams().cameras.map(c => c.name);
+    let problem = null, unknown = null;
+    for (const join of rest.matchAll(/\s+(?:and|with|beside|next to|plus|alongside|vs|versus)\s+|\s*[,+&/|]\s*/gi)) {
+      const sides = [rest.slice(0, join.index), rest.slice(join.index + join[0].length)], found = sides.map(chatCamera);
+      if (found.every(hit => hit.length === 1)) {
+        if (found[0][0] !== found[1][0]) {
+          const pair = [found[0][0], found[1][0]], splits = Object.entries(director().splits || {});
+          const scene = (splits.find(([, m]) => m[0] === pair[0] && m[1] === pair[1]) || splits.find(([, m]) => m.includes(pair[0]) && m.includes(pair[1])) || [])[0];
+          if (!scene) return `OBS has no split-screen scene for ${named(pair[0])} and ${named(pair[1])}: press Refresh OBS scenes on the Show page to make it.`;
+          cutTo(scene, true); const d = director(); d.hold_until = d.enabled ? now() + 10 : null;
+          return `Split screen: ${named(d.pair[0])} on the left, ${named(d.pair[1])} on the right.`;
+        }
+        problem = problem || `A split needs two different cameras: both of those are ${named(found[0][0])}.`;
+      }
+      sides.forEach((side, n) => {
+        if (found[n].length > 1) problem = problem || `“${side.trim()}” is said for more than one camera (${found[n].map(named).join(', ')}): name one of them.`;
+        if (side.trim() && !found[n].length) unknown = unknown || side.trim();
+      });
+    }
+    if (!lead || /\b(?:less|fewer|more|often|longer|shorter|never|don'?t|do not|stop|no more|too (?:much|many|long|often))\b/i.test(text)) return null;
+    if (problem) return problem;
+    if (names.length < 2) return 'A split needs two cameras.';
+    return unknown ? `No camera answers to “${unknown}”. The cameras: ${names.join(', ')}.` : `Name the two cameras, the left one first: “split ${names[0]} and ${names[1]}”.`;
+  }
   function chatSay(text) {
     if (chat().ai_tier === 'none') return answer({ detail: 'Wishes need AI assistance (Standard or Plus): at No AI there is no model to tell.' }, 409);
     text = text.split(/\s+/).join(' ').trim().slice(0, 160);
     if (!text) return answer({ detail: 'Type a wish first' }, 400);
+    const split = chatSplit(text);
+    if (split) { const mine = said('you', text), r = said('director', split, { to: mine.id }); save(); return answer({ ...chat(), reply: r }); }
     const mine = said('you', text), active = chatActive();
     const clearing = text.match(/^\s*(?:clear|reset|cancel|forget|drop|undo|never ?mind|back to (?:the )?(?:brief|normal))\b(?:\s+(?:it|that|all|everything|them))*\s*(.*?)[.!]*\s*$/i);
     const way = /\b(less|fewer|not so much|too much|stop|avoid|no more|never|don'?t|away from|skip|enough)\b/i.test(text) ? 'less' : /\b(only|just|stay on|stay with|stick to|keep on)\b/i.test(text) ? 'only' : /\b(more|focus|favou?r|feature|show|go to|cut to|watch|follow|get)\b/i.test(text) ? 'more' : null;

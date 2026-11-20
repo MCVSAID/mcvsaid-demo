@@ -2,6 +2,7 @@
 // Scene Chat (scenechat.py): guiding the director through the show in a few words, down the right of the Show and Stage
 // Shots pages. The standing brief at the top, the wishes in force under it, the show's chat, and a box to type into.
 // The director's replies are canned and come back at once: the model is never asked to answer the chat.
+// "split Keys and Drum Cam" is a command rather than a wish (chatsplit.py): the manager cuts to that split screen and says so.
 // A wish already sent this show can be sent again: Again under it in the chat sends it as it was, and the up arrow in
 // the empty box brings earlier wishes back into it, to change before sending.
 //
@@ -166,7 +167,7 @@
       redraw = false;
       const atFoot = pinned;
       log.replaceChildren();
-      if (!data.messages.length) log.append(el('li', `Tell the director what you want as the show goes: “${data.examples.wish}”, “less on the ${words.crowd || 'crowd'}”, “clear”. Its replies are instant; the model reads your wishes on its next look.`, 'msg system'));
+      if (!data.messages.length) log.append(el('li', `Tell the director what you want as the show goes: “${data.examples.wish}”, “less on the ${words.crowd || 'crowd'}”, “clear”. Its replies are instant; the model reads your wishes on its next look. For two cameras side by side at once, type “split” and their names.`, 'msg system'));
       for (const message of data.messages) {
         const item = el('li', null, `msg ${message.who}${message.system ? ' system' : ''}${message.brief ? ' brief' : ''}`);
         const time = el('time', clock(message.at)); time.dateTime = new Date(message.at * 1000).toISOString();
