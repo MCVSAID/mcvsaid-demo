@@ -1011,12 +1011,19 @@
   function programmeSound() {
     // The chosen camera leads; in the demo every other camera is lined up with it, the third a few milliseconds moved.
     const chosen = S.programmeSound || null, list = (cams()?.cameras || []).filter(c => c.id);
-    const auto = chosen?.others === 'auto', open = list.find(c => c.id === chosen?.camera)?.name;
-    return { lip_sync_ms: S.lipSync || 0, camera: chosen?.camera || null, others: chosen?.others || 'muted',
-      automix: auto ? { open, heard: open, clarity_db: Object.fromEntries(list.slice(0, 3).map((c, i) => [c.name, [14.5, 4.2, 1.8][i]])), changes: 3 } : null, measured: chosen ? { at: Date.now() / 1000 - 40, readings: {}, moved: list[2] ? { [list[2].name]: -6 } : {} } : null,
+    const auto = chosen?.others === 'auto', open = list.find(c => c.id === chosen?.camera)?.name, mixed = chosen?.others === 'mixed';
+    // The programme mix (mixer.py), as the manager reports it: every other camera placed, followed and in the mix.
+    const mix = mixed ? { going: true, in_programme: true, source: 'Programme mix', offset_ms: 1240, db: S.mixDb || {},
+      cameras: Object.fromEntries(list.filter(c => c.id !== chosen.camera).map((c, i) => [c.name, { placed: true, in_mix: (S.mixDb || {})[c.id] !== null, late: false, readings: 90,
+        behind_ms: [4.31, -11.87, 7.02, 2.4, -3.3][i % 5], drift_ppm: [22.1, -8.4, 3.9, 14.2, -17.6][i % 5], unsteady_ms: [0.0036, 0.0051, 0.0044, 0.0029, 0.0062][i % 5], read_ago: 2, flipped: false }])) } : null;
+    // A network camera's own input volume (tenveo.py), as the manager reads it from the camera.
+    const inputs = (cams()?.cameras || []).filter(c => c.kind === 'network').map(c => ({ id: c.id, name: c.name, volume: (S.inputVolume || {})[c.id] ?? 40, most: 60, guard: !!(S.inputGuard || {})[c.id],
+      guarding: (S.inputGuard || {})[c.id] ? { listening: true, peak_db: -11.4, lowered: null } : null }));
+    return { lip_sync_ms: S.lipSync || 0, camera: chosen?.camera || null, others: chosen?.others || 'muted', inputs,
+      automix: auto ? { open, heard: open, clarity_db: Object.fromEntries(list.slice(0, 3).map((c, i) => [c.name, [14.5, 4.2, 1.8][i]])), changes: 3 } : null, mix, measured: chosen ? { at: Date.now() / 1000 - 40, readings: {}, moved: list[2] ? { [list[2].name]: -6 } : {} } : null,
       calibration: S.calibration || null, flash_page: '/sync-flash',
-      cameras: list.map((c, i) => ({ id: c.id, name: c.name, in_programme: !chosen || c.id === chosen.camera || chosen.others === 'aligned',
-        why: !chosen || c.id === chosen.camera || chosen.others === 'aligned' ? null : 'programme sound comes from the chosen camera alone', trim_ms: chosen && i === 2 ? -6 : null,
+      cameras: list.map((c, i) => ({ id: c.id, name: c.name, in_programme: !chosen || (!mixed && (c.id === chosen.camera || chosen.others === 'aligned')),
+        why: !chosen || (!mixed && (c.id === chosen.camera || chosen.others === 'aligned')) ? null : mixed ? 'its microphone is in the programme mix' : 'programme sound comes from the chosen camera alone', trim_ms: chosen && i === 2 ? -6 : null,
         lip_sync_ms: S.calibrated?.[c.id] ?? (S.lipSync || 0), calibrated_ms: S.calibrated?.[c.id] ?? null })) };
   }
   function operatePost(main) {
@@ -1948,7 +1955,10 @@
     if (path === '/api/programme-sound') {
       // Programme sound from one camera (programmesound.py), as the manager answers; and lip sync on its own.
       if ('lip_sync_ms' in body) { S.lipSync = Math.max(-400, Math.min(400, Number(body.lip_sync_ms) || 0)); save(); return answer(programmeSound()); }
-      if (body.others && !['aligned', 'muted', 'auto'].includes(body.others)) return answer({ detail: 'others is aligned, muted or auto' }, 400);
+      if (body.input_guard) { S.inputGuard = { ...(S.inputGuard || {}), [body.input_guard.camera]: !!body.input_guard.on }; save(); return answer(programmeSound()); }
+      if (body.input_volume) { S.inputVolume = { ...(S.inputVolume || {}), [body.input_volume.camera]: body.input_volume.value }; save(); return answer(programmeSound()); }
+      if (body.mix_db) { S.mixDb = { ...(S.mixDb || {}), [body.mix_db.camera]: body.mix_db.db }; save(); return answer(programmeSound()); }
+      if (body.others && !['aligned', 'muted', 'auto', 'mixed'].includes(body.others)) return answer({ detail: 'others is aligned, muted, auto or mixed' }, 400);
       S.programmeSound = body.camera ? { camera: body.camera, others: body.others || 'muted' } : null;
       save(); return answer(programmeSound());
     }
