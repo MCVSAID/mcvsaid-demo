@@ -66,7 +66,7 @@
     const sendAe = node('button', 'Set exposure'); sendAe.disabled = busy;
     sendAe.onclick = () => send({ ae_mode: form.ae_mode, ...(form.ae_mode === 'manual' ? { exposure_us: form.exposure_us, iso: form.iso } : { ae_compensation: form.ae_compensation }) });
     ae.append(node('span', ' '), sendAe); settings.append(ae);
-    settings.append(node('small', 'One kelvin for every camera is the usual choice (5600 K for daylight or LED stage light, 3200 K for tungsten). A phone that cannot be set in kelvin takes its nearest preset and says so. A lock is kept across stream restarts.'));
+    settings.append(node('small', 'One kelvin for every camera is the usual choice (5600 K for daylight or LED stage light, 3200 K for tungsten). A phone that cannot be set in kelvin takes its nearest preset and says so. A lock is kept across stream restarts. A network camera is set too once “may set its picture” is ticked for it below: a kelvin or automatic, and automatic exposure with compensation; left on automatic white balance it moves with the lights, and no match with it lasts.'));
   }
   async function send(parameters, warning) {
     if (warning && !await concert.sure(warning)) return;
@@ -84,11 +84,23 @@
     for (const camera of state.cameras) {
       const row = document.createElement('tr'), c = camera.colour, a = c?.actual, s = camera.support;
       row.append(node('td', `${camera.name} · ${camera.lens}${camera.online ? '' : ' (offline)'}`));
-      const wb = !c ? 'not reported' : `${c.wb_mode === 'kelvin' ? `${c.wb_kelvin} K` : c.wb_mode === 'preset' ? (c.wb_preset || '').replace('_', ' ') : c.wb_mode}${c.wb_state && c.wb_state !== 'set' ? ` (${c.wb_state})` : ''}${a?.kelvin_estimate ? ` · at about ${a.kelvin_estimate} K` : ''}`;
+      const trim = c?.trim && (c.trim.red || c.trim.blue) ? ` (red ${c.trim.red > 0 ? '+' : ''}${c.trim.red}, blue ${c.trim.blue > 0 ? '+' : ''}${c.trim.blue})` : '';
+      const wb = !c ? 'not reported' : `${c.wb_mode === 'kelvin' ? `${c.wb_kelvin} K` : c.wb_mode === 'preset' ? (c.wb_preset || '').replace('_', ' ') : c.network && c.wb_mode === 'lock' ? 'by hand' : c.wb_mode}${trim}${c.wb_state && c.wb_state !== 'set' ? ` (${c.wb_state})` : ''}${a?.kelvin_estimate ? ` · at about ${a.kelvin_estimate} K` : ''}`;
       const ex = !c ? 'not reported' : `${c.ae_mode}${c.ae_mode !== 'manual' && c.ae_compensation ? ` ${c.ae_compensation > 0 ? '+' : ''}${c.ae_compensation}` : ''}${c.ae_state && c.ae_state !== 'set' ? ` (${c.ae_state})` : ''}${a?.exposure_us ? ` · 1/${Math.round(1e6 / a.exposure_us)} s, ISO ${a.iso}` : ''}`;
       const wbCell = node('td', wb), exCell = node('td', ex);
       if (c?.error) { wbCell.className = 'recording-warning'; wbCell.title = c.error; wbCell.append(node('div', c.error)); }
       row.append(wbCell, exCell);
+      if (s?.network) {
+        // A network camera: set on the camera itself, and only once that is allowed for it (netcolour.py).
+        const cell = node('td', !s.has_address ? 'no control address (its card on Cameras)' : !s.answers ? 'its settings not read yet' : `kelvin ${s.kelvin[0]}–${s.kelvin[1]}, exposure compensation`);
+        if (s.has_address) {
+          const tick = document.createElement('input'); tick.type = 'checkbox'; tick.checked = !!s.allowed; tick.disabled = busy;
+          tick.onchange = () => ask('/api/colour/camera', { camera: camera.id, allow: tick.checked }, () => tick.checked ? `${camera.name}: its own white balance and exposure may be set from here, and are brought to the other cameras’ by Calibrate colour.` : `${camera.name}: read only; matched by its LUT alone.`);
+          const label = node('label', ' may set its picture'); label.prepend(tick); label.title = 'Lets the manager set this camera’s own white balance and exposure: from Set white balance above, and to match the other cameras while Calibrate colour shows the chart.';
+          cell.append(node('br', ''), label);
+        }
+        row.append(cell);
+      } else
       row.append(node('td', !s ? 'app too old' : [s.wb_kelvin ? 'kelvin' : 'no kelvin', s.wb_lock ? 'WB lock' : null, s.manual_exposure ? 'shutter/ISO' : s.ae_lock ? 'AE lock' : null].filter(Boolean).join(', ')));
       const cal = camera.calibration;
       const calCell = node('td', cal ? `${when(cal.when)} · ${cal.kind === 'chart' ? 'chart' : cal.kind === 'scene' ? 'scene' : 'grey card'} → ${cal.target_name} · ΔE ${cal.delta_e.before.mean} → ${cal.delta_e.after.mean} (worst ${cal.delta_e.after.max})${cal.reference ? ' · reference' : ''}` : camera.other_lenses.length ? `only on ${camera.other_lenses.map(r => r.lens).join(', ')}` : 'not calibrated');

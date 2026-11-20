@@ -992,7 +992,7 @@
           Object.assign(run, { show: null, said: 'Fitting each camera’s colours: you can put the phone down', nextAt: t + 2.5 });
         } else if (run.step === CAL_STEPS.length && !run.show && t >= run.nextAt) {
           const found = base.run?.kind === 'colour' && base.run.result ? base.run.result : { cameras: {}, reference: 'the chart' };
-          run.result = { ...found, in_obs: run.obs }; Object.assign(run, { state: 'done', said: 'Done', ended: t });
+          run.result = { ...found, in_obs: run.obs }; Object.assign(run, { state: 'done', said: 'Done', ended: t }); S.colourAt = t;
         }
       }
       save();
@@ -1127,11 +1127,19 @@
       }
       return rows;
     });
+    // Colour match (preshow.colour, netcolour.py): the cameras as the demonstration manager matched them to the first,
+    // or as a colour run from the calibrate page here last did; the network camera with its own white balance held and
+    // trimmed; the crowd camera, which faces the other way and never sees the chart, not matched.
+    const matchedAt = S.colourAt || began - 600, lead = phones[0];
+    const colour = all.length < 2 || !lead ? [] : all.map(c => c === lead ? item(`colour:${c.id}`, `${c.name}: colour`, 'ready', `The camera the others are matched to, since ${clock(matchedAt)}. Its white balance and exposure are as they were then.`)
+      : c.name === 'Crowd' ? item(`colour:${c.id}`, `${c.name}: colour`, 'todo', 'Not matched on the lens it uses now.', 'Calibrate colour from the calibrate page on a phone, held still where every camera sees it')
+      : item(`colour:${c.id}`, `${c.name}: colour`, 'ready', `Matched to ${lead.name} at ${clock(matchedAt)} (ΔE ${[2.4, 3.1, 2.8, 3.6][c.slot % 4]} after, worst ${[5.2, 6.4, 5.9, 7.1][c.slot % 4]}), and its LUT is in OBS.${c.kind === 'network' ? ' Its own settings: 5600 K (red −2, blue +2), exposure automatic +1.' : ''} Its white balance and exposure are as they were then.`));
     const version = cams()?.manager_version || 'this release', dropped = phones.length > 2 ? phones[phones.length - 1] : null;
     const links = all.map(c => c === dropped ? item(`connection:${c.id}`, `${c.name}: connection`, 'todo', `Dropped its connection 1 time in the last hour, last at ${clock(began + 1500)}. The reason reported: the camera Wi-Fi was lost for 6 s.`, 'See its card on Cameras: its Wi-Fi, its heat and its battery', '/cameras')
       : item(`connection:${c.id}`, `${c.name}: connection`, 'ready', c.kind === 'network' ? 'Showing a picture, without a break in the last hour.' : 'Connected, with no drop in the last hour.'));
     const groups = [{ id: 'lip-sync', title: 'Lip sync, camera by camera', items: lips, empty: null }, { id: 'programme', title: 'Programme sound', items: programme, empty: null },
       ...(net.length ? [{ id: 'network', title: 'Network cameras', items: net, empty: null }] : []),
+      ...(colour.length ? [{ id: 'colour', title: 'Colour match', items: colour, empty: null }] : []),
       { id: 'relay', title: 'Camera relay', items: [item('relay', 'Camera relay: same release as the manager', 'ready', `Both are on ${version}.`)], empty: null },
       { id: 'connections', title: 'Connections in the last hour', items: links, empty: null }];
     const counts = { ready: 0, todo: 0, unknown: 0, idle: 0 };
@@ -2012,7 +2020,7 @@
   const REFUSED = [
     [/^\/api\/cameras\/[^/]+$/, 'In the demo the simulated cameras stay: on a real manager this frees the camera’s slot.'],
     [/^\/api\/network-cameras$/, 'In the demo the simulated cameras stay as they are: on a real manager this adds the network camera, and “Refresh OBS scenes” then makes its NDI source and scenes in OBS.'],
-    [/^\/api\/colour\/(capture|calibrate|obs|settings)$/, 'In the demo the colour stays as the demonstration manager matched it: its pictures are drawn stills, with no camera to take, fit or set again.'],
+    [/^\/api\/colour\/(capture|calibrate|obs|settings|camera)$/, 'In the demo the colour stays as the demonstration manager matched it: its pictures are drawn stills, with no camera to take, fit or set again, and the network camera’s own white balance stays as Calibrate colour left it.'],
     [/^\/api\/creator\/preview$/, 'In the demo there is no live picture to look for people in: on a real manager the camera’s picture is looked at now.'],
     [/^\/api\/face-blur\/(experimental|remove)$/, 'In the demo face blur stays as it is shown: on a real manager this changes OBS’s scenes.'],
     [/^\/api\/locations\/(export|import)$/, 'In the demo there are no location files to save or bring in: on a real manager a location is kept in a file with its passphrase.'],

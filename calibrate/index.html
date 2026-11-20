@@ -1,4 +1,4 @@
-<!doctype html><html lang="en"><meta charset="utf-8"><script src="/demo.js?v=88f6acab79ba"></script><meta name="viewport" content="width=device-width,initial-scale=1"><title>Calibrate</title>
+<!doctype html><html lang="en"><meta charset="utf-8"><script src="/demo.js?v=13f34a34ee05"></script><meta name="viewport" content="width=device-width,initial-scale=1"><title>Calibrate</title>
 <!-- The calibration pages, for a phone or tablet held in front of the cameras: at https://calibrate.mcvsaid.local
      (webnames.py) and at /calibrate on the dashboard. Logged in as a setup tech or an operator, it drives Calibrate
      (calibrate.py, calibrate.js): the manager measures sound, colour and the network cameras' timing from what this page shows. Without a login,
@@ -42,6 +42,7 @@
         facing the cameras, under the stage lights, about 30 seconds.</span>
         <label>Match the cameras to <select id="reference"><option value="auto">the camera that sees the chart best</option><option value="chart">the chart’s own colours</option></select></label>
         <label class="check"><input type="checkbox" id="obs" checked> Put the colour corrections in OBS</label>
+        <small id="colour-due"></small>
         <button id="start-colour">Start</button>
       </div>
       <p id="last" aria-live="polite"></p>

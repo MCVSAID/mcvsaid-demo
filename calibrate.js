@@ -54,6 +54,9 @@
     const items = report.groups.flatMap(g => g.items).filter(i => /^(lip-sync|timed|programme|mix-trim):?/.test(i.id) && i.state !== 'ready' && i.state !== 'idle');
     $('#due').textContent = items.length ? `Due now: ${items.map(i => i.label).join('; ')}. It takes you from camera to camera: at each one you hold this phone in front of it and tap, and the manager puts that camera on air with its own microphone and sets its lip sync; then the network cameras, and where the programme’s sound comes from.`
       : 'Nothing is due: every camera’s lip sync and each network camera’s timing are as measured. It can still take you round every camera again, or straight to where the programme’s sound comes from.';
+    // The colour items of the same list: what Calibrate colour would put right.
+    const colour = report.groups.flatMap(g => g.items).filter(i => /^colour(:|$)/.test(i.id) && i.state !== 'ready' && i.state !== 'idle');
+    $('#colour-due').textContent = colour.length ? `Due now: ${colour.map(i => i.label).join('; ')}.` : '';
   }
 
   function summary(run) {
@@ -71,7 +74,7 @@
       return 'Network cameras timed.\n' + Object.values(run.result?.cameras || {}).map(c => `${c.name}: ${c.why ? `not timed, ${c.why}` : `${c.own_ms} ms late by itself, held by ${c.held_ms} ms (against ${c.against.join(' and ')})`}`).join('\n');
     }
     const cameras = Object.values(run.result?.cameras || {});
-    return `Colour matched to ${run.result?.reference}${run.result?.in_obs ? ', in OBS' : ''}.\n` + cameras.map(c => `${c.name}: ${c.problem ? c.problem : c.name === run.result?.reference ? 'the one the others match' : c.delta_e ? `ΔE ${c.delta_e.before.mean} → ${c.delta_e.after.mean}` : '—'}`).join('\n');
+    return `Colour matched to ${run.result?.reference}${run.result?.in_obs ? ', in OBS' : ''}.\n` + cameras.map(c => `${c.name}: ${c.problem ? c.problem : c.name === run.result?.reference ? 'the one the others match' : c.delta_e ? `ΔE ${c.delta_e.before.mean} → ${c.delta_e.after.mean}` : '—'}${c.camera ? `\n   its own settings: ${c.camera.why || (c.camera.changed ? `set to ${c.camera.now}` : `left at ${c.camera.now}`)}` : ''}`).join('\n');
   }
 
   // -- a colour run: the page drawn as the manager asks -------------------------------------------------------------
