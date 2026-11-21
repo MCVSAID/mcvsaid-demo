@@ -1000,61 +1000,75 @@
     return { ...base, phone: 'https://calibrate.mcvsaid.local/calibrate', run: run ? { ...run } : (base.run ? { ...base.run, yours: false } : null) };
   }
   // The camera-by-camera run (calibrate.py's walk), as the manager drives it: a question at each camera, a few seconds
-  // of flashing while it "measures" that camera alone, then the network cameras, then colour (the colour run's steps,
-  // the chart shown by the page that drives the walk), then where the sound comes from. In
+  // of flashing while it "measures" that camera alone and then, at the same stop, the chart for that camera's colours
+  // (the colour run's steps, shown by the page that drives the walk); then the network cameras, timed and their chart
+  // read from one spot; the colours fitted; then where the sound comes from. In
   // the demo the fourth camera sees no flashes the first time and is measured when tried again.
   function walkAsk(run) {
     const next = run.queue[0];
     if (!next) { Object.assign(run, { state: 'done', said: 'Done', show: null, ask: null, ended: now() }); return; }
-    const ask = next.kind === 'camera' ? { kind: 'camera', camera: next.name, said: next.again ? `${next.name} was not measured: ${next.again}. Still in front of it? Try again, or go on.`
-        : `Go to ${next.name} (camera ${next.n} of ${next.of}). Hold this phone an arm’s length in front of it, screen and speaker towards the camera, sound turned up.`, options: [['go', 'Measure this camera'], ['skip', 'Skip it']] }
+    // Every camera's chart read at its stop (or skipped): fitted, as the demonstration manager's own colour run found.
+    if (next.kind === 'sound' && run.charted && !run.result.colour) run.result.colour = walkFitted();
+    const ask = next.kind === 'camera' ? { kind: 'camera', camera: next.name, said: next.again ? `${next.again}. Still in front of it? Try again, or go on.`
+        : `Go to ${next.name} (camera ${next.n} of ${next.of}). Hold this phone an arm’s length in front of it, ${next.sound ? 'screen and speaker towards the camera, sound turned up. Keep it there after the flashes: it then shows a colour chart for about half a minute.' : 'its screen towards the camera. It shows a colour chart for about half a minute: hold it still.'}`,
+        options: next.again ? [['go', 'Try again'], ['skip', 'Go on']] : [['go', 'Measure this camera'], ['skip', 'Skip it']] }
       : next.kind === 'network' ? { kind: 'network', said: `Now the network camera: hold the phone still where ${next.names} and at least one phone camera both see it.`, options: [['go', 'Time it'], ['skip', 'Skip']] }
-      : next.kind === 'colour' ? { kind: next.again ? 'retry' : 'colour', said: next.again || 'Now colour: hold the phone still, its screen towards the cameras under the show’s lights, where every camera sees it. Brightness up; held sideways, the chart is bigger. It shows a chart for about 30 seconds. Due: Crowd: colour.',
-          options: next.again ? [['go', 'Try again'], ['skip', 'Go on']] : [['go', 'Match the colours'], ['skip', 'Skip']] }
+      : next.kind === 'colour' ? { kind: next.again ? 'retry' : 'colour', said: next.again || `Now ${next.names}’s colours: hold the phone still, its screen towards it, as near as it sees it well. It shows the chart for about half a minute.`,
+          options: next.again ? [['go', 'Try again'], ['skip', 'Go on']] : [['go', 'Show the chart'], ['skip', 'Skip']] }
       : next.kind === 'mix' ? { kind: 'mix', said: `Last, the programme mix’s own timing: go back to ${next.leader} and hold the phone in front of it.`, options: [['go', 'Measure the mix'], ['skip', 'Skip']] }
       : { kind: 'sound', said: 'Where should the programme’s sound come from?', cameras: next.cameras, now: { camera: S.programmeSound?.camera || null, others: S.programmeSound?.others || 'aligned' }, mix: true,
           options: [['muted', 'One camera’s microphone alone'], ['aligned', 'Every microphone joined, lined up in time with that camera’s'], ['mixed', 'The programme mix: every microphone kept in time and mixed as one'], ['keep', 'Leave it as it is']] };
     run.step++; Object.assign(run, { ask: { ...ask, step: run.step }, show: null, said: ask.said });
   }
+  function walkFitted() {
+    const base = S.answers['/api/calibrate'] || {}, found = base.run?.kind === 'colour' && base.run.result ? base.run.result : { cameras: {}, reference: 'the chart' };
+    S.colourAt = now();
+    return { ...found, in_obs: true };
+  }
   function walkStart(all) {
     const list = (cams()?.cameras || []).filter(c => c.id), phones = list.filter(c => c.kind !== 'network'), network = list.filter(c => c.kind === 'network');
-    const due = phones.filter(c => all || S.calibration?.cameras?.[c.name]?.set_ms == null);
+    // Colour is always due in the demo (the crowd camera is never matched), so every phone camera is a stop: its lip
+    // sync measured there when that is due, and its chart read.
+    const due = phones, unmeasured = c => all || S.calibration?.cameras?.[c.name]?.set_ms == null;
     const run = { id: Math.random().toString(16).slice(2, 14), kind: 'walk', state: 'running', step: 0, show: null, ask: null, said: 'Starting', started: now(), ended: null,
       by_name: S.answers['/api/session']?.name || 'Morgan', answered: 0, problem: null, yours: true, until: null,
       result: { cameras: {}, timing: null, colour: null, sound: null, mix: null, visited: due.map(c => c.name) },
-      queue: [...due.map((c, i) => ({ kind: 'camera', id: c.id, name: c.name, n: i + 1, of: due.length, late: [15, 60, 25, 40, 30, 20][phones.indexOf(c) % 6], fails: phones.indexOf(c) === 3 })),
+      queue: [...due.map((c, i) => ({ kind: 'camera', id: c.id, name: c.name, n: i + 1, of: due.length, sound: unmeasured(c), chart: true, late: [15, 60, 25, 40, 30, 20][phones.indexOf(c) % 6], fails: phones.indexOf(c) === 3 })),
         ...(network.length && (all || !S.netTimed) ? [{ kind: 'network', names: network.map(c => c.name).join(' and '), cameras: network }] : []),
-        ...(list.length > 1 ? [{ kind: 'colour' }] : []),
+        ...(network.length ? [{ kind: 'colour', names: network.map(c => c.name).join(' and ') }] : []),
         { kind: 'sound', cameras: phones.map(c => ({ id: c.id, name: c.name })) }] };
     walkAsk(run);
     return run;
   }
   function walkOn(run, t) {
-    // The colour step: black, lit, black, lit, the chart, each once the page has said it shows the one before; then
-    // fitted, as the demonstration manager's own colour run found.
+    // A chart: black, lit, black, lit, the chart, each once the page has said it shows the one before. At a camera's
+    // stop that is all (the next question follows); the network camera's, from one spot, ends with the fit.
     if (run.chart) {
-      const c = run.chart;
+      const c = run.chart, at = run.queue[0];
       if (run.answered < c.asked || t < c.nextAt) return;
       if (c.i < CAL_STEPS.length) { const [show, said] = CAL_STEPS[c.i++]; run.step++; c.asked = run.step; c.nextAt = t + 1.5; Object.assign(run, { show, said }); return; }
-      if (run.show) { Object.assign(run, { show: null, said: 'Fitting each camera’s colours: you can put the phone down' }); c.nextAt = t + 2.5; return; }
-      const base = S.answers['/api/calibrate'] || {}, found = base.run?.kind === 'colour' && base.run.result ? base.run.result : { cameras: {}, reference: 'the chart' };
-      run.result.colour = { ...found, in_obs: true }; S.colourAt = t; run.chart = null; run.queue.shift(); walkAsk(run);
+      run.chart = null; run.show = null; run.charted = true;
+      if (at.kind === 'camera') { at.chart = false; if (at.sound && at.again) walkAsk(run); else { run.queue.shift(); walkAsk(run); } return; }
+      run.result.colour = walkFitted(); run.queue.shift(); walkAsk(run);
       return;
     }
     // What was being measured has been: its result, and the next question.
     if (!run.until || t < run.until) return;
     const done = run.queue[0]; run.until = null;
     if (done.kind === 'camera') {
-      if (done.fails && !done.again) {
+      if (done.fails && !done.tried) {
         const why = 'saw 0 flashes (hold the sync page where the camera sees it)';
-        run.result.cameras[done.id] = { name: done.name, why }; done.again = why;
+        run.result.cameras[done.id] = { name: done.name, why }; done.again = `${done.name} was not measured: ${why}`; done.tried = true;
         S.calibration = { at: t, mixed: false, programme: { why, camera: done.name }, cameras: { ...(S.calibration?.cameras || {}), [done.name]: { why, flashes: 0, beeps: 9 } } };
       } else {
         const found = { offset_ms: done.late + 70, pairs: 9, spread_ms: 6.5, set_ms: -done.late - 70 };
-        run.result.cameras[done.id] = { name: done.name, ...found }; run.queue.shift();
+        run.result.cameras[done.id] = { name: done.name, ...found }; done.sound = false; done.again = null;
         S.calibrated = { ...(S.calibrated || {}), [done.id]: found.set_ms };
         S.calibration = { at: t, mixed: false, programme: { offset_ms: found.offset_ms, pairs: 9, spread_ms: 6.5, camera: done.name }, cameras: { ...(S.calibration?.cameras || {}), [done.name]: found } };
       }
+      // The chart next, at the same stop, whether or not the flashes were measured; then the next question.
+      if (done.chart) { run.chart = { i: 0, asked: 0, nextAt: t + 0.5 }; run.said = 'Finding the phone'; return; }
+      if (!done.again) run.queue.shift();
     } else if (done.kind === 'network') {
       const phones = (cams()?.cameras || []).filter(c => c.kind !== 'network').slice(0, 2).map(c => c.name);
       run.result.timing = { phones, cameras: Object.fromEntries(done.cameras.map(c => [c.id, { name: c.name, own_ms: 310, held_ms: 590, from_ms: 600, against: phones, pairs: 13, spread_ms: 8.5 }])) };
@@ -1080,7 +1094,9 @@
       walkAsk(run);
     } else if (asked.kind === 'colour') {
       if (choice === 'go') { asked.again = null; run.chart = { i: 0, asked: 0, nextAt: now() + 0.5 }; run.said = 'Finding the phone'; }
-      else { run.result.colour = run.result.colour || { skipped: true }; run.queue.shift(); walkAsk(run); }
+      else { run.result.colour = run.charted ? walkFitted() : { skipped: true }; run.queue.shift(); walkAsk(run); }
+    } else if (choice === 'go' && asked.kind === 'camera' && !asked.sound) {
+      run.chart = { i: 0, asked: 0, nextAt: now() + 0.5 }; run.said = 'Finding the phone';            // its lip sync is as measured: the chart alone
     } else if (choice === 'go') {
       Object.assign(run, { show: asked.kind === 'network' ? 'flash-silent' : 'flash', until: now() + 5, said: asked.kind === 'camera' ? `Measuring ${asked.name}: its picture is on air and its own microphone is the only one open. Hold still, about 15 seconds`
         : asked.kind === 'network' ? `Timing ${asked.names} against the phones by the flashes both see. No beeps for this one. Hold still, about 20 seconds` : 'Measuring the programme mix against the picture. Hold still, about 15 seconds' });
@@ -2154,7 +2170,10 @@
       if (run.state === 'running' && ['black', 'locate', 'chart'].includes(run.show)) {
         const why = 'The phone’s screen changed size, or the phone was turned, while the chart was being read';
         if (run.kind === 'colour') Object.assign(run, { state: 'failed', problem: why, moved: true, show: null, ended: now() });
-        else if (run.chart) { run.chart = null; run.show = null; run.result.colour = { why: why[0].toLowerCase() + why.slice(1) }; run.queue[0].again = `Colour was not matched: ${run.result.colour.why}. Try again, or go on.`; walkAsk(run); }
+        else if (run.chart) {
+          const at = run.queue[0], said = `${at.kind === 'camera' ? at.name : at.names}’s colours were not read: ${why[0].toLowerCase() + why.slice(1)}`;
+          run.chart = null; run.show = null; at.again = at.kind === 'camera' ? said : `${said}. Try again, or go on.`; walkAsk(run);
+        }
       }
       save(); return answer(calibrateRead());
     }

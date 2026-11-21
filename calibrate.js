@@ -61,7 +61,7 @@
     // The colour items of the same list: what Calibrate colour, here or as the walk's colour step, would put right.
     const colour = all.filter(i => /^colour(:|$)/.test(i.id) && i.state === 'todo');
     const items = [...all.filter(i => /^(lip-sync|timed|programme|mix-trim):?/.test(i.id) && i.state !== 'ready' && i.state !== 'idle'), ...colour];
-    $('#due').textContent = items.length ? `Due now: ${items.map(i => i.label).join('; ')}. It takes you from camera to camera: at each one you hold this phone in front of it and tap, and the manager puts that camera on air with its own microphone and sets its lip sync; then the network cameras, the cameras’ colours matched from a chart this phone shows, and where the programme’s sound comes from.`
+    $('#due').textContent = items.length ? `Due now: ${items.map(i => i.label).join('; ')}. It takes you to each camera once: you hold this phone in front of it and tap, the manager puts that camera on air with its own microphone and sets its lip sync, and then (when colours are due) this phone shows that camera a colour chart. Then the network cameras, and where the programme’s sound comes from.`
       : 'Nothing is due: every camera’s lip sync, each network camera’s timing and the cameras’ colour match are as measured. It can still take you round every camera again, or straight to where the programme’s sound comes from.';
     $('#colour-due').textContent = colour.length ? `Due now: ${colour.map(i => i.label).join('; ')}.` : '';
   }
@@ -73,7 +73,7 @@
     if (run.kind === 'walk') {
       const colour = run.result?.colour;
       return 'Camera by camera, done.\n' + [...Object.values(run.result?.cameras || {}).map(c => `${c.name}: ${c.set_ms != null ? `lip sync ${c.set_ms} ms` : c.skipped ? 'skipped' : `not measured, ${c.why}`}`),
-        ...(colour && !colour.skipped ? [colour.why ? `Colour: not matched, ${colour.why}` : `Colour: matched to ${colour.reference}${colour.in_obs ? ', in OBS' : ''}`] : [])].join('\n');
+        ...(colour && !colour.skipped ? [colour.why ? `Colour: not matched, ${colour.why}` : !colour.reference ? 'Colour: no camera’s chart was read' : `Colour: matched to ${colour.reference}${colour.in_obs ? ', in OBS' : ''}`] : [])].join('\n');
     }
     if (run.kind === 'sync') {
       const cameras = run.result?.calibration?.cameras || {};

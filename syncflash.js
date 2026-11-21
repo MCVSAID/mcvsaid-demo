@@ -9,8 +9,9 @@ let audio = null, lock = null, next = 0, step = 0;
 // its timing run (each network camera timed against the phones by the flashes both see, flashsync.py), which needs
 // the light only: no beeps. ?manager=walk is its camera-by-camera run ("Do what is due"): the page stays open for the
 // whole of it, shows what the manager asks at each camera (run.ask) with the answers to tap, and flashes and beeps only
-// while the manager says it is measuring (run.show === 'flash'). Its colour step shows the chart instead (run.show
-// black, locate or chart: chartrun.js), each step said back to the manager as on the calibrate page.
+// while the manager says it is measuring (run.show === 'flash'). At the same stop, after the flashes, it shows the
+// chart for that camera's colours (run.show black, locate or chart: chartrun.js), each step said back to the manager
+// as on the calibrate page.
 const ASKED = new URLSearchParams(location.search).get('manager');
 const KIND = ASKED === 'timing' ? 'timing' : ASKED === 'walk' ? 'walk' : ASKED === '1' ? 'sync' : null;
 const WALK = KIND === 'walk', ALL = new URLSearchParams(location.search).get('all') === '1';
@@ -21,8 +22,9 @@ function measured(run) {
   if (run.kind === 'walk') {
     const r = run.result || {}, lines = Object.values(r.cameras || {}).map(c => `${c.name}: ${c.set_ms != null ? `lip sync ${c.set_ms} ms` : c.skipped ? 'skipped' : `not measured (${c.why})`}`);
     if (r.timing && !r.timing.skipped) lines.push(r.timing.why ? `Network cameras: not timed (${r.timing.why})` : Object.values(r.timing.cameras || {}).map(c => `${c.name}: ${c.why ? `not timed (${c.why})` : `held by ${c.held_ms} ms (±${c.spread_ms} ms)`}`).join('; '));
-    if (r.colour && !r.colour.skipped) lines.push(r.colour.why ? `Colour: not matched (${r.colour.why})` : `Colour: matched to ${r.colour.reference}${r.colour.in_obs ? ', in OBS' : ''}`
-      + Object.values(r.colour.cameras || {}).filter(c => c.problem).map(c => `; not ${c.name}`).join(''));
+    if (r.colour && !r.colour.skipped) lines.push(r.colour.why ? `Colour: not matched (${r.colour.why})` : !r.colour.reference ? 'Colour: no camera’s chart was read' : `Colour: matched to ${r.colour.reference}${r.colour.in_obs ? ', in OBS' : ''}`
+      + Object.values(r.colour.cameras || {}).filter(c => c.problem).map(c => `; not ${c.name}`).join('')
+      + Object.values(r.colour.cameras || {}).filter(c => c.warnings?.length).map(c => `\n   ${c.name}, to put right: ${c.warnings.join('; ')}`).join(''));
     if (r.sound) lines.push(r.sound.kept ? 'Programme sound: left as it was' : `Programme sound: ${r.sound.camera}${{ muted: ' alone', aligned: ', the others joined in time', mixed: ' leading the programme mix' }[r.sound.others] || ''}`);
     if (r.mix && !r.mix.skipped) lines.push(r.mix.trim_ms != null ? `Programme mix: timing set to ${r.mix.trim_ms} ms` : `Programme mix: not measured (${r.mix.why})`);
     return 'Done.\n' + (lines.join('\n') || 'Nothing was due.');
@@ -162,7 +164,7 @@ document.getElementById('walk-stop').onclick = async () => {
 };
 if (WALK) {
   document.querySelector('#words h1').textContent = ALL ? 'Every camera, one by one' : 'Do what is due';
-  document.querySelector('#words p').textContent = 'Turn this phone’s sound and brightness up and press Start. It then takes you from camera to camera: at each one, hold the phone in front of it and tap; the manager puts that camera on air with its own microphone and measures its lip sync while this flashes and beeps. Then the network cameras, the cameras’ colours (it shows a chart: hold it still where every camera sees it), and last where the programme’s sound comes from.';
+  document.querySelector('#words p').textContent = 'Turn this phone’s sound and brightness up and press Start. It then takes you from camera to camera, once each: hold the phone in front of it and tap; the manager puts that camera on air with its own microphone and measures its lip sync while this flashes and beeps, and then, when the cameras’ colours need matching, this shows a colour chart to the same camera: keep it there, still, until it asks for the next. Then the network cameras, and last where the programme’s sound comes from.';
   document.getElementById('start').textContent = 'Start';
 } else if (MANAGER) {
   document.querySelector('#words p').textContent = SILENT
