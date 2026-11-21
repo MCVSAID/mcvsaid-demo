@@ -1,6 +1,9 @@
 /* The calibration pages: the hub (calibrate.html) and the colour card (colourcard.html). */
 html, body { margin: 0; height: 100%; background: #000; color: #ccc; font: 18px/1.4 system-ui, sans-serif; }
 a { color: #8ab4ff; }
+/* Hidden is hidden: .choice and the form's labels set a display of their own, which otherwise shows the authenticator
+   code's field before it is asked for, and Time the network cameras with no network camera. */
+[hidden] { display: none !important; }
 
 body.hub { display: block; }
 .hub main { max-width: 32em; margin: 0 auto; padding: 1em 16px 2em; }
@@ -11,6 +14,8 @@ body.running { overflow: hidden; }
 .choice a.go { display: inline-block; margin: 0.8em 0.6em 0 0; padding: 0.5em 1em; border-radius: 0.4em; background: #2b6fd6; color: #fff; text-decoration: none; } .choice a.go.other { background: #2c3038; color: #ccc; }
 .choice b { display: block; font-size: 1.3em; color: #fff; margin-bottom: 0.2em; }
 small { display: block; margin-top: 1em; color: #888; }
+.choice small.upright { margin-top: 0.6em; }
+@media (orientation: landscape) { .upright { display: none; } }
 
 /* Logging in and starting a run (calibrate.js). */
 .hub h2 { font-size: 1em; color: #999; text-transform: uppercase; letter-spacing: 0.05em; margin: 1.6em 0 0.4em; }

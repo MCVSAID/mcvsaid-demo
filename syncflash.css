@@ -10,3 +10,11 @@
   #walk-said { font-size: 1.15em; color: #fff; white-space: pre-line; } #walk-options { display: grid; gap: 0.6em; margin: 1em 0; } #walk-options button { font-size: 1.1em; }
   #walk-options button.other, button.quiet { background: #2c3038; color: #ccc; } button.quiet { font-size: 1em; padding: 0.4em 1em; }
   #walk-options select { font: inherit; padding: 0.5em; border-radius: 0.4em; } #walk-options label { display: block; }
+  [hidden] { display: none !important; }
+  /* The colour step of the camera-by-camera run: the page is the manager's to draw on, as on the calibrate page
+     (calibrate.css). The patch area is placed exactly (chartrun.js); words stay dim and outside it. */
+  body.running { overflow: hidden; }
+  #run { position: fixed; inset: 0; background: #000; z-index: 10; }
+  #area { position: absolute; background: #000; } #area.lit { background: #fff; } #area .patch { position: absolute; }
+  #step { position: absolute; left: 16px; right: 16px; bottom: 0.4em; margin: 0; color: #555; font-size: 13px; text-align: center; }
+  #run #run-stop { position: absolute; top: 0.6em; right: 16px; font-size: 13px; padding: 0.3em 0.8em; border-radius: 0.3em; background: none; border: 1px solid #444; color: #aaa; }

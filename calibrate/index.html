@@ -1,4 +1,4 @@
-<!doctype html><html lang="en"><meta charset="utf-8"><script src="/demo.js?v=c2588d2d0487"></script><meta name="viewport" content="width=device-width,initial-scale=1"><title>Calibrate</title>
+<!doctype html><html lang="en"><meta charset="utf-8"><script src="/demo.js?v=8161cdfee6e0"></script><meta name="viewport" content="width=device-width,initial-scale=1"><title>Calibrate</title>
 <!-- The calibration pages, for a phone or tablet held in front of the cameras: at https://calibrate.mcvsaid.local
      (webnames.py) and at /calibrate on the dashboard. Logged in as a setup tech or an operator, it drives Calibrate
      (calibrate.py, calibrate.js): the manager measures sound, colour and the network cameras' timing from what this page shows. Without a login,
@@ -21,7 +21,8 @@
         <b>Do what is due</b>
         <span id="due">Takes you from camera to camera. At each one you hold this phone in front of it and tap; the
         manager puts that camera on air with its own microphone and sets its lip sync. Then it times the network
-        cameras, and asks where the programme’s sound should come from: one camera, or every microphone joined in time.</span>
+        cameras, matches the cameras’ colours from a chart this phone shows, and asks where the programme’s sound
+        should come from: one camera, or every microphone joined in time.</span>
         <a class="go" href="/sync-flash?manager=walk">Start with what is due</a>
         <a class="go other" href="/sync-flash?manager=walk&amp;all=1">Every camera again</a>
       </div>
@@ -40,6 +41,7 @@
         <b>Calibrate colour</b>
         <span>Shows a chart the manager finds in each camera by itself, then fits each camera’s colours. Hold it still,
         facing the cameras, under the stage lights, about 30 seconds.</span>
+        <small class="upright">Held sideways, the chart is half as big again, and easier for a far camera to read: turn the phone before you start.</small>
         <label>Match the cameras to <select id="reference"><option value="auto">the camera that sees the chart best</option><option value="chart">the chart’s own colours</option></select></label>
         <label class="check"><input type="checkbox" id="obs" checked> Put the colour corrections in OBS</label>
         <small id="colour-due"></small>
@@ -65,4 +67,4 @@
   the same colours.</small>
 </main>
 <div id="run" hidden><div id="area"></div><p id="step"></p><button id="stop" class="quiet">Stop</button></div>
-<script src="/calibrate.js"></script></body></html>
+<script src="/chartrun.js"></script><script src="/calibrate.js"></script></body></html>

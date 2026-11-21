@@ -111,7 +111,7 @@
         const row = node('tr');
         const reference = camera.name === run.result.reference;
         row.append(node('td', camera.name), node('td', camera.share && !camera.problem ? `${(camera.share * 100).toFixed(1)}% of the picture` : '—'),
-          node('td', reference ? 'the one the others match' : camera.delta_e ? `${camera.delta_e.before.mean} → ${camera.delta_e.after.mean} (worst ${camera.delta_e.after.max})` : '—'), node('td', camera.problem || '', camera.problem ? 'bad' : ''));
+          node('td', reference ? 'the one the others match' : camera.delta_e ? `${camera.delta_e.before.mean} → ${camera.delta_e.after.mean} (worst ${camera.delta_e.after.max})` : '—'), node('td', camera.problem || (camera.warnings || []).join('; '), camera.problem || camera.warnings?.length ? 'bad' : ''));
         table.append(row);
       }
       body.append(table);
@@ -128,6 +128,10 @@
       for (const c of Object.values(r.cameras || {})) list.append(node('li', `${c.name}: ${c.set_ms != null ? `lip sync set to ${c.set_ms} ms, measured alone in the programme (${c.pairs} flashes, ±${c.spread_ms} ms)` : c.skipped ? 'skipped' : `not measured: ${c.why}`}`, c.why ? 'bad' : ''));
       if (r.timing && !r.timing.skipped) for (const c of Object.values(r.timing.cameras || {})) list.append(node('li', c.why ? `${c.name}: not timed: ${c.why}` : `${c.name}: held by ${c.held_ms} ms (${c.pairs} flashes, ±${c.spread_ms} ms${c.spread_ms > 20 ? ': loose, worth timing again' : ''})`, c.why || c.spread_ms > 20 ? 'bad' : ''));
       if (r.timing?.why) list.append(node('li', `Network cameras not timed: ${r.timing.why}`, 'bad'));
+      if (r.colour && !r.colour.skipped) {
+        const missed = Object.values(r.colour.cameras || {}).filter(c => c.problem);
+        list.append(node('li', r.colour.why ? `Colour not matched: ${r.colour.why}` : `Colour: matched to ${r.colour.reference}${r.colour.in_obs ? ', and put in OBS' : ''}${missed.length ? `; not ${missed.map(c => `${c.name} (${c.problem})`).join('; ')}` : ''}`, r.colour.why || missed.length ? 'bad' : ''));
+      }
       if (r.sound) list.append(node('li', r.sound.kept ? 'Programme sound left as it was' : `Programme sound: ${r.sound.camera}${{ muted: ' alone', aligned: ', the others joined in time', mixed: ' leading the programme mix' }[r.sound.others] || ''}`));
       if (r.mix && !r.mix.skipped) list.append(node('li', r.mix.trim_ms != null ? `Programme mix: timing set to ${r.mix.trim_ms} ms` : `Programme mix not measured: ${r.mix.why}`, r.mix.why ? 'bad' : ''));
       body.append(list);
