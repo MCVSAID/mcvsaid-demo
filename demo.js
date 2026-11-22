@@ -1153,14 +1153,19 @@
     const t = now(), clock = at => new Date(at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
     const all = (cams()?.cameras || []).filter(c => c.id), phones = all.filter(c => c.kind !== 'network'), network = all.filter(c => c.kind === 'network');
     const sound = programmeSound(), mixed = sound.others === 'mixed', cal = S.calibration, began = S.preshowBegan || (S.preshowBegan = t - 2400);
-    const item = (id, label, state, detail, action, href) => ({ id, label, state, detail, action: state === 'todo' || state === 'unknown' ? action || null : null, href: (state === 'todo' || state === 'unknown') && action ? href || null : null });
+    const item = (id, label, state, detail, action, href) => ({ id, label, state, detail, action: state === 'todo' || state === 'unknown' ? action || null : null, href: (state === 'todo' || state === 'unknown') && action ? href || null : null, measure: null });
     const flash = 'Calibrate sound from the calibrate page on a phone, held where this camera sees it', flashAll = 'Calibrate sound from the calibrate page on a phone, held where the cameras see it';
     const timeIt = 'Time the network cameras from the calibrate page on a phone, held where this camera and a phone camera both see it';
+    const itself = 'Talk or play something near this camera while OBS is neither recording nor streaming: the manager measures it by itself, from the room’s sound, within a few minutes. '
+      + 'Or measure it now with the button here, or with the flashes: calibrate sound from the calibrate page on a phone, held where this camera sees it';
     const lips = phones.map(c => {
       const mine = sound.cameras.find(x => x.id === c.id) || {}, read = cal?.cameras?.[c.name];
       if (!mine.in_programme) return item(`lip-sync:${c.id}`, `${c.name}: lip sync`, 'idle', `Not heard as Programme sound is set (${mine.why}), so its lip sync does not matter now.`);
+      // Measured from the room's sound (lipsync.py: the page's button, or the manager by itself): said so, and ready.
+      const heard = S.soundMeasured?.[c.id];
+      if (heard && (!cal || heard.at >= cal.at || read?.set_ms == null)) return item(`lip-sync:${c.id}`, `${c.name}: lip sync`, 'ready', `${heard.set_ms} ms, measured at ${clock(heard.at)} from the room’s sound (sure ${heard.certainty}), and its stream has run since ${clock(began)}.`);
       if (read?.set_ms != null) return item(`lip-sync:${c.id}`, `${c.name}: lip sync`, 'ready', `${read.set_ms} ms, measured at ${clock(cal.at)} (${read.pairs} flashes, ±${read.spread_ms} ms), and its stream has run since ${clock(began)}.`);
-      return item(`lip-sync:${c.id}`, `${c.name}: lip sync`, 'todo', `${read?.why ? `Not measured: the last reading, at ${clock(cal.at)}, failed: ${read.why}. ` : 'Not measured. '}It is on every camera's lip sync (${S.lipSync || 0} ms).`, flash);
+      return { ...item(`lip-sync:${c.id}`, `${c.name}: lip sync`, 'todo', `${read?.why ? `Not measured: the last reading, at ${clock(cal.at)}, failed: ${read.why}. ` : 'Not measured. '}It is on every camera's lip sync (${S.lipSync || 0} ms).`, itself), measure: c.id };
     });
     const what = !sound.camera ? 'every camera, each with its own picture' : mixed ? `the programme mix, led by ${all.find(c => c.id === sound.camera)?.name}` : all.find(c => c.id === sound.camera)?.name;
     const programme = [!cal ? item('programme', 'Programme sound against the picture', 'todo', `Programme sound is ${what}. It has not been measured against the picture in the last day (or since measurements were forgotten).`, flashAll)
@@ -2173,9 +2178,20 @@
       S.soundChangedAt = now();
       save(); return answer(programmeSound());
     }
+    if (path === '/api/sync/measure') {
+      // One camera's lip sync from the room's sound, no flashes (lipsync.py), as the manager answers: in the demo the
+      // room always has something to hear, and the camera comes out a few tens of milliseconds from where it was.
+      const camera = (cams()?.cameras || []).find(c => c.id === body.camera);
+      if (!camera) return answer({ detail: 'No such camera' }, 409);
+      const was = S.calibrated?.[camera.id] ?? (S.lipSync || 0), offset = [34, -41, 58, 12, -27][camera.slot % 5], changed = Math.abs(offset) >= 25;
+      const set = changed ? was - offset : was;
+      S.calibrated = { ...(S.calibrated || {}), [camera.id]: set };
+      S.soundMeasured = { ...(S.soundMeasured || {}), [camera.id]: { at: now(), set_ms: set, certainty: 0.8 } };
+      save(); return answer({ measured: { name: camera.name, offset_ms: offset, set_ms: set, changed, certainty: 0.8, agreement: 0.9, frames: 176, spread_ms: 9.5 }, preshow: preshowRead() });
+    }
     if (path === '/api/sync/calibrate') {
       // Calibrate sync (avsync.py), as the manager answers: in the demo the first three cameras saw the flashes.
-      if (body.clear) { S.calibrated = null; S.calibration = null; save(); return answer(programmeSound()); }
+      if (body.clear) { S.calibrated = null; S.calibration = null; S.soundMeasured = null; save(); return answer(programmeSound()); }
       calibrateSync(); save(); return answer(programmeSound());
     }
     if (path === '/api/calibrate/start') {

@@ -66,6 +66,20 @@
           action.append(node('span', '.'));
           said.append(action);
         }
+        if (item.measure) {
+          // Its lip sync from the room's sound, now (lipsync.py): its picture on air and its microphone alone meanwhile.
+          const words = 'Measure it now from the room’s sound';
+          const button = node('button', words); button.type = 'button';
+          button.onclick = async () => {
+            button.disabled = true; button.textContent = 'Measuring: its picture is on air for a quarter of a minute…';
+            try {
+              const found = await api('/api/sync/measure', { camera: item.measure });
+              shown = ''; preshow(found.preshow);
+              if (found.measured.why) window.concert.fail(new Error(`${found.measured.name} was not measured: ${found.measured.why}`));
+            } catch (error) { window.concert.fail(error); button.disabled = false; button.textContent = words; }
+          };
+          said.append(button);
+        }
         row.append(node('span', word, `badge ${cls}`), said);
         list.append(row);
       }
