@@ -8,9 +8,11 @@ const armedNow = c => c.online && c.telemetry?.armed === true;
 const streamingNow = c => !!(c.telemetry?.streaming || c.telemetry?.capture?.streamRequested);
 // Only a phone still on app 0.7.6 that was armed on its own screen starts a recording along with its stream.
 const recordsWithStream = c => !c.telemetry?.capabilities?.explicit_recording && c.telemetry?.armed === true && c.telemetry?.capture?.localRecordingWanted !== false && !c.telemetry?.recording;
-// Every one of these is a command to a phone: a network camera (taken into OBS over NDI) takes none, and is neither
-// a target nor something left out with a reason.
-const phonesOnly = action => ({ ...action, targets: c => c.kind !== 'network' && action.targets(c), skipped: c => c.kind === 'network' ? null : action.skipped(c) });
+// Every one of these is a command to a phone: a network camera (taken into OBS over NDI) takes none, nor a stage
+// beacon (a phone paired to be measured from, which refuses to be armed: stagebeacon.py), and neither is a target nor
+// something left out with a reason.
+const outOfIt = c => c.kind === 'network' || !!c.telemetry?.beacon?.on;
+const phonesOnly = action => ({ ...action, targets: c => !outOfIt(c) && action.targets(c), skipped: c => outOfIt(c) ? null : action.skipped(c) });
 const EVERY = [
   { label: 'Arm all cameras', command: 'camera.arm', step: 'arming', did: 'armed',
     // Arming never switches recording on. Phones on app 0.7.6 need to be told; 0.7.7 and later never record unasked.

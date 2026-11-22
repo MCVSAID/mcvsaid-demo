@@ -33,7 +33,9 @@
     catch (error) { if (error.status === 401) { location.reload(); return; } window.concert.polled(false); }
     if (state) draw(state);
     try { preshow(await api('/api/preshow')); } catch (error) { if (error.status === 401) { location.reload(); return; } }
-    timer = setTimeout(refresh, state?.run?.state === 'running' ? 1000 : 3000);
+    let lit = null;
+    try { lit = await api('/api/beacon'); beacon(lit); } catch (error) { if (error.status === 401) { location.reload(); return; } }
+    timer = setTimeout(refresh, state?.run?.state === 'running' || lit?.running ? 1000 : 3000);
   }
 
   function draw(state) {
@@ -155,6 +157,44 @@
       for (const [name, r] of Object.entries(run.result.calibration.cameras)) list.append(node('li', `${name}: ${r.set_ms != null ? `lip sync set to ${r.set_ms} ms (${r.pairs} flashes, ±${r.spread_ms} ms)` : `not measured: ${r.why}`}`));
       body.append(list);
     }
+  }
+
+  // The stage beacon (stagebeacon.py): the beacon phones, measuring from one now, what it found of each camera, and
+  // (the administrator's) whether it puts a camera right and measures by itself.
+  let beaconDrawn = '';
+  const FOUND = { marked: 'its mark taken (lip sync as it is now)', checked: 'unchanged', moved: 'moved', corrected: 'moved, and its lip sync put right', beacon: 'moved with every other camera: the beacon, not the camera' };
+  function beacon(state) {
+    const sig = JSON.stringify(state);
+    if (sig === beaconDrawn) return; beaconDrawn = sig;
+    const body = $('#beacon-body'); body.replaceChildren();
+    if (!state.beacons.length) body.append(node('p', 'No phone is a stage beacon. On a spare phone paired like a camera, open the camera app and choose Stage beacon; it then shows here.', 'hint'));
+    else {
+      const list = node('ul');
+      for (const b of state.beacons) list.append(node('li', `${b.name}: ${!b.online ? 'not connected' : b.open ? 'ready, its beacon screen up' : 'connected, its beacon screen not open'}${b.battery_percent != null ? ` · battery ${b.battery_percent}%${b.charging ? ', charging' : ''}` : ''}${b.temperature_c != null ? ` · ${b.temperature_c} °C` : ''}`, b.online && b.open ? '' : 'bad'));
+      body.append(list);
+    }
+    const go = node('button', state.running ? 'Measuring…' : 'Measure every camera now'); go.type = 'button'; go.disabled = state.running || !state.beacons.some(b => b.online && b.open);
+    go.onclick = async () => { try { beacon(await api('/api/beacon/measure', {})); } catch (error) { concert.fail(error); } };
+    body.append(go);
+    const last = state.last;
+    if (last) {
+      const when = new Date(last.at * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+      body.append(node('p', `${last.state === 'running' ? 'Measuring' : 'Measured'} at ${when}, ${last.by}${last.state === 'failed' ? `: not measured: ${last.why}` : last.state === 'running' ? ': the beacon is showing its code (about 20 seconds)' : ''}.`, last.state === 'failed' ? 'bad' : ''));
+      const list = node('ul');
+      for (const [name, c] of Object.entries(last.cameras || {})) {
+        const words = c.why ? `not measured: ${c.why}` : `${c.own_ms} ms (sound after picture in its own stream, the distance included; seen ${c.likeness}, heard ${c.clear_db} dB clear): ${FOUND[c.state] || c.state}${c.delta_ms != null && c.state !== 'checked' ? ` by ${c.delta_ms} ms` : c.state === 'checked' ? ` (${c.delta_ms >= 0 ? '+' : ''}${c.delta_ms} ms)` : ''}${c.set_ms != null ? `, to ${c.set_ms} ms` : ''}`;
+        list.append(node('li', `${name}: ${words}`, c.why || c.state === 'moved' || c.state === 'beacon' ? 'bad' : ''));
+      }
+      body.append(list);
+    }
+    const admin = session?.role === 'admin';
+    for (const [key, words] of [['corrects', 'Put a camera’s lip sync right by itself when its own lateness has moved'], ['auto', 'Measure by itself before the show (every quarter of an hour, and after a stream restarts)']]) {
+      const label = node('label'), box = document.createElement('input'); box.type = 'checkbox'; box.checked = state[key]; box.disabled = !admin;
+      box.onchange = async () => { try { beacon(await api('/api/beacon/settings', { [key]: box.checked })); } catch (error) { box.checked = !box.checked; concert.fail(error); } };
+      label.append(box, node('span', ` ${words}`)); body.append(label);
+    }
+    if (!admin) body.append(node('p', 'Those two are the administrator’s.', 'hint'));
+    if (!state.relay) body.append(node('p', 'The beacon is read from the camera relay, which is off: switch it on (System › Network) first.', 'hint bad'));
   }
 
   function cameras(state) {

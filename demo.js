@@ -956,6 +956,7 @@
     if (path === '/api/programme-sound') return programmeSound();
     if (path === '/api/calibrate') return calibrateRead();
     if (path === '/api/preshow') return preshowRead();
+    if (path === '/api/beacon') return beaconRead();
     if (path === '/api/teleprompter') return promptRead();
     if (path === '/api/karaoke') return karaokeRead();
     if (path.startsWith('/api/teleprompter/scripts/')) return promptText(decodeURIComponent(path.slice('/api/teleprompter/scripts/'.length)));
@@ -968,6 +969,24 @@
   // while the page flashes. What it finds is what the demonstration manager's own run found, when it recorded one.
   const CAL_STEPS = [['black', 'Finding the phone: hold it still where every camera sees it'], ['locate', 'Finding the phone'],
     ['chart', 'Taking each camera’s picture of the chart: hold still']];
+  // The stage beacon (stagebeacon.py), as the manager answers: a run of about 20 seconds, then each camera as the
+  // demonstration manager's own run found it (its network camera hears nothing of the beacon), each set against the
+  // mark taken at that run: unchanged, give or take a few milliseconds.
+  function beaconRead() {
+    const base = S.answers['/api/beacon'] || { beacons: [], running: false, last: null, relay: true, corrects: false, auto: true, marks: {} };
+    const run = S.beaconRun;
+    if (run && run.state === 'running' && now() - run.at > 21) {
+      const before = base.last?.cameras || {};
+      run.cameras = Object.fromEntries(Object.entries(before).map(([name, c]) => {
+        if (c.why) return [name, c];
+        const delta = Math.round((Math.random() - 0.5) * 8);
+        return [name, { ...c, own_ms: Math.round((c.own_ms + delta) * 10) / 10, state: 'checked', delta_ms: delta }];
+      }));
+      Object.assign(run, { state: 'done', ended: now(), beacon_said: base.last?.beacon_said || null });
+      save();
+    }
+    return { ...base, corrects: S.beaconCorrects ?? base.corrects, auto: S.beaconAuto ?? base.auto, running: run?.state === 'running', last: run || base.last };
+  }
   function calibrateRead() {
     const base = S.answers['/api/calibrate'] || { cameras: [], relay: true, lip_sync_by_camera: {} };
     const run = S.calRun;
@@ -2201,6 +2220,18 @@
         started: now(), ended: null, by_name: S.answers['/api/session']?.name || 'Morgan', answered: 0, result: null, problem: null, yours: true, obs: body.obs !== false, nextAt: now() + 0.5 };
       if (body.kind === 'walk') S.calRun = walkStart(body.all === true);
       save(); return answer(calibrateRead());
+    }
+    if (path === '/api/beacon/measure') {
+      const state = beaconRead();
+      if (state.running) return answer({ detail: 'The stage beacon is measuring already' }, 409);
+      if (!state.beacons.some(b => b.online && b.open)) return answer({ detail: 'No stage beacon is connected with its beacon screen up: open the camera app on the beacon phone and choose Stage beacon' }, 409);
+      S.beaconRun = { at: now(), by: S.answers['/api/session']?.name || 'Morgan', beacon: state.beacons[0].name, state: 'running', cameras: {} };
+      save(); return answer(beaconRead());
+    }
+    if (path === '/api/beacon/settings') {
+      if (typeof body.corrects === 'boolean') S.beaconCorrects = body.corrects;
+      if (typeof body.auto === 'boolean') S.beaconAuto = body.auto;
+      save(); return answer(beaconRead());
     }
     if (path === '/api/calibrate/choose') return walkChoose(body);
     if (path === '/api/calibrate/shown') {
