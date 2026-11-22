@@ -227,7 +227,7 @@
       }
       body.append(list);
     }
-    for (const [key, words] of [['corrects', 'Put a camera’s lip sync right by itself when its own lateness has moved'], ['auto', 'Measure by itself before the show (every quarter of an hour, and after a stream restarts)']]) {
+    for (const [key, words] of [['corrects', 'Put a camera’s lip sync right by itself when its own lateness has moved'], ['auto', 'Measure by itself before the show (its hiss is then heard in the room every quarter of an hour, and after a stream restarts, until OBS records or streams)']]) {
       const label = node('label'), box = document.createElement('input'); box.type = 'checkbox'; box.checked = state[key]; box.disabled = !admin;
       box.onchange = async () => { try { beacon(await api('/api/beacon/settings', { [key]: box.checked })); } catch (error) { box.checked = !box.checked; concert.fail(error); } };
       label.append(box, node('span', ` ${words}`)); body.append(label);
