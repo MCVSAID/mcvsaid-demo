@@ -1,4 +1,4 @@
-<!doctype html><html lang="en"><meta charset="utf-8"><script src="/demo.js?v=9211a057284e"></script><meta name="viewport" content="width=device-width,initial-scale=1"><title>Calibrate</title>
+<!doctype html><html lang="en"><meta charset="utf-8"><script src="/demo.js?v=35f64e36e2f4"></script><meta name="viewport" content="width=device-width,initial-scale=1"><title>Calibrate</title>
 <!-- The calibration pages, for a phone or tablet held in front of the cameras: at https://calibrate.mcvsaid.local
      (webnames.py) and at /calibrate on the dashboard. Logged in as a setup tech or an operator, it drives Calibrate
      (calibrate.py, calibrate.js): the manager measures sound, colour and the network cameras' timing from what this page shows. Without a login,
@@ -25,6 +25,11 @@
         where the programme’s sound should come from: one camera, or every microphone joined in time.</span>
         <a class="go" href="/sync-flash?manager=walk">Start with what is due</a>
         <a class="go other" href="/sync-flash?manager=walk&amp;all=1">Every camera again</a>
+        <small>Start with what is due passes over a camera the Before the show list has as ready. To measure one of
+        those again, use Every camera again, and skip the others.</small>
+        <!-- A camera-by-camera run left waiting at a question (the page navigated away from): picked up, or ended. -->
+        <div id="left" hidden><span id="left-said" role="status"></span>
+          <a class="go" href="/sync-flash?manager=walk">Pick it up</a><button id="end-left" class="quiet">End it</button></div>
       </div>
       <a class="choice" href="/sync-flash?manager=1">
         <b>Calibrate sound</b>

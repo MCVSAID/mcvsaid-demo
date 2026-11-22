@@ -1016,7 +1016,8 @@
       }
       save();
     }
-    return { ...base, phone: 'https://calibrate.mcvsaid.local/calibrate', run: run ? { ...run } : (base.run ? { ...base.run, yours: false } : null) };
+    // waiting: only waiting for an answer, so it can be picked up or ended (the demo's one visitor's own: never abandoned).
+    return { ...base, phone: 'https://calibrate.mcvsaid.local/calibrate', run: run ? { ...run, waiting: run.state === 'running' && !!run.ask, abandoned: false } : (base.run ? { ...base.run, yours: false, waiting: false, abandoned: false } : null) };
   }
   // The camera-by-camera run (calibrate.py's walk), as the manager drives it: a question at each camera, a few seconds
   // of flashing while it "measures" that camera alone and then, at the same stop, the chart for that camera's colours
@@ -2215,7 +2216,10 @@
     }
     if (path === '/api/calibrate/start') {
       if (!['sync', 'colour', 'timing', 'walk'].includes(body.kind)) return answer({ detail: 'Send kind (sync, colour, timing or walk), for colour reference and obs, and for walk all (true: every camera, not only those due)' }, 400);
-      if (S.calRun?.state === 'running') return answer({ detail: `A ${S.calRun.kind} calibration is already going on, started by ${S.calRun.by_name}` }, 409);
+      // As calibrate.py: a run that is measuring is not cut into; one only waiting at a question (here always the
+      // visitor's own) is ended for the new one.
+      if (S.calRun?.state === 'running' && !S.calRun.ask) return answer({ detail: `A ${S.calRun.kind} calibration is already going on, started by ${S.calRun.by_name}, and it is measuring just now (${S.calRun.said}). It ends by itself within seconds: start again then` }, 409);
+      if (S.calRun?.state === 'running') Object.assign(S.calRun, { state: 'stopped', problem: `Ended where it was waiting, for a new run started by ${S.calRun.by_name}. What was measured until then is kept`, show: null, ask: null, ended: now() });
       S.calRun = { id: Math.random().toString(16).slice(2, 14), kind: body.kind, state: 'running', step: 0, show: body.kind === 'colour' ? null : 'flash', said: body.kind === 'sync' ? 'Measuring: keep the phone flashing where every camera sees it (about 15 seconds)' : body.kind === 'timing' ? 'Timing: keep the phone flashing where a network camera and a phone camera both see it (about 20 seconds)' : 'Starting',
         started: now(), ended: null, by_name: S.answers['/api/session']?.name || 'Morgan', answered: 0, result: null, problem: null, yours: true, obs: body.obs !== false, nextAt: now() + 0.5 };
       if (body.kind === 'walk') S.calRun = walkStart(body.all === true);
@@ -2234,6 +2238,11 @@
       save(); return answer(beaconRead());
     }
     if (path === '/api/calibrate/choose') return walkChoose(body);
+    if (path === '/api/calibrate/take') {
+      // A run left waiting, picked up by the page opened again: in the demo it is the visitor's own already.
+      if (S.calRun?.state !== 'running' || S.calRun.id !== body.run) return answer({ detail: 'That calibration has ended' }, 409);
+      return answer(calibrateRead());
+    }
     if (path === '/api/calibrate/shown') {
       if (!S.calRun || S.calRun.id !== body.run) return answer({ detail: 'Not your calibration' }, 409);
       S.calRun.answered = Math.max(S.calRun.answered, Number(body.step) || 0); save(); return answer({ ok: true });

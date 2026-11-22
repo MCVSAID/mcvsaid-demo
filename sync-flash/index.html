@@ -1,4 +1,4 @@
-<!doctype html><html lang="en"><meta charset="utf-8"><script src="/demo.js?v=9211a057284e"></script><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sync flash</title>
+<!doctype html><html lang="en"><meta charset="utf-8"><script src="/demo.js?v=35f64e36e2f4"></script><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sync flash</title>
 <!-- Calibrate sync (avsync.py): flashes white and beeps together, at uneven times, for the cameras to see and hear. Needs
      no login: it shows and sends nothing but the flashes and beeps. -->
 <link rel="stylesheet" href="/syncflash.css">
@@ -8,6 +8,8 @@
   an arm’s length from each. Then press <b>Measure</b> on the manager’s Sound page, and keep it flashing until it says Measured (about 15 seconds).</p>
   <button id="start">Start flashing</button>
   <small id="state">Screen stays on while it flashes.</small>
+  <!-- A run already going on when this page is opened, or when a start is refused: picked up where it was, or ended. -->
+  <div id="going" hidden><p id="going-said" role="status"></p><div id="going-options"></div></div>
   <div id="walk" hidden><p id="walk-said" role="status"></p><div id="walk-pictures"></div><div id="walk-options"></div><button id="walk-stop" class="quiet">Stop</button></div>
   <small><a href="/calibrate">‹ Calibrate</a></small>
 </div>

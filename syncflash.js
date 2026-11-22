@@ -12,6 +12,10 @@ let audio = null, lock = null, next = 0, step = 0;
 // while the manager says it is measuring (run.show === 'flash'). At the same stop, after the flashes, it shows the
 // chart for that camera's colours (run.show black, locate or chart: chartrun.js), each step said back to the manager
 // as on the calibrate page.
+// A run already going on is never a dead end (2026-11-21 and 22: a walk left at a question on a page since navigated
+// away from, and "Do what is due" could not be started again until the manager was restarted). Opened while a walk
+// waits at a question, this page offers to pick it up where it was, or to end it and start again (offer); a start the
+// manager refuses is said, with the same way out.
 const ASKED = new URLSearchParams(location.search).get('manager');
 const KIND = ASKED === 'timing' ? 'timing' : ASKED === 'walk' ? 'walk' : ASKED === '1' ? 'sync' : null;
 const WALK = KIND === 'walk', ALL = new URLSearchParams(location.search).get('all') === '1';
@@ -43,11 +47,17 @@ async function call(path, body) {
   if (!response.ok) throw new Error(data.detail || `The manager answered ${response.status}`);
   return data;
 }
-async function measure() {
+// how: 'pick' goes on with the walk that is waiting (taken over first when another page or login started it); 'over'
+// ends a run that is only waiting, whoever started it, for this one.
+async function measure(how) {
   try {
     csrf = (await call('/api/session')).csrf;
-    await call('/api/calibrate/start', WALK ? { kind: KIND, all: ALL } : { kind: KIND });
-  } catch (error) { stop(error.message); return; }
+    if (how === 'pick') {
+      const run = (await call('/api/calibrate')).run;
+      if (!run || run.state !== 'running' || run.kind !== 'walk') throw new Error('That run has ended' + (run && run.state !== 'done' && run.problem ? `: ${run.problem}` : '.'));
+      if (!run.yours) await call('/api/calibrate/take', { run: run.id });
+    } else await call('/api/calibrate/start', { kind: KIND, ...(WALK ? { all: ALL } : {}), ...(how === 'over' ? { over: true } : {}) });
+  } catch (error) { stop(`Not started. ${error.message}`); offer(); return; }
   document.getElementById('state').textContent = WALK ? '' : `Flashing while the manager measures (about ${SECONDS} seconds). Tap to stop.`;
   if (WALK) { document.getElementById('walk').hidden = false; document.querySelector('#words p').hidden = true; }      // the questions take the page
   const look = async () => {
@@ -101,12 +111,41 @@ function walk(run) {
   }
   ask.options.forEach(([value, words], index) => {
     const button = document.createElement('button'); button.type = 'button'; button.textContent = words;
-    if (value === 'skip' || value === 'keep' || (ask.kind !== 'sound' && index)) button.className = 'other';
+    // The answer the manager offers first, when it says which (a network camera not timed while the delays move: go on).
+    if (ask.prefer ? value !== ask.prefer : value === 'skip' || value === 'keep' || (ask.kind !== 'sound' && index)) button.className = 'other';
     button.onclick = () => answer(select && value !== 'keep' ? { camera: select.value, others: value } : value);
     options.append(button);
   });
 }
-async function start() {
+// What is going on already, asked when the page opens and when a start is refused: a run waiting at a question can be
+// picked up (a walk, on the walk's page) or ended for a new one; one that is measuring ends by itself, and is waited for.
+let offering = null;
+async function offer() {
+  clearTimeout(offering);
+  const box = document.getElementById('going'), options = document.getElementById('going-options'), begin = document.getElementById('start');
+  let run = null;
+  try { run = (await call('/api/calibrate')).run; } catch (error) { /* not logged in: Start says so */ }
+  if (audio) return;                                  // started meanwhile
+  options.replaceChildren();
+  if (!run || run.state !== 'running') { box.hidden = true; begin.hidden = false; return; }
+  const what = { walk: 'camera-by-camera', sync: 'sound', timing: 'timing' }[run.kind] || 'colour', whose = run.yours ? 'you started' : `started by ${run.by_name}`;
+  box.hidden = false; begin.hidden = true;
+  if (!run.waiting) {
+    document.getElementById('going-said').textContent = `A ${what} run ${whose} is measuring just now: “${run.said}” It ends by itself within seconds, and this can start then.`;
+    offering = setTimeout(offer, 2000);
+    return;
+  }
+  document.getElementById('going-said').textContent = `A ${what} run ${whose} is waiting for an answer: “${run.said}”`;
+  const button = (words, how, other) => {
+    const made = document.createElement('button'); made.type = 'button'; made.textContent = words; if (other) made.className = 'other';
+    made.onclick = event => { event.stopPropagation(); start(how); };
+    options.append(made);
+  };
+  if (WALK && run.kind === 'walk') button('Pick it up where it was', 'pick');
+  button(WALK ? 'End it and start again' : 'End it and start this', 'over', WALK && run.kind === 'walk');
+}
+async function start(how) {
+  clearTimeout(offering); document.getElementById('going').hidden = true;
   audio = new (window.AudioContext || window.webkitAudioContext)();
   await audio.resume();
   try { lock = await navigator.wakeLock.request('screen'); } catch (e) { /* the screen may dim; keep tapping it */ }
@@ -115,7 +154,7 @@ async function start() {
   if (!WALK) document.body.onclick = stop;
   next = audio.currentTime + 1.0;
   schedule();
-  if (MANAGER) measure();
+  if (MANAGER) measure(how);
 }
 // The beeps given to the sound clock ahead of time (schedule): silenced, when their flashes will not be shown.
 const ahead = [];
@@ -178,6 +217,7 @@ document.getElementById('walk-stop').onclick = async () => {
   // Between cameras it stops at once; while a camera is on air being measured, once that measurement has finished.
   try { const state = await call('/api/calibrate/stop', {}); if (state.run?.state !== 'running') stop('Stopped. What was measured until now is kept.'); } catch (error) { stop(error.message); }
 };
+if (MANAGER) offer();
 if (WALK) {
   document.querySelector('#words h1').textContent = ALL ? 'Every camera, one by one' : 'Do what is due';
   document.querySelector('#words p').textContent = 'Turn this phone’s sound and brightness up and press Start. It then takes you from camera to camera, once each: hold the phone in front of it and tap; the manager puts that camera on air with its own microphone and measures its lip sync while this flashes and beeps. Then the network cameras; then, when the cameras’ colours need matching, they are matched by what they see, and each is shown here beside the one it is matched to, to keep or leave; and last where the programme’s sound comes from.';

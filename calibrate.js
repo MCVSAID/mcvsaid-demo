@@ -51,7 +51,13 @@
       again = run.id; tries++; begin(true);
     }
     else if (!starting) leaveRun();
-    $('#start-colour').disabled = run?.state === 'running' || starting;
+    // A camera-by-camera run waiting at a question, its page left: said here, to pick up (the walk's page) or to end.
+    // Nothing else can start past it unasked unless it is this login's own or its page has gone, so it is never a dead end.
+    const left = run?.state === 'running' && run.kind === 'walk' && run.waiting;
+    $('#left').hidden = !left;
+    if (left) $('#left-said').textContent = `A camera-by-camera run ${run.yours ? 'you started' : `started by ${run.by_name}`} is waiting for an answer: “${run.said}”`;
+    // Colour can start past a run that is only waiting (the manager ends it, or says why not); not past one measuring.
+    $('#start-colour').disabled = (run?.state === 'running' && !run.waiting) || starting;
     $('#last').textContent = run ? summary(run) : '';
   }
 
@@ -107,7 +113,7 @@
       chartRun.leave(); chartRun.begin('Starting: hold the phone still');
       const state = await api('/api/calibrate/start', { kind: 'colour', reference: $('#reference').value, obs: $('#obs').checked });
       current = state.run?.id; starting = false; take(state);
-    } catch (error) { starting = false; leaveRun(); say(error.message); }
+    } catch (error) { starting = false; leaveRun(); say(`Not started. ${error.message}`); }
     refresh();
   }
   chartRun.onMoved = async () => { try { take(await api('/api/calibrate/moved', { run: current })); } catch (error) { say(error.message); } };
@@ -120,6 +126,8 @@
     tries = 0; again = null; begin(false);
   };
   $('#stop').onclick = async () => { tries = 2; try { await api('/api/calibrate/stop', {}); } catch (error) { say(error.message); } leaveRun(); refresh(); };
+
+  $('#end-left').onclick = async () => { say(''); try { take(await api('/api/calibrate/stop', { anyone: true })); } catch (error) { say(error.message); } refresh(); };
 
   // -- logging in -------------------------------------------------------------------------------------------------------
   $('#login').onsubmit = async event => {

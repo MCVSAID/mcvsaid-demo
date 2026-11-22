@@ -12,6 +12,7 @@ body.running { overflow: hidden; }
 .choice { display: block; margin: 1em 0; padding: 1em 1.2em; border-radius: 0.5em; background: #1b1d22; color: #ccc; text-decoration: none; border: 1px solid #2c3038; }
 .choice:hover, .choice:focus-visible { border-color: #2b6fd6; }
 .choice a.go { display: inline-block; margin: 0.8em 0.6em 0 0; padding: 0.5em 1em; border-radius: 0.4em; background: #2b6fd6; color: #fff; text-decoration: none; } .choice a.go.other { background: #2c3038; color: #ccc; }
+#left { margin-top: 1em; padding-top: 0.8em; border-top: 1px solid #2c3038; color: #fff; } #left span { display: block; }
 .choice b { display: block; font-size: 1.3em; color: #fff; margin-bottom: 0.2em; }
 small { display: block; margin-top: 1em; color: #888; }
 .choice small.upright { margin-top: 0.6em; }
