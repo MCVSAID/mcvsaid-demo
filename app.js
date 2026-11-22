@@ -470,12 +470,14 @@ const problems = camera => notRight(camera).map(check => `${check.label}: ${chec
 function networkCard(camera, { card, head, chip, facts, alerts, actions, more, picture, upkeep, role, director, sync }) {
   const t = camera.telemetry || {}, off = busy.has(camera.id);
   head.prepend(cardShot(camera, !!director?.usable?.includes(camera.id), director?.kept_out?.[camera.id]));
-  chip('Network camera', 'quiet').title = 'Not a phone: OBS takes its picture over NDI';
-  if (!camera.online) chip('No OBS source', 'bad').title = 'OBS has no NDI source for it yet, or cannot take NDI: see below';
+  const viaRelay = camera.route === 'srt';
+  chip('Network camera', 'quiet').title = viaRelay ? 'Not a phone: it calls the camera relay over SRT, as a phone does, and OBS shows it from there' : 'Not a phone: OBS takes its picture over NDI';
+  if (!camera.online) chip('No OBS source', 'bad').title = viaRelay ? 'OBS has no media source for it yet: Refresh OBS scenes makes one' : 'OBS has no NDI source for it yet, or cannot take NDI: see below';
   else if (t.streaming) chip('Sending a picture', 'on');
   else chip('No picture', 'bad');
   const fact = text => { const made = node('span', text); made.className = 'fact'; facts.append(made); return made; };
-  fact(`NDI: ${camera.ndi_name}`).title = 'The NDI source OBS takes its picture from';
+  if (viaRelay) fact(`SRT to the relay, port ${camera.srt_port}`).title = 'The camera calls the camera relay on this port; the relay passes its stream to OBS, holds it and keeps it';
+  else fact(`NDI: ${camera.ndi_name}`).title = 'The NDI source OBS takes its picture from';
   fact(camera.delay_ms || camera.delay_follows ? `Held by ${camera.delay_ms} ms${camera.delay_follows ? ', following the phones' : ''}` : 'Not held back').title = camera.delay_follows ? 'Its delay in OBS: set by hand under Maintenance, and moved since as the phones’ delay moved' : 'Its delay in OBS, set by hand under Maintenance';
   card.append(facts);
   const ready = readinessPanel(camera);
@@ -503,7 +505,38 @@ function networkCard(camera, { card, head, chip, facts, alerts, actions, more, p
     };
     actions.append(keep);
   }
-  // Picture & stream: where OBS takes it from.
+  // Picture & stream: how its picture reaches OBS (netcams.py): over NDI, or over SRT through the camera relay as a phone's.
+  if (role === 'admin') {
+    const way = document.createElement('select'); way.setAttribute('aria-label', 'How its picture reaches OBS'); way.disabled = off;
+    for (const [value, label] of [['ndi', 'NDI, taken by OBS itself'], ['srt', 'SRT, through the camera relay']]) { const option = node('option', label); option.value = value; option.selected = (camera.route || 'ndi') === value; way.append(option); }
+    way.onchange = async () => {
+      const to = way.value;
+      if (to === (camera.route || 'ndi')) return;
+      const ask = to === 'srt' ? `Take ${camera.name} over SRT through the camera relay? In OBS a media source takes its NDI source’s place in its scenes (the NDI source is kept, switched off). Then send the camera to the relay, below.`
+        : `Take ${camera.name} over NDI again? In OBS its NDI source takes its media source’s place in its scenes. Its SRT can then be stopped, below.`;
+      if (!(await concert.sure(ask))) { way.value = camera.route || 'ndi'; return; }
+      change({ route: to }, `${camera.name} now comes ${to === 'srt' ? 'over SRT through the camera relay' : 'over NDI'}.`,
+        done => (done.obs?.swapped || []).length ? ` In OBS “${done.obs.swapped[0].to}” took the place of “${done.obs.swapped[0].from}” in ${done.obs.swapped[0].scenes} scene${done.obs.swapped[0].scenes === 1 ? '' : 's'}.`
+          : (done.obs?.left_out || []).length ? ` OBS was not changed: ${done.obs.left_out[0].why}.` : done.obs_problem ? '' : ' Press Refresh OBS scenes to make its source.');
+    };
+    const wayRow = node('label', 'Its picture reaches OBS by '); wayRow.append(way);
+    picture.append(wayRow, node('small', viaRelay
+      ? `The camera calls this computer over SRT on port ${camera.srt_port}, as a phone does: the camera relay passes its stream to OBS, holds its delay as compressed video, and keeps it for its camera file. It keeps steady time where NDI over Wi-Fi may not.${camera.relay ? '' : ' The camera relay is off (System › This computer), so OBS listens for it itself, unencrypted.'}`
+      : 'NDI is taken by OBS’s NDI plugin directly. Over Wi-Fi an NDI picture can arrive unevenly and slide in time; a camera that can send SRT (its Network page has SRT settings) can call the camera relay instead, as the phones do.'));
+    if (viaRelay) {
+      const encrypt = document.createElement('input'); encrypt.type = 'checkbox'; encrypt.checked = true; encrypt.disabled = off || !camera.relay || !camera.has_control;
+      const send = node('button', 'Send it to the relay'); send.disabled = off || !camera.has_control;
+      send.title = camera.has_control ? 'Sets the camera’s own SRT, over its control address: caller, this computer’s address and its port here' : 'Needs its control address (Following, below)';
+      send.onclick = () => change({ srt: 'send', encrypt: encrypt.checked }, '', done => done.srt === 'sent' ? `${camera.name} is set to call the relay on port ${done.srt_port}${done.encrypted ? ', encrypted' : ', not encrypted'}.` : `${camera.name} did not keep the SRT settings it was sent: check its Network page.`);
+      const stop = node('button', 'Stop its SRT'); stop.disabled = off || !camera.has_control;
+      stop.onclick = () => change({ srt: 'stop' }, `${camera.name} was told to stop sending over SRT.`);
+      const encryptRow = node('label', ''); encryptRow.append(encrypt, node('span', ' Encrypt its stream (AES-128)'));
+      const sendRow = document.createElement('div'); sendRow.className = 'actions'; sendRow.append(send, stop);
+      picture.append(sendRow, encryptRow, node('small', (camera.srt_keyed ? 'The camera has been given its stream passphrase, and the relay lets in only a caller that has it. ' : '')
+        + `Or set it on the camera’s own page: SRT on, mode caller, this computer’s address, port ${camera.srt_port}, latency 80 ms. Set there, the relay asks for no passphrase.`));
+    }
+  } else if (viaRelay) picture.append(node('small', `It calls the camera relay over SRT on port ${camera.srt_port}, as a phone does.`));
+  // Where OBS takes it from over NDI.
   const source = document.createElement('input'); source.type = 'text'; source.maxLength = 255; source.value = camera.ndi_name; source.size = 28; source.setAttribute('aria-label', 'NDI source name');
   source.disabled = role !== 'admin' || off;
   const save = node('button', 'Save'); save.disabled = role !== 'admin' || off;
@@ -752,6 +785,7 @@ async function refreshScenes(button) {
     const done = await api('/api/obs/scenes', { method: 'POST', body: '{}' });
     const parts = [];
     if (done.sources_made.length) parts.push(`made a source for ${done.sources_made.join(', ')}`);
+    if ((done.rerouted || []).length) parts.push(done.rerouted.map(r => `put “${r.to}” in place of “${r.from}”`).join(', '));
     if (done.scenes_made.length) parts.push(`made ${done.scenes_made.length} scene${done.scenes_made.length === 1 ? '' : 's'}`);
     scenesSaid = `${new Date().toLocaleTimeString()} OBS: ${parts.length ? parts.join(' and ') : `nothing missing for the ${done.cameras} cameras`}.`
       + (done.unused.length ? ` Sources with no camera on their port, left as they are: ${done.unused.join(', ')}.` : '')

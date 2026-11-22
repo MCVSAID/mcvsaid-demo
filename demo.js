@@ -1454,6 +1454,44 @@
       if (line && camera.has_stream) Object.assign(line, body.keep_stream ? { status: 'ok', detail: 'its own stream is kept for its file, 62 Mb/s' }
         : { status: 'warn', detail: 'its own stream is not being kept, so a recording has no file of its own from it: stopped on its card (Keep its stream starts it again)' });
     }
+    if ('route' in body) {
+      // How its picture reaches OBS (netcams.py): over NDI, or over SRT through the camera relay as a phone's does. Its
+      // card, its readiness and its OBS source say which, as the manager's would once OBS's sources were swapped.
+      if (!['ndi', 'srt'].includes(body.route)) return answer({ detail: 'route is ndi or srt' }, 400);
+      if (cams().director?.on_air === id) return answer({ detail: `${camera.name} is on air: cut away from it first` }, 409);
+      if (cams().director?.recording) return answer({ detail: 'Not while the programme is being recorded: its picture and its file of this recording come the way it is set now' }, 409);
+      const was = camera.route || 'ndi', relayed = body.route === 'srt', source = camera.telemetry?.obs_source || camera.name;
+      camera.route = done.route = body.route; camera.srt_port = done.srt_port = relayed ? 8999 + camera.slot : null; camera.relay = camera.relay !== false;
+      if (was !== body.route) done.obs = { swapped: [{ camera: camera.name, from: `${source} (${relayed ? 'NDI' : 'SRT'})`, to: source, scenes: 4 }], left_out: [] };
+      if (camera.telemetry) { if (relayed) camera.telemetry.route = 'srt'; else delete camera.telemetry.route; }
+      const kept = checks.filter(c => ['delay', 'capture'].includes(c.id) || !['ndi', 'relay', 'encryption', 'source', 'picture'].includes(c.id));
+      const lines = relayed
+        ? [{ id: 'relay', label: 'Stream', status: camera.srt_sent ? 'ok' : 'fail', detail: camera.srt_sent ? 'calling the camera relay, 31 Mb/s' : `the camera is not calling the camera relay: set its SRT to call this computer on port ${camera.srt_port} (Send it to the relay, on its card; or on the camera’s own page: SRT on, caller, port ${camera.srt_port})` },
+           ...(camera.srt_sent ? [{ id: 'encryption', label: 'Encryption', status: camera.srt_keyed ? 'ok' : 'warn', detail: camera.srt_keyed ? 'its stream is encrypted (AES-128), with the passphrase the manager gave it' : 'its stream is not encrypted: anyone on the camera network could watch it, or call in its place while it is away. Send it to the relay from its card to give it a passphrase' }] : []),
+           { id: 'source', label: 'OBS source', status: 'ok', detail: `“${source}”, taking it from the camera relay` }]
+        : [{ id: 'ndi', label: 'NDI in OBS', status: 'ok', detail: 'OBS has the NDI plugin' }, { id: 'source', label: 'OBS source', status: 'ok', detail: `“${source}”, taking “${camera.ndi_name}”` },
+           { id: 'picture', label: 'Picture in OBS', status: 'ok', detail: 'OBS shows its picture' }];
+      if (camera.readiness) { camera.readiness.checks = [...lines, ...kept]; camera.readiness.overall = camera.readiness.checks.some(c => c.status === 'fail') ? 'fail' : camera.readiness.checks.some(c => c.status === 'warn') ? 'warn' : 'ok'; }
+      if (camera.telemetry) camera.telemetry.streaming = !relayed || !!camera.srt_sent;
+    }
+    if ('srt' in body) {
+      // Send it to the relay / Stop its SRT (tenveo.Tenveo.send_to_relay): the camera's own SRT set over its control
+      // address. No camera is told anything here: its card and readiness say what the real one would then show.
+      if (!['send', 'stop'].includes(body.srt) || ('encrypt' in body && typeof body.encrypt !== 'boolean')) return answer({ detail: 'srt is send or stop; encrypt is true or false' }, 400);
+      if (!camera.has_control) return answer({ detail: 'Give the camera’s control address first, so the manager can reach it' }, 409);
+      if (body.srt === 'send' && camera.route !== 'srt') return answer({ detail: 'Choose SRT through the camera relay for it first' }, 409);
+      camera.srt_sent = body.srt === 'send'; camera.srt_keyed = camera.srt_sent && body.encrypt !== false;
+      done.srt = camera.srt_sent ? 'sent' : 'stopped'; if (camera.srt_sent) { done.encrypted = camera.srt_keyed; done.srt_port = 8999 + camera.slot; }
+      if (camera.route === 'srt') {
+        const stream = checks.find(c => c.id === 'relay'), rest = (camera.readiness?.checks || []).filter(c => c.id !== 'encryption');
+        if (stream) Object.assign(stream, camera.srt_sent ? { status: 'ok', detail: 'calling the camera relay, 31 Mb/s' } : { status: 'fail', detail: `the camera is not calling the camera relay: set its SRT to call this computer on port ${8999 + camera.slot} (Send it to the relay, on its card; or on the camera’s own page: SRT on, caller, port ${8999 + camera.slot})` });
+        if (camera.readiness) {
+          camera.readiness.checks = camera.srt_sent ? [...rest.slice(0, 1), { id: 'encryption', label: 'Encryption', status: camera.srt_keyed ? 'ok' : 'warn', detail: camera.srt_keyed ? 'its stream is encrypted (AES-128), with the passphrase the manager gave it' : 'its stream is not encrypted: anyone on the camera network could watch it, or call in its place while it is away. Send it to the relay from its card to give it a passphrase' }, ...rest.slice(1)] : rest;
+          camera.readiness.overall = camera.readiness.checks.some(c => c.status === 'fail') ? 'fail' : camera.readiness.checks.some(c => c.status === 'warn') ? 'warn' : 'ok';
+        }
+        if (camera.telemetry) camera.telemetry.streaming = camera.srt_sent;
+      }
+    }
     if ('control_address' in body) {
       // The camera's control API address (netcontrol.py): kept, never shown; here it only turns the controls on or off.
       const set = !!String(body.control_address || '').trim();
