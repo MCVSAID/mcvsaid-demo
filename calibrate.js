@@ -72,14 +72,18 @@
     $('#colour-due').textContent = colour.length ? `Due now: ${colour.map(i => i.label).join('; ')}.` : '';
   }
 
+  // A network camera's own picture settings, as a calibration set them (or why it did not), and what is left to do by hand.
+  const own = c => c.camera ? `\n   its own settings: ${c.camera.why || (c.camera.changed ? `set to ${c.camera.now}` : `left at ${c.camera.now}`)}${c.camera.left?.length ? `; ${c.camera.left.join('; ')}` : ''}` : '';
+
   function summary(run) {
     const what = { sync: 'Sound', timing: 'Network camera timing', walk: 'Camera by camera' }[run.kind] || 'Colour';
     if (run.state === 'running') return `${what}: ${run.said}${run.yours ? '' : ` (started by ${run.by_name})`}`;
     if (run.state !== 'done') return `${what}: ${run.problem || run.state}`;
     if (run.kind === 'walk') {
       const colour = run.result?.colour;
+      const set = Object.values(colour?.cameras || {}).filter(c => c.camera).map(c => `   ${c.name}${own(c).replace('\n   ', ': ')}`);
       return 'Camera by camera, done.\n' + [...Object.values(run.result?.cameras || {}).map(c => `${c.name}: ${c.set_ms != null ? `lip sync ${c.set_ms} ms` : c.skipped ? 'skipped' : `not measured, ${c.why}`}`),
-        ...(colour && !colour.skipped ? [colour.why ? `Colour: not matched, ${colour.why}` : !colour.reference ? 'Colour: no camera’s chart was read' : `Colour: matched to ${colour.reference}${colour.in_obs ? ', in OBS' : colour.held ? ' (measured only: not put on the pictures; look at it on the Colour page)' : ''}`] : [])].join('\n');
+        ...(colour && !colour.skipped ? [colour.why ? `Colour: not matched, ${colour.why}` : !colour.reference ? 'Colour: no camera’s chart was read' : `Colour: matched to ${colour.reference}${colour.in_obs ? ', in OBS' : colour.held ? ' (measured only: not put on the pictures; look at it on the Colour page)' : ''}`, ...set] : [])].join('\n');
     }
     if (run.kind === 'sync') {
       const cameras = run.result?.calibration?.cameras || {};
@@ -89,7 +93,7 @@
       return 'Network cameras timed.\n' + Object.values(run.result?.cameras || {}).map(c => `${c.name}: ${c.why ? `not timed, ${c.why}` : `${c.own_ms} ms late by itself, held by ${c.held_ms} ms (against ${c.against.join(' and ')})`}`).join('\n');
     }
     const cameras = Object.values(run.result?.cameras || {});
-    return `Colour matched to ${run.result?.reference}${run.result?.in_obs ? ', in OBS' : run.result?.held ? ' (measured only: not put on the pictures; look at it on the Colour page)' : ''}.\n` + cameras.map(c => `${c.name}: ${c.problem ? c.problem : c.name === run.result?.reference ? 'the one the others match' : c.delta_e ? `ΔE ${c.delta_e.before.mean} → ${c.delta_e.after.mean}` : '—'}${c.warnings?.length ? `\n   to put right: ${c.warnings.join('; ')}` : ''}${c.camera ? `\n   its own settings: ${c.camera.why || (c.camera.changed ? `set to ${c.camera.now}` : `left at ${c.camera.now}`)}` : ''}`).join('\n');
+    return `Colour matched to ${run.result?.reference}${run.result?.in_obs ? ', in OBS' : run.result?.held ? ' (measured only: not put on the pictures; look at it on the Colour page)' : ''}.\n` + cameras.map(c => `${c.name}: ${c.problem ? c.problem : c.name === run.result?.reference ? 'the one the others match' : c.delta_e ? `ΔE ${c.delta_e.before.mean} → ${c.delta_e.after.mean}` : '—'}${c.warnings?.length ? `\n   to put right: ${c.warnings.join('; ')}` : ''}${own(c)}`).join('\n');
   }
 
   // -- a colour run: the page drawn as the manager asks (chartrun.js) ------------------------------------------------

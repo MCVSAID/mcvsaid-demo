@@ -161,19 +161,59 @@
 
   // The stage beacon (stagebeacon.py): the beacon phones, measuring from one now, what it found of each camera, and
   // (the administrator's) whether it puts a camera right and measures by itself.
-  let beaconDrawn = '';
+  let beaconDrawn = '', beaconNote = '', beaconPick = '';
+  const switched = answer => { beaconNote = `${answer.switched.name} ${answer.switched.on ? 'is a stage beacon now' : 'is a camera again'}: ${answer.switched.screen}.`; };
   const FOUND = { marked: 'its mark taken (lip sync as it is now)', checked: 'unchanged', moved: 'moved', corrected: 'moved, and its lip sync put right', beacon: 'moved with every other camera: the beacon, not the camera' };
   function beacon(state) {
     const sig = JSON.stringify(state);
     if (sig === beaconDrawn) return; beaconDrawn = sig;
     const body = $('#beacon-body'); body.replaceChildren();
-    if (!state.beacons.length) body.append(node('p', 'No phone is a stage beacon. On a spare phone paired like a camera, open the camera app and choose Stage beacon; it then shows here.', 'hint'));
+    const admin = session?.role === 'admin';
+    // Managing the beacon phones (StageBeacon.set_mode/test/stop): the administrator's, but stopping a run.
+    const act = (button, path, body, done) => async () => {
+      button.disabled = true;
+      try { const answer = await api(path, body); if (done) done(answer); beaconDrawn = ''; beacon(answer); }
+      catch (error) { button.disabled = false; concert.fail(error); }
+    };
+    const button = (words, title) => { const b = node('button', words); b.type = 'button'; if (title) b.title = title; return b; };
+    if (!state.beacons.length) body.append(node('p', `No phone is a stage beacon. Make a spare phone paired like a camera one below${admin ? '' : ' (the administrator’s)'}, or choose Stage beacon in the camera app on it; it then shows here.`, 'hint'));
     else {
-      const list = node('ul');
-      for (const b of state.beacons) list.append(node('li', `${b.name}: ${!b.online ? 'not connected' : b.open ? 'ready, its beacon screen up' : 'connected, its beacon screen not open'}${b.battery_percent != null ? ` · battery ${b.battery_percent}%${b.charging ? ', charging' : ''}` : ''}${b.temperature_c != null ? ` · ${b.temperature_c} °C` : ''}`, b.online && b.open ? '' : 'bad'));
+      const list = node('ul', undefined, 'beacon-phones');
+      for (const b of state.beacons) {
+        const item = node('li', undefined, b.online && b.open ? '' : 'bad');
+        const bits = [!b.online ? 'not connected' : b.running ? 'running' : b.open ? 'ready, its beacon screen up' : 'connected, its beacon screen not open'];
+        if (b.battery_percent != null) bits.push(`battery ${b.battery_percent}%${b.charging ? ', charging' : ', not charging'}`);
+        if (b.temperature_c != null) bits.push(`${b.temperature_c} °C`);
+        if (b.route) bits.push(b.route === 'speaker' ? 'sound to its own speaker' : `sound would go to ${b.route}: disconnect it, the beacon refuses`);
+        if (b.app_version) bits.push(`app ${b.app_version}`);
+        item.append(node('b', b.name), node('span', `: ${bits.join(' · ')}`));
+        if (admin) {
+          const row = node('span', undefined, 'beacon-actions');
+          const test = button(`Test (${state.test_seconds || 8} s)`, 'Its light code and hiss for a few seconds, measuring nothing: look and listen on stage');
+          test.disabled = state.running || !b.online;
+          test.onclick = act(test, '/api/beacon/test', { camera_id: b.id });
+          const back = button('Make it a camera again', b.switchable ? '' : 'Its camera app is too old to be switched from here: hold the beacon screen for three seconds on the phone');
+          back.disabled = !b.online || !b.switchable;
+          back.onclick = act(back, '/api/beacon/mode', { camera_id: b.id, on: false }, switched);
+          row.append(' ', test, ' ', back);
+          item.append(row);
+        }
+        list.append(item);
+      }
       body.append(list);
     }
-    const go = node('button', state.running ? 'Measuring…' : 'Measure every camera now'); go.type = 'button'; go.disabled = state.running || !state.beacons.some(b => b.online && b.open);
+    if (beaconNote) body.append(node('p', beaconNote));
+    if (state.running) {
+      const stop = button('Stop the beacon'); stop.onclick = act(stop, '/api/beacon/stop', {}); body.append(stop, ' ');
+    }
+    const tested = state.tested;
+    if (tested) {
+      const when = new Date(tested.at * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+      const said = tested.said ? ` (${tested.said.frames} refreshes, ${tested.said.late_frames} late; sound began after ${tested.said.start_delay_ms} ms)` : '';
+      const words = tested.state === 'running' ? 'testing: look at its screen and listen near it' : tested.state === 'done' ? `it ran as it should${said}` : tested.state === 'stopped' ? 'stopped' : `it did not run as it should: ${tested.why}`;
+      body.append(node('p', `${tested.beacon} tested at ${when}, ${tested.by}: ${words}.`, tested.state === 'failed' ? 'bad' : ''));
+    }
+    const go = node('button', !state.running ? 'Measure every camera now' : state.tested?.state === 'running' ? 'Testing…' : 'Measuring…'); go.type = 'button'; go.disabled = state.running || !state.beacons.some(b => b.online && b.open);
     go.onclick = async () => { try { beacon(await api('/api/beacon/measure', {})); } catch (error) { concert.fail(error); } };
     body.append(go);
     const last = state.last;
@@ -187,7 +227,6 @@
       }
       body.append(list);
     }
-    const admin = session?.role === 'admin';
     for (const [key, words] of [['corrects', 'Put a camera’s lip sync right by itself when its own lateness has moved'], ['auto', 'Measure by itself before the show (every quarter of an hour, and after a stream restarts)']]) {
       const label = node('label'), box = document.createElement('input'); box.type = 'checkbox'; box.checked = state[key]; box.disabled = !admin;
       box.onchange = async () => { try { beacon(await api('/api/beacon/settings', { [key]: box.checked })); } catch (error) { box.checked = !box.checked; concert.fail(error); } };
@@ -200,8 +239,23 @@
     if (state.level_db != null) pick.value = String(state.level_db);
     const was = pick.value;
     pick.onchange = async () => { try { beacon(await api('/api/beacon/settings', { level_db: Number(pick.value) })); } catch (error) { pick.value = was; concert.fail(error); } };
-    if (state.levels) { loud.append(node('span', 'Its hiss: '), pick); body.append(loud); }
-    if (!admin) body.append(node('p', 'Those are the administrator’s.', 'hint'));
+    if (state.levels) { loud.append(node('span', 'Its hiss: '), pick); const line = node('p'); line.append(loud); body.append(line); }
+    if (admin && state.candidates?.length) {
+      const make = node('label'), choose = document.createElement('select');
+      for (const c of state.candidates) {
+        const o = document.createElement('option'); o.value = c.id;
+        o.textContent = `${c.name}${!c.online ? ' (not connected)' : c.armed ? ' (armed as a camera: disarm it first)' : !c.switchable ? ` (app ${c.app_version || 'too old'}: choose Stage beacon on the phone)` : ''}`;
+        o.disabled = !c.online || c.armed || !c.switchable; choose.append(o);
+      }
+      const first = state.candidates.find(c => c.online && !c.armed && c.switchable && (c.id === beaconPick || !beaconPick)) || state.candidates.find(c => c.online && !c.armed && c.switchable);
+      if (first) choose.value = first.id;
+      choose.onchange = () => { beaconPick = choose.value; };
+      const go = button('Make it a stage beacon', 'It stops being a camera of the show: it shows the beacon screen and refuses to be armed until made a camera again');
+      go.disabled = !first;
+      go.onclick = act(go, '/api/beacon/mode', { get camera_id() { return choose.value; }, on: true }, switched);
+      make.append(node('span', 'Make a paired phone a stage beacon: '), choose); const line = node('p'); line.append(make, ' ', go); body.append(line);
+    }
+    if (!admin) body.append(node('p', 'Those, and managing the beacon phones, are the administrator’s.', 'hint'));
     if (!state.relay) body.append(node('p', 'The beacon is read from the camera relay, which is off: switch it on (System › Network) first.', 'hint bad'));
   }
 

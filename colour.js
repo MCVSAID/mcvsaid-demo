@@ -24,9 +24,15 @@
     } catch (error) { said = error.message; }
     busy = false; paint(true);
   }
+  const openPicture = new Set();              // the network cameras whose "Its picture" is unfolded
   const named = id => state?.cameras.find(c => c.id === id)?.name || id;
   const when = seconds => seconds ? new Date(seconds * 1000).toLocaleString([], { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
   const outcomeLine = cameras => Object.entries(cameras).map(([id, r]) => `${named(id)}: ${typeof r === 'string' ? r : r.problem ? r.problem : r.state ? `${r.state === 'SUCCEEDED' ? 'set' : r.state.toLowerCase()}${r.error ? ` (${r.error})` : ''}${r.note ? ` — ${r.note}` : ''}` : r.delta_e ? `ΔE ${r.delta_e.before.mean} → ${r.delta_e.after.mean} (worst ${r.delta_e.after.max})${r.reference ? ', the reference' : ''}${r.warnings?.length ? ` — ${r.warnings.join('; ')}` : ''}` : r.ok ? `picture ${r.width}×${r.height}` : r.problem || 'done'}`).join(' · ');
+
+  // What Match the cameras by themselves did, a camera a line.
+  const matched = match => `Matched to ${match.reference}${match.checked ? ', each camera looked at by the AI first' : ' (no AI to look whether they show the same thing: check them yourself)'}. `
+    + Object.values(match.cameras).map(c => `${c.name}: ${c.problem ? c.problem : `ΔE ${c.delta_e.before.mean} → ${c.delta_e.after.mean}, in OBS`}`
+      + (c.camera ? `; its own settings ${c.camera.why || (c.camera.changed ? `set to ${c.camera.now}` : `left at ${c.camera.now}`)}${c.camera.left?.length ? ` (${c.camera.left.join('; ')})` : ''}` : '')).join('. ');
 
   function select(options, value, change, label) {
     const pick = document.createElement('select'); pick.setAttribute('aria-label', label);
@@ -98,6 +104,24 @@
           tick.onchange = () => ask('/api/colour/camera', { camera: camera.id, allow: tick.checked }, () => tick.checked ? `${camera.name}: its own white balance and exposure may be set from here, and are brought to the other cameras’ by Calibrate colour.` : `${camera.name}: read only; matched by its LUT alone.`);
           const label = node('label', ' may set its picture'); label.prepend(tick); label.title = 'Lets the manager set this camera’s own white balance and exposure: from Set white balance above, and to match the other cameras while Calibrate colour shows the chart.';
           cell.append(node('br', ''), label);
+          // Its own picture, a setting at a time, as its own page has them (netcolour.PICTURE): only once allowed.
+          if (s.allowed && s.picture?.length) {
+            const fold = document.createElement('details'); fold.className = 'fold'; fold.open = openPicture.has(camera.id);
+            fold.ontoggle = () => fold.open ? openPicture.add(camera.id) : openPicture.delete(camera.id);
+            fold.append(node('summary', 'Its picture'));
+            const wanted = {};
+            for (const item of s.picture) {
+              const line = node('div', `${item.label} `);
+              if (item.options) line.append(select(item.options, item.value, v => { wanted[item.key] = Number(v); }, `${camera.name}: ${item.label}`));
+              else if ('shown' in item) line.append(number(item.shown, item.least - 10, item.most - 10, 1, v => { wanted[item.key] = v + 10; }, `${camera.name}: ${item.label}`));
+              else line.append(number(item.value, item.least, item.most, 1, v => { wanted[item.key] = v; }, `${camera.name}: ${item.label}`), node('small', ` ${item.least}–${item.most}`));
+              fold.append(line);
+            }
+            const set = node('button', 'Set its picture'); set.disabled = busy;
+            set.onclick = () => Object.keys(wanted).length ? ask('/api/colour/camera/picture', { camera: camera.id, settings: wanted }, answer => outcomeLine(answer.cameras)) : (said = 'Change a setting first.', paint());
+            fold.append(set, node('small', ' Set on the camera itself and kept through a power cut. A match made before no longer stands: match again.'));
+            cell.append(fold);
+          }
         }
         row.append(cell);
       } else
@@ -193,6 +217,12 @@
     const apply = node('button', 'Put every LUT in OBS'); apply.disabled = busy || !state.cameras.some(c => c.calibration && !c.calibration.reference);
     apply.onclick = () => ask('/api/colour/obs', { cameras: state.cameras.filter(c => c.calibration && !c.calibration.reference).map(c => c.id), on: true }, answer => outcomeLine(answer.cameras));
     calibration.append(node('p', ''), take, fit, apply);
+    // The whole match in one go, with nobody at a phone (Calibrate.match): what the steps above do by hand.
+    const alone = node('p', '');
+    const go = node('button', 'Match the cameras by themselves'); go.disabled = busy || state.cameras.filter(c => c.online).length < 2;
+    go.onclick = () => ask('/api/colour/match', { cameras: chosen.size ? [...chosen] : 'all', ...(scene && form.reference !== 'chart' ? { reference: form.reference } : {}) }, answer => matched(answer.match));
+    alone.append(go, node('small', ' Point the cameras at the same view first. It locks the camera the others are matched to, has the AI look whether each camera shows the same thing (when the AI is set up), sets a network camera’s own white balance and exposure where that is allowed, then fits each LUT and puts the good ones in OBS. About a minute.'));
+    calibration.append(alone);
     const grid = node('div', ''); grid.className = 'colour-pictures';
     for (const camera of state.cameras) if (camera.capture) grid.append(picture(camera));
     calibration.append(grid);

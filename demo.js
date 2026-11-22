@@ -985,7 +985,30 @@
       Object.assign(run, { state: 'done', ended: now(), beacon_said: base.last?.beacon_said || null });
       save();
     }
-    return { ...base, corrects: S.beaconCorrects ?? base.corrects, auto: S.beaconAuto ?? base.auto, level_db: S.beaconLevel ?? base.level_db, running: run?.state === 'running', last: run || base.last };
+    // Made a beacon, or a camera again, from the card (S.beaconMode, {phone id: on}); a short test (S.beaconTest).
+    const mode = S.beaconMode || {};
+    const asBeacon = c => ({ id: c.id, name: c.name, online: c.online, open: true, running: false, route: 'speaker', other_outputs: [], battery_percent: 100, charging: true,
+      temperature_c: 29.5, app_version: c.app_version, switchable: true, own_ms: 0 });
+    const asPhone = b => ({ id: b.id, name: b.name, online: b.online, armed: false, streaming: false, switchable: true, app_version: b.app_version });
+    const everyone = [...(base.beacons || []).map(b => [b, true]), ...(base.candidates || []).map(c => [c, false])];
+    const beacons = [], candidates = [];
+    for (const [phone, was] of everyone) {
+      const on = mode[phone.id] ?? was;
+      if (on) beacons.push(was ? phone : asBeacon(phone)); else candidates.push(was ? asPhone(phone) : phone);
+    }
+    const test = S.beaconTest;
+    if (test && test.state === 'running' && now() - test.at > (base.test_seconds || 8) + 1) {
+      Object.assign(test, { state: 'done', ended: now(), said: { route: 'speaker', frames: 476, late_frames: 1, refresh_hz: 60, start_delay_ms: 38.5, lead_ms: 33.3, sound: 2 } });
+      save();
+    }
+    const running = run?.state === 'running' || test?.state === 'running';
+    for (const b of beacons) b.running = running && (test?.state === 'running' ? test.id === b.id : b === beacons[0]);
+    return { ...base, beacons, candidates, test_seconds: base.test_seconds || 8, tested: test || base.tested || null,
+      corrects: S.beaconCorrects ?? base.corrects, auto: S.beaconAuto ?? base.auto, level_db: S.beaconLevel ?? base.level_db, running, last: run || base.last };
+  }
+  function stopBeacon() {
+    if (S.beaconRun?.state === 'running') Object.assign(S.beaconRun, { state: 'stopped', ended: now() });
+    if (S.beaconTest?.state === 'running') Object.assign(S.beaconTest, { state: 'stopped', ended: now() });
   }
   function calibrateRead() {
     const base = S.answers['/api/calibrate'] || { cameras: [], relay: true, lip_sync_by_camera: {} };
@@ -2115,7 +2138,7 @@
   const REFUSED = [
     [/^\/api\/cameras\/[^/]+$/, 'In the demo the simulated cameras stay: on a real manager this frees the camera’s slot.'],
     [/^\/api\/network-cameras$/, 'In the demo the simulated cameras stay as they are: on a real manager this adds the network camera, and “Refresh OBS scenes” then makes its NDI source and scenes in OBS.'],
-    [/^\/api\/colour\/(capture|calibrate|obs|settings|camera)$/, 'In the demo the colour stays as the demonstration manager matched it: its pictures are drawn stills, with no camera to take, fit or set again, and the network camera’s own white balance stays as Calibrate colour left it.'],
+    [/^\/api\/colour\/(capture|calibrate|obs|settings|camera|camera\/picture|match)$/, 'In the demo the colour stays as the demonstration manager matched it: its pictures are drawn stills, with no camera to take, fit, match or set again, and the network camera’s own picture stays as Calibrate colour left it.'],
     [/^\/api\/creator\/preview$/, 'In the demo there is no live picture to look for people in: on a real manager the camera’s picture is looked at now.'],
     [/^\/api\/face-blur\/(experimental|remove)$/, 'In the demo face blur stays as it is shown: on a real manager this changes OBS’s scenes.'],
     [/^\/api\/locations\/(export|import)$/, 'In the demo there are no location files to save or bring in: on a real manager a location is kept in a file with its passphrase.'],
@@ -2232,6 +2255,25 @@
       S.beaconRun = { at: now(), by: S.answers['/api/session']?.name || 'Morgan', beacon: state.beacons[0].name, state: 'running', cameras: {} };
       save(); return answer(beaconRead());
     }
+    // Managing the beacon phones (stagebeacon.py): made a beacon or a camera again, tested, a run stopped.
+    if (path === '/api/beacon/mode' || path === '/api/beacon/test') {
+      const state = beaconRead();
+      const phone = [...state.beacons, ...state.candidates].find(p => p.id === body.camera_id);
+      if (!phone) return answer({ detail: 'No such phone' }, 404);
+      if (path === '/api/beacon/test') {
+        if (!state.beacons.includes(phone)) return answer({ detail: `${phone.name} is not a stage beacon` }, 409);
+        if (state.running) return answer({ detail: 'The stage beacon is running already: wait for it, or stop it' }, 409);
+        S.beaconTest = { at: now(), by: S.answers['/api/session']?.name || 'Morgan', beacon: phone.name, id: phone.id, state: 'running' };
+        save(); return answer(beaconRead());
+      }
+      if (typeof body.on !== 'boolean') return answer({ detail: 'Send on, true or false' }, 400);
+      if (body.on && phone.armed) return answer({ detail: `${phone.name} is armed as a camera${phone.streaming ? ' and streaming' : ''}: disarm it first` }, 409);
+      if (!body.on && state.running && (S.beaconTest?.state === 'running' ? S.beaconTest.id === phone.id : state.beacons[0]?.id === phone.id)) stopBeacon();
+      S.beaconMode = { ...(S.beaconMode || {}), [phone.id]: body.on };
+      save();
+      return answer({ ...beaconRead(), switched: { name: phone.name, on: body.on, open: body.on, screen: body.on ? 'the beacon screen is up' : 'back to the camera app’s own screen' } });
+    }
+    if (path === '/api/beacon/stop') { stopBeacon(); save(); return answer(beaconRead()); }
     if (path === '/api/beacon/settings') {
       if (typeof body.corrects === 'boolean') S.beaconCorrects = body.corrects;
       if (typeof body.auto === 'boolean') S.beaconAuto = body.auto;
