@@ -67,7 +67,12 @@
     // The colour items of the same list: what Calibrate colour, here or as the walk's colour step, would put right.
     const colour = all.filter(i => /^colour(:|$)/.test(i.id) && i.state === 'todo');
     const items = [...all.filter(i => /^(lip-sync|timed|programme|mix-trim):?/.test(i.id) && i.state !== 'ready' && i.state !== 'idle'), ...colour];
-    $('#due').textContent = items.length ? `Due now: ${items.map(i => i.label).join('; ')}. With a stage beacon standing ready, it offers the beacon first, and walks you only to the cameras the beacon leaves. It takes you to each camera once: you hold this phone in front of it and tap, the manager puts that camera on air with its own microphone and sets its lip sync. Then the network cameras; the cameras’ colours when they are due, matched by what the cameras see and shown to you to keep or leave; and where the programme’s sound comes from.`
+    // A stage beacon standing ready is offered first (calibrate.beacon_first; report.beacon): what it can do, and what is still a person's.
+    const lit = report.beacon;
+    const first = !lit ? 'With a stage beacon standing ready, it offers the beacon first, and walks you only to the cameras the beacon leaves.'
+      : lit.cannot ? `The stage beacon (${lit.name}) is ready${lit.timing ? ' and is offered first for the network cameras’ timing' : ''}, but it sets no lip sync yet: ${lit.cannot}.`
+      : `The stage beacon (${lit.name}) is offered first: from where it stands it sets the lip sync of each camera that is due${lit.timing ? ' and times the network cameras' : ''}, and you are walked only to a camera it could not read surely. The colours and where the sound comes from are still yours.`;
+    $('#due').textContent = items.length ? `Due now: ${items.map(i => i.label).join('; ')}. ${first} It takes you to each camera once: you hold this phone in front of it and tap, the manager puts that camera on air with its own microphone and sets its lip sync. Then the network cameras; the cameras’ colours when they are due, matched by what the cameras see and shown to you to keep or leave; and where the programme’s sound comes from.`
       : 'Nothing is due: every camera’s lip sync, each network camera’s timing and the cameras’ colour match are as measured. It can still take you round every camera again, or straight to where the programme’s sound comes from.';
     $('#colour-due').textContent = colour.length ? `Due now: ${colour.map(i => i.label).join('; ')}.` : '';
   }

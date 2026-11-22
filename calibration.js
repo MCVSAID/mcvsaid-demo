@@ -54,6 +54,13 @@
     const worst = report.counts.todo ? 'todo' : report.counts.unknown ? 'unknown' : 'ready';
     const head = node('p', undefined, 'preshow-said'); head.append(node('span', STATES[worst][0], `badge ${STATES[worst][1]}`), node('b', ` ${report.said}.`));
     body.append(head);
+    // A stage beacon standing ready (calibrate.Calibrate.standing): what the check on the phone offers it for, and what is still a person's.
+    if (report.beacon) {
+      const lit = report.beacon, timing = lit.timing ? ' and time the network cameras by its light' : '';
+      body.append(node('p', (lit.cannot ? `The stage beacon (${lit.name}) is ready${lit.timing ? ', and the check on the phone offers it for the network cameras’ timing' : ''}, but it sets no lip sync yet: ${lit.cannot}. Until then each camera is walked to.`
+        : `The stage beacon (${lit.name}) is ready: the check on the phone offers it first. From where it stands it can set the lip sync of each camera that is due${timing}, and the phone is walked only to a camera it could not see or hear, or was not sure of to within 25 ms.`)
+        + ' Still a person’s: the beacon’s own part, measured once against a camera measured with the flashes (Stage beacon, below); the cameras’ colours; and where the programme’s sound comes from.', 'hint'));
+    }
     for (const group of report.groups) {
       body.append(node('h3', group.title));
       if (group.empty) { body.append(node('p', group.empty, 'hint')); continue; }
@@ -146,6 +153,8 @@
         else {
           list.append(node('li', `Stage beacon (${r.beacon.beacon}) first: ${r.beacon.settled.length ? `settled ${r.beacon.settled.join(', ')}, not walked to` : 'settled no camera'}`));
           for (const [name, why] of Object.entries(r.beacon.left)) list.append(node('li', `${name}: left to walk to by the beacon: ${why}`));
+          if (r.beacon.timed?.length) list.append(node('li', `Stage beacon: timed ${r.beacon.timed.join(', ')} against the phones by its light`));
+          for (const [name, why] of Object.entries(r.beacon.untimed || {})) list.append(node('li', `${name}: not timed by the beacon, left to the flashes: ${why}`, 'bad'));
         }
       }
       for (const c of Object.values(r.cameras || {})) list.append(node('li', `${c.name}: ${c.set_ms != null ? `lip sync set to ${c.set_ms} ms, measured alone in the programme (${c.pairs} flashes, ±${c.spread_ms} ms)` : c.skipped ? 'skipped' : `not measured: ${c.why}`}`, c.why ? 'bad' : ''));

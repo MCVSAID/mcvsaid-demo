@@ -1121,6 +1121,13 @@
     S.colourAt = now();
     return { ...found, in_obs: true };
   }
+  // The stage beacon the check would offer first (calibrate.Calibrate.standing): in the demo its own part is measured
+  // and a camera has been measured through OBS, so it sets lip sync.
+  function standing() {
+    const lit = beaconRead().beacons.find(b => b.online && b.open);
+    return lit ? { name: lit.name, cannot: lit.own_known === false ? 'its own part (what the beacon phone puts between its screen and its speaker) has not been measured. Measure it once, on the Stage beacon card, against a camera measured here with the flashes' : null,
+      timing: S.beaconNetwork ?? S.answers['/api/beacon']?.network ?? true } : null;
+  }
   function walkStart(all) {
     const list = (cams()?.cameras || []).filter(c => c.id), phones = list.filter(c => c.kind !== 'network'), network = list.filter(c => c.kind === 'network');
     // A stop a phone camera whose lip sync is due (or that has a network camera beside it to time); the colours are
@@ -1131,7 +1138,7 @@
     // A camera the stage beacon set, and is sure of, is as good as measured (preshow.lip_sync).
     const unmeasured = c => all || (S.calibration?.cameras?.[c.name]?.set_ms == null && !S.beaconRests?.[c.name]?.sure), timing = c => besideOf(c).length > 0 && (all || !S.netTimed);
     const due = phones.filter(c => unmeasured(c) || timing(c)).sort((a, b) => besideOf(a).length - besideOf(b).length);
-    const beaconName = (S.answers['/api/beacon']?.beacons || []).find(b => b.online && b.open)?.name;
+    const lit = standing(), beaconName = lit && !lit.cannot ? lit.name : null;
     const run = { id: Math.random().toString(16).slice(2, 14), kind: 'walk', state: 'running', step: 0, show: null, ask: null, said: 'Starting', started: now(), ended: null,
       by_name: S.answers['/api/session']?.name || 'Morgan', answered: 0, problem: null, yours: true, until: null,
       result: { cameras: {}, timing: null, colour: null, sound: null, mix: null, visited: due.map(c => c.name), beacon: null },
@@ -1172,10 +1179,18 @@
       const keep = run.queue.filter(q => q.kind !== 'camera' || q.sound || q.timing), walked = keep.filter(q => q.kind === 'camera');
       walked.forEach((q, i) => { q.n = i + 1; q.of = walked.length; });
       run.result.visited = walked.map(q => q.name);
-      run.result.beacon = { beacon: done.name, settled: settled.map(q => q.name), left: Object.fromEntries(left.map(q => [q.name, 'the beacon did not read it (it saw too little of the beacon’s screen)'])) };
+      // The network cameras with no phone beside them, timed by its light in the same run: not timed again by the flashes.
+      const apart = standing()?.timing ? run.queue.find(q => q.kind === 'network') : null;
+      if (apart) {
+        const against = (cams()?.cameras || []).filter(c => c.kind !== 'network').slice(0, 2).map(c => c.name);
+        S.netTimed = { at: t, by: 'beacon', cameras: Object.fromEntries(apart.cameras.map(c => [c.id, { name: c.name, own_ms: 310, held_ms: 590, from_ms: 600, against, likeness: 0.84 }])) };
+      }
+      run.result.beacon = { beacon: done.name, settled: settled.map(q => q.name), left: Object.fromEntries(left.map(q => [q.name, 'the beacon did not read it (it saw too little of the beacon’s screen)'])),
+        timed: apart ? apart.cameras.map(c => c.name) : [], untimed: {}, cannot: null, again: false };
       const said = (settled.length ? `The beacon settled ${settled.map(q => q.name).join(' and ')}: not walked to. ` : 'The beacon settled no camera. ')
-        + (left.length ? `Still to walk to: ${left.map(q => `${q.name}, ${run.result.beacon.left[q.name]}`).join('; ')}.` : 'No camera’s lip sync is left to walk to.');
-      run.queue = [{ kind: 'beacon-done', said }, ...keep.slice(1)];
+        + (left.length ? `Still to walk to: ${left.map(q => `${q.name}, ${run.result.beacon.left[q.name]}`).join('; ')}.` : 'No camera’s lip sync is left to walk to.')
+        + (apart ? ` It timed ${apart.cameras.map(c => c.name).join(' and ')} against the phones by its light, too.` : '');
+      run.queue = [{ kind: 'beacon-done', said }, ...keep.slice(1).filter(q => q !== apart)];
     } else if (done.kind === 'camera') {
       if (done.timing) {
         // The camera beside it, timed by the same flashes.
@@ -1277,7 +1292,8 @@
     const sound = programmeSound(), mixed = sound.others === 'mixed', cal = S.calibration, began = S.preshowBegan || (S.preshowBegan = t - 2400);
     const item = (id, label, state, detail, action, href) => ({ id, label, state, detail, action: state === 'todo' || state === 'unknown' ? action || null : null, href: (state === 'todo' || state === 'unknown') && action ? href || null : null, measure: null });
     const flash = 'Calibrate sound from the calibrate page on a phone, held where this camera sees it', flashAll = 'Calibrate sound from the calibrate page on a phone, held where the cameras see it';
-    const timeIt = 'Time the network cameras from the calibrate page on a phone, held where this camera and a phone camera both see it';
+    const byFlash = 'Time the network cameras from the calibrate page on a phone, held where this camera and a phone camera both see it', lit = standing();
+    const timeIt = lit?.timing ? `Time the network cameras now, on the Stage beacon card here (${lit.name}): by its light as OBS shows it from this camera and from a phone, with nobody on stage (the Pre-show calibration check on a phone offers the same first). Where this camera does not see the beacon: t${byFlash.slice(1)}` : byFlash;
     const itself = 'Talk or play something near this camera while OBS is neither recording nor streaming: the manager measures it by itself, from the room’s sound, within a few minutes. '
       + 'Or measure it now with the button here, or with the flashes: calibrate sound from the calibrate page on a phone, held where this camera sees it';
     const lips = phones.map(c => {
@@ -1308,7 +1324,7 @@
     const timed = S.netTimed ? { ended: S.netTimed.at, result: S.netTimed } : null;
     const net = network.flatMap(c => {
       const found = timed?.result?.cameras?.[c.id], input = sound.inputs.find(x => x.id === c.id), rows = [];
-      rows.push(found && !found.why ? item(`timed:${c.id}`, `${c.name}: timed against a phone`, 'ready', `Timed at ${clock(timed.ended)} by the calibrate page's flashes against ${found.against[0]}: ${found.own_ms} ms late by itself, and held to match.`)
+      rows.push(found && !found.why ? item(`timed:${c.id}`, `${c.name}: timed against a phone`, 'ready', `Timed at ${clock(timed.ended)} by ${S.netTimed.by === 'beacon' ? "the stage beacon's light" : "the calibrate page's flashes"} against ${found.against[0]}: ${found.own_ms} ms late by itself, and held to match.`)
         : item(`timed:${c.id}`, `${c.name}: timed against a phone`, 'todo', found?.why ? `Not timed: ${found.why}.` : 'Not timed: too little happening in both pictures. It is held by 600 ms, as last set.', timeIt));
       if (input) rows.push(input.volume <= 15 ? item(`input:${c.id}`, `${c.name}: input volume`, 'todo', `${input.volume} of ${input.most}: low enough to be close to silent.`, 'Set its input volume (Sound › Programme sound)', '/sound#programme')
         : item(`input:${c.id}`, `${c.name}: input volume`, 'ready', `${input.volume} of ${input.most}${input.guard ? ', guarded (loudest lately -11.4 dB).' : ', not guarded.'}`));
@@ -1338,7 +1354,7 @@
     const counts = { ready: 0, todo: 0, unknown: 0, idle: 0 };
     groups.forEach(g => g.items.forEach(i => counts[i.state]++));
     const said = counts.todo ? `${counts.todo} thing${counts.todo === 1 ? '' : 's'} to do before the show` : 'Sound and cameras are lined up';
-    return { at: t, counts, said, groups };
+    return { at: t, counts, said, groups, beacon: standing() };
   }
   function programmeSound() {
     // The chosen camera leads; in the demo every other camera is lined up with it, the third a few milliseconds moved.
