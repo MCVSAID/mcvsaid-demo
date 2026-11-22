@@ -133,7 +133,8 @@
   }
 
   async function refresh() {
-    const showing = typeof part !== 'undefined' && part === '/sound' && soundTab === 'programme' && csrf && role === 'admin';
+    // An operator's too.
+    const showing = typeof part !== 'undefined' && part === '/sound' && soundTab === 'programme' && csrf;
     panel.hidden = !showing;
     if (!showing || busy) return;
     try { state = await api('/api/programme-sound'); paint(false); } catch (error) { said = error.message; }

@@ -69,7 +69,7 @@ const powerPanel = document.querySelector('#power');
 function show(path) {
   if (path === '/locations') { path = '/system'; systemTab = 'locations'; }
   else if (path === '/system') systemTab = systemTabOf(location.hash.slice(1));
-  else if (path === '/sound') soundTab = role === 'admin' ? soundTabOf(location.hash.slice(1)) : 'voice';
+  else if (path === '/sound') soundTab = soundTabOf(location.hash.slice(1));
   part = PARTS[path] ? path : '/';
   // The Recipe page is Cooking's: in another kind of event it is the Show page.
   if (part === '/recipe' && window.concert.mode && window.concert.mode.mode !== 'cooking') { part = '/'; history.replaceState(null, '', window.concert.at('/')); }
@@ -83,7 +83,7 @@ function show(path) {
     document.querySelector('#add-network-camera').hidden = window.concert.session?.role !== 'admin';
   }
   if (part === '/sound') {
-    const tabs = document.querySelector('#sound-tabs'); tabs.hidden = role !== 'admin';
+    const tabs = document.querySelector('#sound-tabs'); tabs.hidden = false;
     for (const [id, , panel] of SOUND) document.querySelector(panel).hidden = id !== soundTab;
     window.concert.tabs(tabs, SOUND.map(([id, name]) => [`#${id}`, name]), `#${soundTab}`, href => { history.pushState(null, '', `/sound${href}`); show('/sound'); });
     document.dispatchEvent(new Event('sound-section'));          // voice.js and programmesound.js draw the one that is open

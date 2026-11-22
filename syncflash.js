@@ -68,6 +68,9 @@ function walk(run) {
   const was = flashing;
   flashing = run.show === 'flash' || run.show === 'flash-silent'; quiet = run.show === 'flash-silent';
   if (flashing && !was && audio) next = audio.currentTime + 0.4;
+  // Measuring is over: the beeps already put out for the next two seconds are taken back with their flashes (a beep
+  // was heard over a dark screen after each camera, 2026-11-21).
+  if (!flashing && was) hush();
   document.getElementById('walk-said').textContent = run.said || '';
   // The colour step: the page is the chart's while the manager asks for it.
   if (['black', 'locate', 'chart'].includes(run.show)) {
@@ -108,11 +111,17 @@ async function start() {
   schedule();
   if (MANAGER) measure();
 }
+// The beeps given to the sound clock ahead of time (schedule): silenced, when their flashes will not be shown.
+const ahead = [];
+function hush() {
+  for (const { gain } of ahead.splice(0)) { try { gain.gain.cancelScheduledValues(0); gain.gain.value = 0; } catch (e) { /* played already */ } }
+}
 function schedule() {
   if (!audio) return;
   if (!flashing) { next = audio.currentTime + 0.4; setTimeout(schedule, 200); return; }      // between cameras: quiet and dark
   // The beep is put out early by the device's own sound latency, so it is heard as the screen lights.
   const late = (audio.outputLatency || 0) + (audio.baseLatency || 0);
+  while (ahead.length && ahead[0].until < audio.currentTime) ahead.shift();
   while (next < audio.currentTime + 2) {
     const at = next, osc = audio.createOscillator(), gain = audio.createGain();
     if (SILENT || quiet) gain.gain.value = 0;      // the sound's clock still times the flashes; nothing is heard
@@ -124,6 +133,7 @@ function schedule() {
       gain.gain.linearRampToValueAtTime(0, Math.max(0, at - late) + FLASH);
     }
     osc.start(Math.max(0, at - late)); osc.stop(Math.max(0, at - late) + FLASH + 0.01);
+    ahead.push({ gain, until: at + FLASH });
     const wait = (at - audio.currentTime) * 1000;
     setTimeout(() => flash(at), Math.max(0, wait - 30));
     next += GAPS[step++ % GAPS.length];
