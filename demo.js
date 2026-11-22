@@ -971,7 +971,9 @@
     ['chart', 'Taking each camera’s picture of the chart: hold still']];
   // The stage beacon (stagebeacon.py), as the manager answers: a run of about 20 seconds, then each camera as the
   // demonstration manager's own run found it (its network camera hears nothing of the beacon), each set against the
-  // mark taken at that run: unchanged, give or take a few milliseconds.
+  // mark taken at that run: unchanged, give or take a few milliseconds. And its network camera timed against the phones
+  // by the beacon's light as OBS shows it (beaconsync.py): where it was, give or take, so left as it is. A run for
+  // that alone (purpose 'network', light_only) reads no camera's sound.
   // "Set lip sync from the beacon" (beacon.from_reading): each reading less its distance from the beacon on the room map
   // (the snapshot's own) and OBS's own part, Centre Wide's as its flash reading had it (demo_data.WIDE_OBS_MS); "Measure
   // the beacon's own part" (beacon.own_from): against Centre Wide's flash reading. With no run in the snapshot, each
@@ -1015,7 +1017,16 @@
     const base = S.answers['/api/beacon'] || { beacons: [], running: false, last: null, relay: true, corrects: false, auto: false, marks: {} };
     const run = S.beaconRun;
     if (run && run.state === 'running' && now() - run.at > 21) {
-      beaconFinish(run, base);
+      const before = base.last?.cameras || {};
+      if (run.light_only) run.cameras = {}; else beaconFinish(run, base);
+      if (run.purpose !== 'own' && ((S.beaconNetwork ?? base.network ?? true) || run.light_only) && (base.network_cameras || []).length) {
+        const was = base.last?.network?.cameras || {};
+        const phones = base.last?.network?.phones || Object.keys(before).filter(name => !before[name].why).slice(0, 3);
+        run.network = { phones: phones.length ? phones : ['Stage Left', 'Keys'], cameras: Object.fromEntries(base.network_cameras.map(name => {
+          const c = was[name]?.own_ms != null ? was[name] : { own_ms: 150, held_ms: 5350, against: (phones.length ? phones : ['Stage Left', 'Keys']).slice(0, 2), likeness: 0.82 };
+          return [name, { ...c, own_ms: c.own_ms + Math.round((Math.random() - 0.5) * 10), from_ms: c.held_ms }];
+        })) };
+      }
       Object.assign(run, { state: 'done', ended: now(), beacon_said: base.last?.beacon_said || null });
       save();
     }
@@ -1041,7 +1052,8 @@
     if (S.beaconOwn && beacons[0]) beacons[0] = { ...beacons[0], own_ms: S.beaconOwn.own_ms, own_known: true };
     const ownMeasured = S.beaconOwn && beacons[0] ? { ...(base.own_measured || {}), [beacons[0].id]: { at: S.beaconOwn.at, how: S.beaconOwn.how } } : base.own_measured;
     return { ...base, beacons, own_measured: ownMeasured, candidates, test_seconds: base.test_seconds || 8, tested: test || base.tested || null,
-      corrects: S.beaconCorrects ?? base.corrects, auto: S.beaconAuto ?? base.auto, level_db: S.beaconLevel ?? base.level_db, running, last: run || base.last };
+      corrects: S.beaconCorrects ?? base.corrects, auto: S.beaconAuto ?? base.auto, level_db: S.beaconLevel ?? base.level_db, running, last: run || base.last,
+      network: S.beaconNetwork ?? base.network ?? true, network_minutes: S.beaconNetworkMinutes ?? base.network_minutes ?? 15 };
   }
   function stopBeacon() {
     if (S.beaconRun?.state === 'running') Object.assign(S.beaconRun, { state: 'stopped', ended: now() });
@@ -2289,8 +2301,10 @@
       const state = beaconRead();
       if (state.running) return answer({ detail: 'The stage beacon is measuring already' }, 409);
       if (!state.beacons.some(b => b.online && b.open)) return answer({ detail: 'No stage beacon is connected with its beacon screen up: open the camera app on the beacon phone and choose Stage beacon' }, 409);
-      const purpose = ['set', 'own'].includes(body?.purpose) ? body.purpose : 'check';
-      S.beaconRun = { at: now(), by: S.answers['/api/session']?.name || 'Morgan', beacon: state.beacons[0].name, state: 'running', cameras: {}, purpose, camera: body?.camera || null };
+      const purpose = ['set', 'own', 'network'].includes(body?.purpose) ? body.purpose : 'check';
+      if (purpose === 'network' && !(state.network_cameras || []).length) return answer({ detail: 'No network camera is showing a picture in OBS' }, 409);
+      S.beaconRun = { at: now(), by: S.answers['/api/session']?.name || 'Morgan', beacon: state.beacons[0].name, state: 'running', cameras: {}, purpose, camera: body?.camera || null,
+        ...(purpose === 'network' ? { light_only: true } : {}) };
       save(); return answer(beaconRead());
     }
     // Managing the beacon phones (stagebeacon.py): made a beacon or a camera again, tested, a run stopped.
@@ -2315,6 +2329,8 @@
     if (path === '/api/beacon/settings') {
       if (typeof body.corrects === 'boolean') S.beaconCorrects = body.corrects;
       if (typeof body.auto === 'boolean') S.beaconAuto = body.auto;
+      if (typeof body.network === 'boolean') S.beaconNetwork = body.network;
+      if ((beaconRead().network_choices || []).includes(body.network_minutes)) S.beaconNetworkMinutes = body.network_minutes;
       if ((beaconRead().levels || []).includes(body.level_db)) S.beaconLevel = body.level_db;
       save(); return answer(beaconRead());
     }

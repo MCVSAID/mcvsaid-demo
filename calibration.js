@@ -225,6 +225,11 @@
       try { beacon(await api('/api/beacon/measure', { purpose: 'set' })); } catch (error) { concert.fail(error); }
     };
     body.append(go, ' ', set);
+    // A run for the network cameras' timing alone (beaconsync.py): the light only, its hiss too soft to hear.
+    if (state.network_cameras?.length) {
+      const time = button('Time the network cameras now', `${state.network_cameras.join(', ')}: timed against the phones by the beacon’s light as OBS shows it from each. Next to no hiss, and no camera’s lip sync is measured`);
+      time.disabled = go.disabled; time.onclick = act(time, '/api/beacon/measure', { purpose: 'network' }); body.append(' ', time);
+    }
     // The beacon's own part: held up to a camera whose flash reading is known, or where it stands, by the room map.
     const own = node('p'), against = document.createElement('select');
     for (const [value, words] of [['', 'every camera with a flash reading, the beacon where the room map has it'], ...(state.flashed || []).map(c => [c.id, `held up to ${c.name}, about ${state.held_m} m in front of it`])]) {
@@ -239,7 +244,8 @@
     const last = state.last;
     if (last) {
       const when = new Date(last.at * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-      body.append(node('p', `${last.state === 'running' ? 'Measuring' : 'Measured'} at ${when}, ${last.by}${last.state === 'failed' ? `: not measured: ${last.why}` : last.state === 'running' ? ': the beacon is showing its code (about 20 seconds)' : ''}.`, last.state === 'failed' ? 'bad' : ''));
+      const [doing, did, not] = last.light_only ? ['Timing the network cameras', 'Timed the network cameras', 'not timed'] : ['Measuring', 'Measured', 'not measured'];
+      body.append(node('p', `${last.state === 'running' ? doing : did} at ${when}, ${last.by}${last.state === 'failed' ? `: ${not}: ${last.why}` : last.state === 'running' ? ': the beacon is showing its code (about 20 seconds)' : ''}.`, last.state === 'failed' ? 'bad' : ''));
       const list = node('ul');
       for (const [name, c] of Object.entries(last.cameras || {})) {
         const words = c.why ? `not measured: ${c.why}` : `${c.own_ms} ms (sound after picture in its own stream, the distance included; seen ${c.likeness}, heard ${c.clear_db} dB clear)${c.state ? `: ${FOUND[c.state] || c.state}` : last.purpose === 'own' ? ', the beacon’s own part included' : ''}${c.delta_ms != null && c.state !== 'checked' ? ` by ${c.delta_ms} ms` : c.state === 'checked' ? ` (${c.delta_ms >= 0 ? '+' : ''}${c.delta_ms} ms)` : ''}${c.set_ms != null ? `, to ${c.set_ms} ms` : ''}`;
@@ -247,10 +253,23 @@
         if (made) item.append(node('div', made.why ? `Lip sync not set from it: ${made.why}.` : `Lip sync set from it to ${made.set_ms} ms (to within about ${made.unsure_ms} ms), resting on ${made.rests_on.join('; ')}.${made.sure ? '' : ' Measure it through OBS when you can (Do what is due).'}`, 'hint'));
         list.append(item);
       }
-      body.append(list);
+      if (list.children.length) body.append(list);
       if (last.own) body.append(node('p', last.own.why ? `The beacon’s own part was not measured: ${last.own.why}.` : `The beacon’s own part: ${last.own.own_ms} ms (${last.own.how}${Object.keys(last.own.cameras).length > 1 ? `, the cameras within ${last.own.spread_ms} ms of each other` : ''}).`, last.own.why ? 'bad' : ''));
+      // The network cameras, timed against the phones by the same light (sync.SyncKeeper.time_by_beacon).
+      const net = last.network;
+      if (net?.why) body.append(node('p', `The network cameras were not timed: ${net.why}.`, 'bad'));
+      else if (net) {
+        const timed = node('ul');
+        for (const [name, c] of Object.entries(net.cameras || {})) {
+          const words = c.why ? `not timed: ${c.why}${c.likeness != null ? ` (seen ${c.likeness})` : ''}`
+            : `${Math.abs(c.own_ms)} ms ${c.own_ms < 0 ? 'early' : 'late'} by itself against ${c.against.join(', ')} (seen ${c.likeness}): ${c.held_ms === c.from_ms ? `left as it is, held by ${c.held_ms} ms` : `held by ${c.held_ms} ms now, from ${c.from_ms} ms`}`;
+          timed.append(node('li', `${name}: ${words}`, c.why ? 'bad' : ''));
+        }
+        body.append(node('p', `Network cameras, timed by the beacon’s light as OBS shows it (phones watched: ${(net.phones || []).join(', ') || 'none'}):`), timed);
+      }
     }
-    for (const [key, words] of [['corrects', 'Put a camera’s lip sync right by itself when its own lateness has moved'], ['auto', 'Measure by itself before the show (its hiss is then heard in the room every quarter of an hour, and after a stream restarts, until OBS records or streams)']]) {
+    for (const [key, words] of [['corrects', 'Put a camera’s lip sync right by itself when its own lateness has moved'], ['auto', 'Measure by itself before the show (its hiss is then heard in the room every quarter of an hour, and after a stream restarts, until OBS records or streams)'],
+      ['network', 'Time the network cameras against the phones by its light, with every run']]) {
       const label = node('label'), box = document.createElement('input'); box.type = 'checkbox'; box.checked = state[key]; box.disabled = !admin;
       box.onchange = async () => { try { beacon(await api('/api/beacon/settings', { [key]: box.checked })); } catch (error) { box.checked = !box.checked; concert.fail(error); } };
       label.append(box, node('span', ` ${words}`)); body.append(label);
@@ -263,6 +282,15 @@
     const was = pick.value;
     pick.onchange = async () => { try { beacon(await api('/api/beacon/settings', { level_db: Number(pick.value) })); } catch (error) { pick.value = was; concert.fail(error); } };
     if (state.levels) { loud.append(node('span', 'Its hiss: '), pick); const line = node('p'); line.append(loud); body.append(line); }
+    // How often a run is made by itself for the network cameras' timing alone (stagebeacon.NETWORK_MINUTES), in a show too.
+    if (state.network_choices) {
+      const often = node('label'), every = document.createElement('select'); every.disabled = !admin || !state.network;
+      for (const minutes of state.network_choices) { const o = document.createElement('option'); o.value = String(minutes); o.textContent = minutes ? `every ${minutes} minutes` : 'never'; every.append(o); }
+      every.value = String(state.network_minutes);
+      const before = every.value;
+      every.onchange = async () => { try { beacon(await api('/api/beacon/settings', { network_minutes: Number(every.value) })); } catch (error) { every.value = before; concert.fail(error); } };
+      often.append(node('span', 'Time the network cameras by itself, during a show too (its light only, next to no hiss): '), every); const line = node('p'); line.append(often); body.append(line);
+    }
     if (admin && state.candidates?.length) {
       const make = node('label'), choose = document.createElement('select');
       for (const c of state.candidates) {
@@ -279,7 +307,7 @@
       make.append(node('span', 'Make a paired phone a stage beacon: '), choose); const line = node('p'); line.append(make, ' ', go); body.append(line);
     }
     if (!admin) body.append(node('p', 'Those, and managing the beacon phones, are the administrator’s.', 'hint'));
-    if (!state.relay) body.append(node('p', 'The beacon is read from the camera relay, which is off: switch it on (System › Network) first.', 'hint bad'));
+    if (!state.relay) body.append(node('p', 'The cameras’ own streams are read from the camera relay, which is off: switch it on (System › Network) first. The network cameras’ timing is read from OBS and needs no relay.', 'hint bad'));
   }
 
   function cameras(state) {
