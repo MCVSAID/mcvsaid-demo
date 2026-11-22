@@ -972,16 +972,50 @@
   // The stage beacon (stagebeacon.py), as the manager answers: a run of about 20 seconds, then each camera as the
   // demonstration manager's own run found it (its network camera hears nothing of the beacon), each set against the
   // mark taken at that run: unchanged, give or take a few milliseconds.
+  // "Set lip sync from the beacon" (beacon.from_reading): each reading less its distance from the beacon on the room map
+  // (the snapshot's own) and OBS's own part, Centre Wide's as its flash reading had it (demo_data.WIDE_OBS_MS); "Measure
+  // the beacon's own part" (beacon.own_from): against Centre Wide's flash reading. With no run in the snapshot, each
+  // camera as the demonstration manager hears it (demo_data.BEACON_HEARD, the beacon's own 14 ms off).
+  const BEACON_HEARD = { 'Stage Left': 17, 'Stage Right': 104, Drums: 30, Keys: 95, 'Centre Wide': 38, Crowd: 126 };
+  const OBS_PART = 45, WIDE_STREAM = 17, MS_PER_M = 1000 / 343;
+  function beaconMetres(name) {
+    const stage = S.answers['/api/stage'], beaconId = (S.answers['/api/beacon']?.beacons || [])[0]?.id;
+    const camera = (stage?.cameras || []).find(c => c.name === name), map = stage?.room?.map || {};
+    const a = camera && map[camera.id], b = beaconId && map[beaconId];
+    if (!a || !b) return null;
+    const w = stage.room.width_m || 12, across = (a.x - b.x) * w, down = (a.y - b.y) * (stage.room.depth || 0.8) * w;
+    const up = a.height != null && b.height != null ? a.height - b.height : 0;
+    return Math.round(Math.hypot(across, down, up) * 100) / 100;
+  }
+  function beaconFinish(run, base) {
+    const before = Object.keys(base.last?.cameras || {}).length ? base.last.cameras
+      : Object.fromEntries(Object.entries(BEACON_HEARD).map(([name, ms]) => [name, { own_ms: ms, likeness: 0.86, cells: 9, clear_db: 27.5 }]));
+    const own = base.beacons?.[0]?.own_ms ?? 14;
+    run.cameras = Object.fromEntries(Object.entries(before).map(([name, c]) => {
+      if (c.why) return [name, c];
+      const delta = Math.round((Math.random() - 0.5) * 8), reading = Math.round((c.own_ms + delta) * 10) / 10;
+      if (run.purpose === 'own') return [name, { ...c, own_ms: Math.round((reading + own) * 10) / 10, state: undefined, delta_ms: undefined }];
+      if (run.purpose !== 'set') return [name, { ...c, own_ms: reading, state: 'checked', delta_ms: delta }];
+      const metres = beaconMetres(name), stream = reading - (metres || 0) * MS_PER_M, wide = name === 'Centre Wide';
+      const lip = Math.round(-stream - OBS_PART);
+      const rests = ['the beacon’s own part as measured', metres != null ? `${metres} m from the beacon, by the room map (${Math.round(metres * MS_PER_M)} ms of sound)` : 'the distance taken as nothing (the camera or the beacon is not on the room map)',
+        `OBS’s own part ${OBS_PART} ms, ${wide ? 'its own' : 'another camera’s'}`];
+      const unsure = (metres == null ? 15 : 0) + (wide ? 0 : 20);
+      return [name, { ...c, own_ms: reading, state: 'marked', delta_ms: undefined, from_beacon: { lip_ms: lip, set_ms: lip, stream_ms: Math.round(stream * 10) / 10, distance_m: metres, obs_ms: OBS_PART, unsure_ms: unsure, sure: unsure < 25, rests_on: rests } }];
+    }));
+    if (run.purpose === 'own') {
+      const wide = run.cameras['Centre Wide'], metres = beaconMetres('Centre Wide');
+      run.own = wide && !wide.why && metres != null ? { own_ms: Math.round((wide.own_ms - WIDE_STREAM - metres * MS_PER_M) * 10) / 10, cameras: { 'Centre Wide': 0 }, spread_ms: 0, how: run.camera ? 'held 0.3 m from Centre Wide' : 'where it stands, by the room map' }
+        : { why: 'no camera read the beacon whose sound against its picture a flash reading gave (Calibrate sync one camera with the flash page first), at a distance known', how: 'where it stands, by the room map', cameras: {} };
+      if (run.own.own_ms != null) { run.own.cameras['Centre Wide'] = run.own.own_ms; S.beaconOwn = { own_ms: run.own.own_ms, at: now(), how: run.own.how }; }
+    }
+    if (run.purpose === 'set') S.beaconSet = Object.fromEntries(Object.entries(run.cameras).filter(([, c]) => c.from_beacon).map(([name, c]) => [name, c.from_beacon.set_ms]));
+  }
   function beaconRead() {
     const base = S.answers['/api/beacon'] || { beacons: [], running: false, last: null, relay: true, corrects: false, auto: false, marks: {} };
     const run = S.beaconRun;
     if (run && run.state === 'running' && now() - run.at > 21) {
-      const before = base.last?.cameras || {};
-      run.cameras = Object.fromEntries(Object.entries(before).map(([name, c]) => {
-        if (c.why) return [name, c];
-        const delta = Math.round((Math.random() - 0.5) * 8);
-        return [name, { ...c, own_ms: Math.round((c.own_ms + delta) * 10) / 10, state: 'checked', delta_ms: delta }];
-      }));
+      beaconFinish(run, base);
       Object.assign(run, { state: 'done', ended: now(), beacon_said: base.last?.beacon_said || null });
       save();
     }
@@ -1003,7 +1037,10 @@
     }
     const running = run?.state === 'running' || test?.state === 'running';
     for (const b of beacons) b.running = running && (test?.state === 'running' ? test.id === b.id : b === beacons[0]);
-    return { ...base, beacons, candidates, test_seconds: base.test_seconds || 8, tested: test || base.tested || null,
+    // Its own part as the demo's own-part run measured it (beaconFinish).
+    if (S.beaconOwn && beacons[0]) beacons[0] = { ...beacons[0], own_ms: S.beaconOwn.own_ms, own_known: true };
+    const ownMeasured = S.beaconOwn && beacons[0] ? { ...(base.own_measured || {}), [beacons[0].id]: { at: S.beaconOwn.at, how: S.beaconOwn.how } } : base.own_measured;
+    return { ...base, beacons, own_measured: ownMeasured, candidates, test_seconds: base.test_seconds || 8, tested: test || base.tested || null,
       corrects: S.beaconCorrects ?? base.corrects, auto: S.beaconAuto ?? base.auto, level_db: S.beaconLevel ?? base.level_db, running, last: run || base.last };
   }
   function stopBeacon() {
@@ -2252,7 +2289,8 @@
       const state = beaconRead();
       if (state.running) return answer({ detail: 'The stage beacon is measuring already' }, 409);
       if (!state.beacons.some(b => b.online && b.open)) return answer({ detail: 'No stage beacon is connected with its beacon screen up: open the camera app on the beacon phone and choose Stage beacon' }, 409);
-      S.beaconRun = { at: now(), by: S.answers['/api/session']?.name || 'Morgan', beacon: state.beacons[0].name, state: 'running', cameras: {} };
+      const purpose = ['set', 'own'].includes(body?.purpose) ? body.purpose : 'check';
+      S.beaconRun = { at: now(), by: S.answers['/api/session']?.name || 'Morgan', beacon: state.beacons[0].name, state: 'running', cameras: {}, purpose, camera: body?.camera || null };
       save(); return answer(beaconRead());
     }
     // Managing the beacon phones (stagebeacon.py): made a beacon or a camera again, tested, a run stopped.

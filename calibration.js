@@ -161,7 +161,7 @@
 
   // The stage beacon (stagebeacon.py): the beacon phones, measuring from one now, what it found of each camera, and
   // (the administrator's) whether it puts a camera right and measures by itself.
-  let beaconDrawn = '', beaconNote = '', beaconPick = '';
+  let beaconDrawn = '', beaconNote = '', beaconPick = '', beaconAgainst = '';
   const switched = answer => { beaconNote = `${answer.switched.name} ${answer.switched.on ? 'is a stage beacon now' : 'is a camera again'}: ${answer.switched.screen}.`; };
   const FOUND = { marked: 'its mark taken (lip sync as it is now)', checked: 'unchanged', moved: 'moved', corrected: 'moved, and its lip sync put right', beacon: 'moved with every other camera: the beacon, not the camera' };
   function beacon(state) {
@@ -186,6 +186,9 @@
         if (b.temperature_c != null) bits.push(`${b.temperature_c} °C`);
         if (b.route) bits.push(b.route === 'speaker' ? 'sound to its own speaker' : `sound would go to ${b.route}: disconnect it, the beacon refuses`);
         if (b.app_version) bits.push(`app ${b.app_version}`);
+        // Its own part (beacon.own_from): what it puts between its screen and its speaker, taken off every reading.
+        const how = (state.own_measured || {})[b.id];
+        bits.push(b.own_known ? `its own part ${b.own_ms} ms${how ? ` (measured ${new Date(how.at * 1000).toLocaleDateString([], { month: 'short', day: 'numeric' })}, ${how.how})` : ''}` : 'its own part not measured yet');
         item.append(node('b', b.name), node('span', `: ${bits.join(' · ')}`));
         if (admin) {
           const row = node('span', undefined, 'beacon-actions');
@@ -215,17 +218,37 @@
     }
     const go = node('button', !state.running ? 'Measure every camera now' : state.tested?.state === 'running' ? 'Testing…' : 'Measuring…'); go.type = 'button'; go.disabled = state.running || !state.beacons.some(b => b.online && b.open);
     go.onclick = async () => { try { beacon(await api('/api/beacon/measure', {})); } catch (error) { concert.fail(error); } };
-    body.append(go);
+    // Lip sync from nothing (beacon.from_reading): every phone's set from its reading, then marked.
+    const set = node('button', 'Set lip sync from the beacon'); set.type = 'button'; set.disabled = go.disabled;
+    set.onclick = async () => {
+      if (!await concert.sure('Measure every camera from the beacon and set each phone’s lip sync from what it finds? Each is set from its reading less its distance from the beacon (the room map, Stage layout) and the beacon’s own part, with OBS’s part as last measured.', { ok: 'Set lip sync' })) return;
+      try { beacon(await api('/api/beacon/measure', { purpose: 'set' })); } catch (error) { concert.fail(error); }
+    };
+    body.append(go, ' ', set);
+    // The beacon's own part: held up to a camera whose flash reading is known, or where it stands, by the room map.
+    const own = node('p'), against = document.createElement('select');
+    for (const [value, words] of [['', 'every camera with a flash reading, the beacon where the room map has it'], ...(state.flashed || []).map(c => [c.id, `held up to ${c.name}, about ${state.held_m} m in front of it`])]) {
+      const o = document.createElement('option'); o.value = value; o.textContent = words; against.append(o);
+    }
+    against.value = beaconAgainst; against.onchange = () => { beaconAgainst = against.value; };
+    const measureOwn = node('button', 'Measure the beacon’s own part'); measureOwn.type = 'button'; measureOwn.disabled = go.disabled || !(state.flashed || []).length;
+    measureOwn.onclick = async () => { try { beacon(await api('/api/beacon/measure', { purpose: 'own', ...(against.value ? { camera: against.value } : {}) })); } catch (error) { concert.fail(error); } };
+    own.append(measureOwn, node('span', ' against '), against);
+    body.append(own);
+    if (!(state.flashed || []).length) body.append(node('p', 'To measure the beacon’s own part, Calibrate sync one camera with the flash page first: the beacon is measured against what that reading found.', 'hint'));
     const last = state.last;
     if (last) {
       const when = new Date(last.at * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
       body.append(node('p', `${last.state === 'running' ? 'Measuring' : 'Measured'} at ${when}, ${last.by}${last.state === 'failed' ? `: not measured: ${last.why}` : last.state === 'running' ? ': the beacon is showing its code (about 20 seconds)' : ''}.`, last.state === 'failed' ? 'bad' : ''));
       const list = node('ul');
       for (const [name, c] of Object.entries(last.cameras || {})) {
-        const words = c.why ? `not measured: ${c.why}` : `${c.own_ms} ms (sound after picture in its own stream, the distance included; seen ${c.likeness}, heard ${c.clear_db} dB clear): ${FOUND[c.state] || c.state}${c.delta_ms != null && c.state !== 'checked' ? ` by ${c.delta_ms} ms` : c.state === 'checked' ? ` (${c.delta_ms >= 0 ? '+' : ''}${c.delta_ms} ms)` : ''}${c.set_ms != null ? `, to ${c.set_ms} ms` : ''}`;
-        list.append(node('li', `${name}: ${words}`, c.why || c.state === 'moved' || c.state === 'beacon' ? 'bad' : ''));
+        const words = c.why ? `not measured: ${c.why}` : `${c.own_ms} ms (sound after picture in its own stream, the distance included; seen ${c.likeness}, heard ${c.clear_db} dB clear)${c.state ? `: ${FOUND[c.state] || c.state}` : last.purpose === 'own' ? ', the beacon’s own part included' : ''}${c.delta_ms != null && c.state !== 'checked' ? ` by ${c.delta_ms} ms` : c.state === 'checked' ? ` (${c.delta_ms >= 0 ? '+' : ''}${c.delta_ms} ms)` : ''}${c.set_ms != null ? `, to ${c.set_ms} ms` : ''}`;
+        const made = c.from_beacon, item = node('li', `${name}: ${words}`, c.why || c.state === 'moved' || c.state === 'beacon' ? 'bad' : '');
+        if (made) item.append(node('div', made.why ? `Lip sync not set from it: ${made.why}.` : `Lip sync set from it to ${made.set_ms} ms (to within about ${made.unsure_ms} ms), resting on ${made.rests_on.join('; ')}.${made.sure ? '' : ' Measure it through OBS when you can (Do what is due).'}`, 'hint'));
+        list.append(item);
       }
       body.append(list);
+      if (last.own) body.append(node('p', last.own.why ? `The beacon’s own part was not measured: ${last.own.why}.` : `The beacon’s own part: ${last.own.own_ms} ms (${last.own.how}${Object.keys(last.own.cameras).length > 1 ? `, the cameras within ${last.own.spread_ms} ms of each other` : ''}).`, last.own.why ? 'bad' : ''));
     }
     for (const [key, words] of [['corrects', 'Put a camera’s lip sync right by itself when its own lateness has moved'], ['auto', 'Measure by itself before the show (its hiss is then heard in the room every quarter of an hour, and after a stream restarts, until OBS records or streams)']]) {
       const label = node('label'), box = document.createElement('input'); box.type = 'checkbox'; box.checked = state[key]; box.disabled = !admin;

@@ -170,6 +170,7 @@
     const c = state.cameras.find(o => o.id === id), entry = spot(id), parts = camera(id), p = pixel();
     const radius = 15 * p, reach = 52 * p, mine = chosen === id;
     parts.cone.setAttribute('d', wedge(id)); parts.cone.style.fill = parts.cone.style.stroke = colour(c); parts.cone.style.strokeWidth = 1.5 * p; parts.cone.classList.toggle('chosen', mine);
+    parts.cone.style.display = c?.beacon ? 'none' : '';             // the stage beacon sees nothing: it is shown to the cameras
     parts.g.setAttribute('transform', `translate(${entry.x * W} ${entry.y * H()})`); parts.g.classList.toggle('chosen', mine); parts.g.style.color = colour(c);
     parts.turnable.setAttribute('transform', `rotate(${entry.aim})`);
     parts.stem.setAttribute('y1', -radius); parts.stem.setAttribute('y2', -reach); parts.stem.style.strokeWidth = 2 * p;

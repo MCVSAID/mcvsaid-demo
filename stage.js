@@ -44,6 +44,8 @@ const words = () => state.words || { crowd: 'crowd', audience: 'audience', any: 
 function shows(camera) {
   // In the words of the kind of event in use: the crowd, the congregation or the audience; anyone performing or speaking.
   const said = words();
+  // The stage beacon (stagebeacon.py): on the room map only so each camera's distance from it is known.
+  if (camera.beacon) return 'Stage beacon';
   if (camera.crowd) return capital(said.crowd);
   const given = camera.instruments;
   return !given.length ? said.any : camera.wide ? camera.wide : given.length > 2 ? `${given.slice(0, 2).join(' + ')} + ${given.length - 2} more` : given.join(' + ');

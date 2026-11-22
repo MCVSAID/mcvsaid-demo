@@ -31,7 +31,7 @@
 
   // What Match the cameras by themselves did, a camera a line.
   const matched = match => `Matched to ${match.reference}${match.checked ? ', each camera looked at by the AI first' : ' (no AI to look whether they show the same thing: check them yourself)'}. `
-    + Object.values(match.cameras).map(c => `${c.name}: ${c.problem ? c.problem : `ΔE ${c.delta_e.before.mean} → ${c.delta_e.after.mean}, in OBS`}`
+    + Object.values(match.cameras).map(c => `${c.name}: ${c.problem ? c.problem : c.own_only ? 'matched by its own settings, with no correction over them (a chart is what would tell one)' : `ΔE ${c.delta_e.before.mean} → ${c.delta_e.after.mean}, in OBS`}`
       + (c.camera ? `; its own settings ${c.camera.why || (c.camera.changed ? `set to ${c.camera.now}` : `left at ${c.camera.now}`)}${c.camera.left?.length ? ` (${c.camera.left.join('; ')})` : ''}` : '')).join('. ');
 
   function select(options, value, change, label) {
