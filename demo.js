@@ -1518,7 +1518,7 @@
     }
     if ('beside_set' in body) {
       if (typeof body.beside_set !== 'boolean') return answer({ detail: 'beside_set is true or false' }, 400);
-      if (!beside.camera) return answer({ detail: 'Say which phone is mounted beside it first' }, 409);
+      if (!beside.camera) return answer({ detail: 'Choose its Director View camera (the phone mounted beside it) first' }, 409);
       Object.assign(beside, { set: body.beside_set, lined: body.beside_set ? 'set' : 'map', tilt_known: body.beside_set });
     }
     if (nf.armed && beside.camera && ('beside' in body || 'beside_set' in body)) nf.why = `aimed at where ${beside.name}, beside it, sees them; the camera frames its own subject there`;
