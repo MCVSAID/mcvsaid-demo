@@ -1012,6 +1012,7 @@
       if (run.own.own_ms != null) { run.own.cameras['Centre Wide'] = run.own.own_ms; S.beaconOwn = { own_ms: run.own.own_ms, at: now(), how: run.own.how }; }
     }
     if (run.purpose === 'set') S.beaconSet = Object.fromEntries(Object.entries(run.cameras).filter(([, c]) => c.from_beacon).map(([name, c]) => [name, c.from_beacon.set_ms]));
+    if (run.purpose === 'set') { S.beaconSetAt = now(); S.beaconRests = Object.fromEntries(Object.entries(run.cameras).filter(([, c]) => c.from_beacon).map(([name, c]) => [name, c.from_beacon])); }
   }
   function beaconRead() {
     const base = S.answers['/api/beacon'] || { beacons: [], running: false, last: null, relay: true, corrects: false, auto: false, marks: {} };
@@ -1107,6 +1108,9 @@
           options: [['go', 'Match the colours'], ['skip', 'Skip']] }
       : next.kind === 'keep' ? { kind: 'keep', camera: next.name, reference: next.reference, pictures: [[next.reference, 'reference'], [`${next.name}, matched`, 'camera']],
           said: `${next.name}, matched to ${next.reference} by what both see. Do they look alike now? If they were not looking at the same thing it will look wrong: leave it.`, options: [['keep', 'Keep it'], ['leave', 'Leave it as it was']] }
+      : next.kind === 'beacon' ? { kind: 'beacon', said: next.again || `The stage beacon (${next.name}) can do the cameras’ lip sync from where it stands, before you walk anywhere: about 20 seconds of a soft hiss, with its screen shading. A camera it settles is not walked to; the rest are, as before.`,
+          options: [['go', next.again ? 'Try again' : 'Measure from the beacon'], ['skip', 'Walk to each camera']] }
+      : next.kind === 'beacon-done' ? { kind: 'beacon-done', said: next.said, options: [['go', 'Go on']] }
       : next.kind === 'mix' ? { kind: 'mix', said: `Last, the programme mix’s own timing: go back to ${next.leader} and hold the phone in front of it.`, options: [['go', 'Measure the mix'], ['skip', 'Skip']] }
       : { kind: 'sound', said: 'Where should the programme’s sound come from?', cameras: next.cameras, now: { camera: S.programmeSound?.camera || null, others: S.programmeSound?.others || 'aligned' }, mix: true,
           options: [['muted', 'One camera’s microphone alone'], ['aligned', 'Every microphone joined, lined up in time with that camera’s'], ['mixed', 'The programme mix: every microphone kept in time and mixed as one'], ['keep', 'Leave it as it is']] };
@@ -1124,12 +1128,16 @@
     // A network camera with a phone mounted beside it (its card's Following) is timed by that phone's flashes and reads
     // that phone's chart, at the one stop, which comes last.
     const besideOf = c => network.filter(n => n.netfollow?.beside?.camera === c.id), apart = network.filter(n => !phones.some(c => n.netfollow?.beside?.camera === c.id));
-    const unmeasured = c => all || S.calibration?.cameras?.[c.name]?.set_ms == null, timing = c => besideOf(c).length > 0 && (all || !S.netTimed);
+    // A camera the stage beacon set, and is sure of, is as good as measured (preshow.lip_sync).
+    const unmeasured = c => all || (S.calibration?.cameras?.[c.name]?.set_ms == null && !S.beaconRests?.[c.name]?.sure), timing = c => besideOf(c).length > 0 && (all || !S.netTimed);
     const due = phones.filter(c => unmeasured(c) || timing(c)).sort((a, b) => besideOf(a).length - besideOf(b).length);
+    const beaconName = (S.answers['/api/beacon']?.beacons || []).find(b => b.online && b.open)?.name;
     const run = { id: Math.random().toString(16).slice(2, 14), kind: 'walk', state: 'running', step: 0, show: null, ask: null, said: 'Starting', started: now(), ended: null,
       by_name: S.answers['/api/session']?.name || 'Morgan', answered: 0, problem: null, yours: true, until: null,
-      result: { cameras: {}, timing: null, colour: null, sound: null, mix: null, visited: due.map(c => c.name) },
-      queue: [...due.map((c, i) => ({ kind: 'camera', id: c.id, name: c.name, n: i + 1, of: due.length, sound: unmeasured(c), chart: false, partners: besideOf(c), with: besideOf(c).map(n => n.name).join(' and '), timing: timing(c), late: [15, 60, 25, 40, 30, 20][phones.indexOf(c) % 6], fails: phones.indexOf(c) === 3 })),
+      result: { cameras: {}, timing: null, colour: null, sound: null, mix: null, visited: due.map(c => c.name), beacon: null },
+      // The stage beacon first, when the demo has one and a phone's lip sync is due (calibrate.py's beacon_first):
+      // it settles every camera but the fourth, which does not see it and is walked to.
+      queue: [...(!all && beaconName && due.some(unmeasured) ? [{ kind: 'beacon', name: beaconName }] : []), ...due.map((c, i) => ({ kind: 'camera', id: c.id, name: c.name, n: i + 1, of: due.length, sound: unmeasured(c), chart: false, partners: besideOf(c), with: besideOf(c).map(n => n.name).join(' and '), timing: timing(c), late: [15, 60, 25, 40, 30, 20][phones.indexOf(c) % 6], fails: phones.indexOf(c) === 3 })),
         ...(apart.length && (all || !S.netTimed) ? [{ kind: 'network', names: apart.map(c => c.name).join(' and '), cameras: apart }] : []),
         ...(list.length > 1 ? [{ kind: 'colour' }] : []),
         { kind: 'sound', cameras: phones.map(c => ({ id: c.id, name: c.name })) }] };
@@ -1151,7 +1159,24 @@
     // What was being measured has been: its result, and the next question.
     if (!run.until || t < run.until) return;
     const done = run.queue[0]; run.until = null;
-    if (done.kind === 'camera') {
+    if (done.kind === 'beacon') {
+      // The beacon's run is over: each camera due that saw it has its lip sync set from it, surely, and is not walked
+      // to (one with a network camera beside it is still gone to, for that camera's timing).
+      const stops = run.queue.filter(q => q.kind === 'camera'), settled = stops.filter(q => q.sound && !q.fails), left = stops.filter(q => q.sound && q.fails);
+      S.beaconSetAt = t; S.beaconRests = { ...(S.beaconRests || {}) };
+      for (const q of settled) {
+        const set = -q.late - 70;
+        S.beaconRests[q.name] = { set_ms: set, lip_ms: set, unsure_ms: 20, sure: true, rests_on: ['the beacon’s own part as measured', 'its distance from the beacon, by the room map', 'OBS’s own part 70 ms, another camera’s'] };
+        S.calibrated = { ...(S.calibrated || {}), [q.id]: set }; q.sound = false;
+      }
+      const keep = run.queue.filter(q => q.kind !== 'camera' || q.sound || q.timing), walked = keep.filter(q => q.kind === 'camera');
+      walked.forEach((q, i) => { q.n = i + 1; q.of = walked.length; });
+      run.result.visited = walked.map(q => q.name);
+      run.result.beacon = { beacon: done.name, settled: settled.map(q => q.name), left: Object.fromEntries(left.map(q => [q.name, 'the beacon did not read it (it saw too little of the beacon’s screen)'])) };
+      const said = (settled.length ? `The beacon settled ${settled.map(q => q.name).join(' and ')}: not walked to. ` : 'The beacon settled no camera. ')
+        + (left.length ? `Still to walk to: ${left.map(q => `${q.name}, ${run.result.beacon.left[q.name]}`).join('; ')}.` : 'No camera’s lip sync is left to walk to.');
+      run.queue = [{ kind: 'beacon-done', said }, ...keep.slice(1)];
+    } else if (done.kind === 'camera') {
       if (done.timing) {
         // The camera beside it, timed by the same flashes.
         const against = [done.name];
@@ -1210,6 +1235,11 @@
       run.result.colour.cameras[asked.id] = choice === 'keep' ? { name: asked.name, delta_e: fit, kept: true } : { name: asked.name, delta_e: fit, problem: 'left as it was' };
       if (choice === 'keep') { run.result.colour.in_obs = true; S.colourAt = now(); }
       walkAsk(run);
+    } else if (asked.kind === 'beacon') {
+      if (choice === 'go') Object.assign(run, { show: null, until: now() + 5, said: `The stage beacon (${asked.name}) is measuring every camera from where it stands: about 30 seconds. Nothing to hold up` });
+      else { run.result.beacon = { skipped: true }; run.queue.shift(); walkAsk(run); }
+    } else if (asked.kind === 'beacon-done') {
+      run.queue.shift(); walkAsk(run);
     } else if (choice === 'go' && asked.kind === 'camera' && !asked.sound && !asked.timing) {
       run.chart = { i: 0, asked: 0, nextAt: now() + 0.5 }; run.said = 'Finding the phone';            // its lip sync is as measured: the chart alone
     } else if (choice === 'go') {
@@ -1255,6 +1285,13 @@
       if (!mine.in_programme) return item(`lip-sync:${c.id}`, `${c.name}: lip sync`, 'idle', `Not heard as Programme sound is set (${mine.why}), so its lip sync does not matter now.`);
       // Measured from the room's sound (lipsync.py: the page's button, or the manager by itself): said so, and ready.
       const heard = S.soundMeasured?.[c.id];
+      // Set from the stage beacon since (Set lip sync from the beacon): said as that, ready when the beacon is sure of
+      // it, and due with what it rests on when it is not (preshow.lip_sync, Manager.lip_sync_facts).
+      const made = S.beaconRests?.[c.name], madeAt = S.beaconSetAt || 0;
+      if (made && (read?.set_ms == null || madeAt >= cal.at) && !(heard && heard.at > madeAt)) {
+        if (made.sure) return item(`lip-sync:${c.id}`, `${c.name}: lip sync`, 'ready', `${made.set_ms} ms, set from the stage beacon at ${clock(madeAt)} (to within about ${made.unsure_ms} ms), and its stream has run since ${clock(began)}.`);
+        return { ...item(`lip-sync:${c.id}`, `${c.name}: lip sync`, 'todo', `${made.set_ms} ms, set from the stage beacon at ${clock(madeAt)}, and its stream has run since ${clock(began)}. But it needs measuring again: set from the stage beacon, to within about ${made.unsure_ms} ms: ${made.rests_on.join('; ')}.`, itself), measure: c.id };
+      }
       if (heard && (!cal || heard.at >= cal.at || read?.set_ms == null)) return item(`lip-sync:${c.id}`, `${c.name}: lip sync`, 'ready', `${heard.set_ms} ms, measured at ${clock(heard.at)} from the room’s sound (sure ${heard.certainty}), and its stream has run since ${clock(began)}.`);
       if (read?.set_ms != null) return item(`lip-sync:${c.id}`, `${c.name}: lip sync`, 'ready', `${read.set_ms} ms, measured at ${clock(cal.at)} (${read.pairs} flashes, ±${read.spread_ms} ms), and its stream has run since ${clock(began)}.`);
       return { ...item(`lip-sync:${c.id}`, `${c.name}: lip sync`, 'todo', `${read?.why ? `Not measured: the last reading, at ${clock(cal.at)}, failed: ${read.why}. ` : 'Not measured. '}It is on every camera's lip sync (${S.lipSync || 0} ms).`, itself), measure: c.id };
@@ -2283,7 +2320,7 @@
     }
     if (path === '/api/sync/calibrate') {
       // Calibrate sync (avsync.py), as the manager answers: in the demo the first three cameras saw the flashes.
-      if (body.clear) { S.calibrated = null; S.calibration = null; S.soundMeasured = null; save(); return answer(programmeSound()); }
+      if (body.clear) { S.calibrated = null; S.calibration = null; S.soundMeasured = null; S.beaconRests = null; save(); return answer(programmeSound()); }
       calibrateSync(); save(); return answer(programmeSound());
     }
     if (path === '/api/calibrate/start') {

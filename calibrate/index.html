@@ -1,4 +1,4 @@
-<!doctype html><html lang="en"><meta charset="utf-8"><script src="/demo.js?v=d18eaa422c53"></script><meta name="viewport" content="width=device-width,initial-scale=1"><title>Calibrate</title>
+<!doctype html><html lang="en"><meta charset="utf-8"><script src="/demo.js?v=08d52e8ad355"></script><meta name="viewport" content="width=device-width,initial-scale=1"><title>Calibrate</title>
 <!-- The calibration pages, for a phone or tablet held in front of the cameras: at https://calibrate.mcvsaid.local
      (webnames.py) and at /calibrate on the dashboard. Logged in as a setup tech or an operator, it drives Calibrate
      (calibrate.py, calibrate.js): the manager measures sound, colour and the network cameras' timing from what this page shows. Without a login,
@@ -18,15 +18,17 @@
     <div id="actions" hidden>
       <p id="who"></p>
       <div class="choice" id="walk">
-        <b>Do what is due</b>
-        <span id="due">Takes you to each camera once. You hold this phone in front of it and tap; the manager puts
+        <b>Pre-show calibration check</b>
+        <span id="due">With a stage beacon standing ready, offers the beacon first and walks you only to the cameras it
+        leaves. Takes you to each camera once. You hold this phone in front of it and tap; the manager puts
         that camera on air with its own microphone and sets its lip sync. Then it times the network cameras, matches
         the cameras’ colours by what they see (each shown beside the one it is matched to, to keep or leave), and asks
         where the programme’s sound should come from: one camera, or every microphone joined in time.</span>
         <a class="go" href="/sync-flash?manager=walk">Start with what is due</a>
         <a class="go other" href="/sync-flash?manager=walk&amp;all=1">Every camera again</a>
-        <small>Start with what is due passes over a camera the Before the show list has as ready. To measure one of
-        those again, use Every camera again, and skip the others.</small>
+        <small>Start with what is due passes over a camera the Before the show list has as ready: measured on this
+        stream, or checked or surely set by the stage beacon since. To measure one of those again, use
+        Every camera again, and skip the others.</small>
         <!-- A camera-by-camera run left waiting at a question (the page navigated away from): picked up, or ended. -->
         <div id="left" hidden><span id="left-said" role="status"></span>
           <a class="go" href="/sync-flash?manager=walk">Pick it up</a><button id="end-left" class="quiet">End it</button></div>

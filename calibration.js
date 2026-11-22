@@ -141,6 +141,13 @@
     }
     if (run.kind === 'walk' && run.result) {
       const list = node('ul'), r = run.result;
+      if (r.beacon && !r.beacon.skipped) {
+        if (r.beacon.why) list.append(node('li', `Stage beacon: did not measure: ${r.beacon.why}`, 'bad'));
+        else {
+          list.append(node('li', `Stage beacon (${r.beacon.beacon}) first: ${r.beacon.settled.length ? `settled ${r.beacon.settled.join(', ')}, not walked to` : 'settled no camera'}`));
+          for (const [name, why] of Object.entries(r.beacon.left)) list.append(node('li', `${name}: left to walk to by the beacon: ${why}`));
+        }
+      }
       for (const c of Object.values(r.cameras || {})) list.append(node('li', `${c.name}: ${c.set_ms != null ? `lip sync set to ${c.set_ms} ms, measured alone in the programme (${c.pairs} flashes, ±${c.spread_ms} ms)` : c.skipped ? 'skipped' : `not measured: ${c.why}`}`, c.why ? 'bad' : ''));
       if (r.timing && !r.timing.skipped) for (const c of Object.values(r.timing.cameras || {})) list.append(node('li', c.why ? `${c.name}: not timed: ${c.why}` : `${c.name}: held by ${c.held_ms} ms (${c.pairs} flashes, ±${c.spread_ms} ms${c.spread_ms > 20 ? ': loose, worth timing again' : ''})`, c.why || c.spread_ms > 20 ? 'bad' : ''));
       if (r.timing?.why) list.append(node('li', `Network cameras not timed: ${r.timing.why}`, 'bad'));
@@ -250,7 +257,7 @@
       for (const [name, c] of Object.entries(last.cameras || {})) {
         const words = c.why ? `not measured: ${c.why}` : `${c.own_ms} ms (sound after picture in its own stream, the distance included; seen ${c.likeness}, heard ${c.clear_db} dB clear)${c.state ? `: ${FOUND[c.state] || c.state}` : last.purpose === 'own' ? ', the beacon’s own part included' : ''}${c.delta_ms != null && c.state !== 'checked' ? ` by ${c.delta_ms} ms` : c.state === 'checked' ? ` (${c.delta_ms >= 0 ? '+' : ''}${c.delta_ms} ms)` : ''}${c.set_ms != null ? `, to ${c.set_ms} ms` : ''}`;
         const made = c.from_beacon, item = node('li', `${name}: ${words}`, c.why || c.state === 'moved' || c.state === 'beacon' ? 'bad' : '');
-        if (made) item.append(node('div', made.why ? `Lip sync not set from it: ${made.why}.` : `Lip sync set from it to ${made.set_ms} ms (to within about ${made.unsure_ms} ms), resting on ${made.rests_on.join('; ')}.${made.sure ? '' : ' Measure it through OBS when you can (Do what is due).'}`, 'hint'));
+        if (made) item.append(node('div', made.why ? `Lip sync not set from it: ${made.why}.` : `Lip sync set from it to ${made.set_ms} ms (to within about ${made.unsure_ms} ms), resting on ${made.rests_on.join('; ')}.${made.sure ? '' : ' Measure it through OBS when you can (Pre-show calibration check).'}`, 'hint'));
         list.append(item);
       }
       if (list.children.length) body.append(list);

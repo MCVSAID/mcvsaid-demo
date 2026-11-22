@@ -7,13 +7,13 @@ let audio = null, lock = null, next = 0, step = 0;
 // From the calibrate page logged in: the manager measures while it flashes, and it stops by itself when the manager
 // has done, saying what was measured. ?manager=1 is calibrate.py's sound run (each camera's lip sync); ?manager=timing
 // its timing run (each network camera timed against the phones by the flashes both see, flashsync.py), which needs
-// the light only: no beeps. ?manager=walk is its camera-by-camera run ("Do what is due"): the page stays open for the
+// the light only: no beeps. ?manager=walk is its camera-by-camera run ("Pre-show calibration check", called "Do what is due" until 2026-11-22): the page stays open for the
 // whole of it, shows what the manager asks at each camera (run.ask) with the answers to tap, and flashes and beeps only
 // while the manager says it is measuring (run.show === 'flash'). At the same stop, after the flashes, it shows the
 // chart for that camera's colours (run.show black, locate or chart: chartrun.js), each step said back to the manager
 // as on the calibrate page.
 // A run already going on is never a dead end (2026-11-21 and 22: a walk left at a question on a page since navigated
-// away from, and "Do what is due" could not be started again until the manager was restarted). Opened while a walk
+// away from, and "Pre-show calibration check" could not be started again until the manager was restarted). Opened while a walk
 // waits at a question, this page offers to pick it up where it was, or to end it and start again (offer); a start the
 // manager refuses is said, with the same way out.
 const ASKED = new URLSearchParams(location.search).get('manager');
@@ -24,7 +24,9 @@ const MANAGER = KIND !== null, SILENT = KIND === 'timing';
 const SECONDS = SILENT ? 20 : 15;
 function measured(run) {
   if (run.kind === 'walk') {
+    const beacon = b => b.why ? `Stage beacon: did not measure (${b.why})` : `Stage beacon (${b.beacon}): ${b.settled.length ? `settled ${b.settled.join(', ')}` : 'settled no camera'}${Object.keys(b.left).length ? `; left to walk to: ${Object.keys(b.left).join(', ')}` : ''}`;
     const r = run.result || {}, lines = Object.values(r.cameras || {}).map(c => `${c.name}: ${c.set_ms != null ? `lip sync ${c.set_ms} ms` : c.skipped ? 'skipped' : `not measured (${c.why})`}`);
+    if (r.beacon && !r.beacon.skipped) lines.unshift(beacon(r.beacon));
     if (r.timing && !r.timing.skipped) lines.push(r.timing.why ? `Network cameras: not timed (${r.timing.why})` : Object.values(r.timing.cameras || {}).map(c => `${c.name}: ${c.why ? `not timed (${c.why})` : `held by ${c.held_ms} ms (±${c.spread_ms} ms)`}`).join('; '));
     if (r.colour && !r.colour.skipped) lines.push(r.colour.why ? `Colour: not matched (${r.colour.why})` : !r.colour.reference ? 'Colour: no camera’s chart was read' : `Colour: matched to ${r.colour.reference}${r.colour.in_obs ? ', in OBS' : r.colour.held ? ' (measured only: not put on the pictures; look at it on the Colour page)' : ''}`
       + Object.values(r.colour.cameras || {}).filter(c => c.problem).map(c => `; not ${c.name}`).join('')
@@ -219,8 +221,8 @@ document.getElementById('walk-stop').onclick = async () => {
 };
 if (MANAGER) offer();
 if (WALK) {
-  document.querySelector('#words h1').textContent = ALL ? 'Every camera, one by one' : 'Do what is due';
-  document.querySelector('#words p').textContent = 'Turn this phone’s sound and brightness up and press Start. It then takes you from camera to camera, once each: hold the phone in front of it and tap; the manager puts that camera on air with its own microphone and measures its lip sync while this flashes and beeps. Then the network cameras; then, when the cameras’ colours need matching, they are matched by what they see, and each is shown here beside the one it is matched to, to keep or leave; and last where the programme’s sound comes from.';
+  document.querySelector('#words h1').textContent = ALL ? 'Every camera, one by one' : 'Pre-show calibration check';
+  document.querySelector('#words p').textContent = 'Turn this phone’s sound and brightness up and press Start. With a stage beacon standing ready it first offers to measure from the beacon, and a camera the beacon settles is not walked to. It then takes you from camera to camera, once each: hold the phone in front of it and tap; the manager puts that camera on air with its own microphone and measures its lip sync while this flashes and beeps. Then the network cameras; then, when the cameras’ colours need matching, they are matched by what they see, and each is shown here beside the one it is matched to, to keep or leave; and last where the programme’s sound comes from.';
   document.getElementById('start').textContent = 'Start';
 } else if (MANAGER) {
   document.querySelector('#words p').textContent = SILENT

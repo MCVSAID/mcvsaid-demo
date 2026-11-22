@@ -67,7 +67,7 @@
     // The colour items of the same list: what Calibrate colour, here or as the walk's colour step, would put right.
     const colour = all.filter(i => /^colour(:|$)/.test(i.id) && i.state === 'todo');
     const items = [...all.filter(i => /^(lip-sync|timed|programme|mix-trim):?/.test(i.id) && i.state !== 'ready' && i.state !== 'idle'), ...colour];
-    $('#due').textContent = items.length ? `Due now: ${items.map(i => i.label).join('; ')}. It takes you to each camera once: you hold this phone in front of it and tap, the manager puts that camera on air with its own microphone and sets its lip sync. Then the network cameras; the cameras’ colours when they are due, matched by what the cameras see and shown to you to keep or leave; and where the programme’s sound comes from.`
+    $('#due').textContent = items.length ? `Due now: ${items.map(i => i.label).join('; ')}. With a stage beacon standing ready, it offers the beacon first, and walks you only to the cameras the beacon leaves. It takes you to each camera once: you hold this phone in front of it and tap, the manager puts that camera on air with its own microphone and sets its lip sync. Then the network cameras; the cameras’ colours when they are due, matched by what the cameras see and shown to you to keep or leave; and where the programme’s sound comes from.`
       : 'Nothing is due: every camera’s lip sync, each network camera’s timing and the cameras’ colour match are as measured. It can still take you round every camera again, or straight to where the programme’s sound comes from.';
     $('#colour-due').textContent = colour.length ? `Due now: ${colour.map(i => i.label).join('; ')}.` : '';
   }
@@ -82,7 +82,8 @@
     if (run.kind === 'walk') {
       const colour = run.result?.colour;
       const set = Object.values(colour?.cameras || {}).filter(c => c.camera).map(c => `   ${c.name}${own(c).replace('\n   ', ': ')}`);
-      return 'Camera by camera, done.\n' + [...Object.values(run.result?.cameras || {}).map(c => `${c.name}: ${c.set_ms != null ? `lip sync ${c.set_ms} ms` : c.skipped ? 'skipped' : `not measured, ${c.why}`}`),
+      const beacon = b => b.why ? `Stage beacon: did not measure (${b.why})` : `Stage beacon (${b.beacon}): ${b.settled.length ? `settled ${b.settled.join(', ')}` : 'settled no camera'}${Object.keys(b.left).length ? `; left to walk to: ${Object.keys(b.left).join(', ')}` : ''}`;
+      return 'Camera by camera, done.\n' + [...(run.result?.beacon && !run.result.beacon.skipped ? [beacon(run.result.beacon)] : []), ...Object.values(run.result?.cameras || {}).map(c => `${c.name}: ${c.set_ms != null ? `lip sync ${c.set_ms} ms` : c.skipped ? 'skipped' : `not measured, ${c.why}`}`),
         ...(colour && !colour.skipped ? [colour.why ? `Colour: not matched, ${colour.why}` : !colour.reference ? 'Colour: no camera’s chart was read' : `Colour: matched to ${colour.reference}${colour.in_obs ? ', in OBS' : colour.held ? ' (measured only: not put on the pictures; look at it on the Colour page)' : ''}`, ...set] : [])].join('\n');
     }
     if (run.kind === 'sync') {
