@@ -1161,7 +1161,7 @@
       if (late == null) found[c.name] = { why: 'saw 0 flashes (hold the sync page where the camera sees it)', flashes: 0, beeps: 9 };
       else { found[c.name] = { offset_ms: late, pairs: 9, spread_ms: 6.5, set_ms: -late - 70 }; set[c.id] = -late - 70; }
     });
-    S.calibrated = set; S.calibration = { at: Date.now() / 1000, cameras: found, programme: { offset_ms: 85, pairs: 8, spread_ms: 9, camera: list[0]?.name }, mixed: S.programmeSound?.others === 'mixed' };
+    S.calibrated = set; S.calibration = { at: Date.now() / 1000, cameras: found, programme: { offset_ms: 85, pairs: 8, spread_ms: 9, alone: true, camera: list[0]?.name }, mixed: S.programmeSound?.others === 'mixed' };
     return S.calibration;
   }
   // Before the show (preshow.py), as the manager reports it, from what the demo has been asked to do: lip sync as

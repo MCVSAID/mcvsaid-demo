@@ -123,10 +123,10 @@
     const page = state.flash_url || `${location.origin}${state.flash_page || '/sync-flash'}`;     // the easy address (calibrate.<name>) once it is up
     const open = node('a', page); open.href = page; open.target = '_blank'; open.rel = 'noopener';
     const measure = document.createElement('button'); measure.textContent = 'Measure'; measure.disabled = busy;
-    measure.onclick = () => send({}, '/api/sync/calibrate', 'Recording 12 s of the programme to measure: keep the sync page flashing…', 'Measured.');
+    measure.onclick = () => send({}, '/api/sync/calibrate', 'Recording the programme to measure: keep the sync page flashing…', 'Measured.');
     const clear = document.createElement('button'); clear.textContent = 'Forget measurements'; clear.disabled = busy || !state.cameras.some(c => c.calibrated_ms != null);
     clear.onclick = () => send({ clear: true }, '/api/sync/calibrate', 'Forgetting…', 'Every camera is back on the one lip sync.');
-    const how = node('p', 'Calibrate sync: open '); how.append(open, node('span', ' on a phone or tablet, turn its sound up, press Start flashing, and hold it where the cameras see it (all of them at once if you can). While it flashes, press '), measure, node('span', ' and keep it there until it says Measured (about 15 s: OBS records the programme with the camera your sound comes from on air, then puts the shot back). '), clear);
+    const how = node('p', 'Calibrate sync: open '); how.append(open, node('span', ' on a phone or tablet, turn its sound up, press Start flashing, and hold it where the cameras see it (all of them at once if you can). While it flashes, press '), measure, node('span', ' and keep it there until it says Measured (about 15 s: OBS records the programme with the camera your sound comes from on air and its microphone the only one open, then puts the shot and every microphone back as they were; about 30 s with the programme mix, whose own timing is measured after). '), clear);
     calibrate.append(how);
     const cal = state.calibration;
     const results = node('ul', '');
@@ -138,7 +138,7 @@
       results.append(line);
     }
     if (cal && cal.programme) results.prepend(node('li', cal.programme.offset_ms != null
-      ? `Programme (OBS's own recording, ${cal.programme.camera} on air): sound ${Math.abs(cal.programme.offset_ms)} ms ${cal.programme.offset_ms >= 0 ? 'after' : 'before'} the picture before this measurement${cal.programme.mix_trim_ms != null ? `. The programme mix was on air: its own timing was set (${cal.programme.mix_trim_ms} ms), and no camera’s lip sync was changed` : ''}${cal.programme.why ? `. ${cal.programme.why}.` : ''}`
+      ? `Programme (OBS's own recording, ${cal.programme.camera} on air): sound ${Math.abs(cal.programme.offset_ms)} ms ${cal.programme.offset_ms >= 0 ? 'after' : 'before'} the picture before this measurement${cal.programme.alone ? ', its microphone the only one open' : ''}${cal.programme.mix_trim_ms != null ? `. The programme mix was on air: its own timing was set (${cal.programme.mix_trim_ms} ms), and no camera’s lip sync was changed` : ''}${cal.programme.mix ? (cal.programme.mix.mix_trim_ms != null ? `. Then the programme mix, recorded as it is: its own timing was set (${cal.programme.mix.mix_trim_ms} ms)` : `. The programme mix’s own timing was not set: ${cal.programme.mix.why}`) : ''}${cal.programme.why ? `. ${cal.programme.why}.` : ''}`
       : `Programme not measured: ${cal.programme.why}`));
     calibrate.append(results);
     parts.push(calibrate);
