@@ -9,6 +9,7 @@
   a { color: #8ab4ff; }
   #walk-said { font-size: 1.15em; color: #fff; white-space: pre-line; } #walk-options { display: grid; gap: 0.6em; margin: 1em 0; } #walk-options button { font-size: 1.1em; }
   #walk-options button.other, button.quiet { background: #2c3038; color: #ccc; } button.quiet { font-size: 1em; padding: 0.4em 1em; }
+  #walk-pictures figure { margin: 0.5em 0; } #walk-pictures img { width: 100%; border-radius: 0.4em; display: block; } #walk-pictures figcaption { color: #ccc; font-size: 0.9em; text-align: left; }
   #walk-options select { font: inherit; padding: 0.5em; border-radius: 0.4em; } #walk-options label { display: block; }
   [hidden] { display: none !important; }
   /* The colour step of the camera-by-camera run: the page is the manager's to draw on, as on the calibrate page

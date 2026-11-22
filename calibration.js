@@ -115,7 +115,7 @@
         table.append(row);
       }
       body.append(table);
-      if (run.result.reference) body.append(node('p', `Matched to ${run.result.reference}${run.result.in_obs ? ', and put in OBS' : ''}. The Colour page has each camera’s LUT.`, 'hint'));
+      if (run.result.reference) body.append(node('p', `Matched to ${run.result.reference}${run.result.in_obs ? ', and put in OBS' : run.result.held ? ' (measured only: not put on the pictures; look at it on the Colour page)' : ''}. The Colour page has each camera’s LUT.`, 'hint'));
     }
     if (run.kind === 'timing' && run.result?.cameras) {
       const list = node('ul');

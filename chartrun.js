@@ -54,7 +54,8 @@ window.chartRun = (() => {
     patches();
     if (state.show === 'chart' && !area.children.length) return;      // the chart has not loaded: asked again in a moment
     area.classList.toggle('lit', state.show === 'locate');
-    for (const patch of area.children) patch.hidden = state.show !== 'chart';
+    // Dimmer when the manager says so (run.dim): cameras matched to one another need the same chart, not a bright one.
+    for (const patch of area.children) { patch.hidden = state.show !== 'chart'; patch.style.opacity = state.dim ?? 1; }
     painted = state.step;
     // Said back once it is on the screen: two frames later, so the change has been drawn.
     requestAnimationFrame(() => requestAnimationFrame(() => shown(state.step)));

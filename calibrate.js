@@ -61,7 +61,7 @@
     // The colour items of the same list: what Calibrate colour, here or as the walk's colour step, would put right.
     const colour = all.filter(i => /^colour(:|$)/.test(i.id) && i.state === 'todo');
     const items = [...all.filter(i => /^(lip-sync|timed|programme|mix-trim):?/.test(i.id) && i.state !== 'ready' && i.state !== 'idle'), ...colour];
-    $('#due').textContent = items.length ? `Due now: ${items.map(i => i.label).join('; ')}. It takes you to each camera once: you hold this phone in front of it and tap, the manager puts that camera on air with its own microphone and sets its lip sync, and then (when colours are due) this phone shows that camera a colour chart. Then the network cameras, and where the programme’s sound comes from.`
+    $('#due').textContent = items.length ? `Due now: ${items.map(i => i.label).join('; ')}. It takes you to each camera once: you hold this phone in front of it and tap, the manager puts that camera on air with its own microphone and sets its lip sync. Then the network cameras; the cameras’ colours when they are due, matched by what the cameras see and shown to you to keep or leave; and where the programme’s sound comes from.`
       : 'Nothing is due: every camera’s lip sync, each network camera’s timing and the cameras’ colour match are as measured. It can still take you round every camera again, or straight to where the programme’s sound comes from.';
     $('#colour-due').textContent = colour.length ? `Due now: ${colour.map(i => i.label).join('; ')}.` : '';
   }
@@ -73,7 +73,7 @@
     if (run.kind === 'walk') {
       const colour = run.result?.colour;
       return 'Camera by camera, done.\n' + [...Object.values(run.result?.cameras || {}).map(c => `${c.name}: ${c.set_ms != null ? `lip sync ${c.set_ms} ms` : c.skipped ? 'skipped' : `not measured, ${c.why}`}`),
-        ...(colour && !colour.skipped ? [colour.why ? `Colour: not matched, ${colour.why}` : !colour.reference ? 'Colour: no camera’s chart was read' : `Colour: matched to ${colour.reference}${colour.in_obs ? ', in OBS' : ''}`] : [])].join('\n');
+        ...(colour && !colour.skipped ? [colour.why ? `Colour: not matched, ${colour.why}` : !colour.reference ? 'Colour: no camera’s chart was read' : `Colour: matched to ${colour.reference}${colour.in_obs ? ', in OBS' : colour.held ? ' (measured only: not put on the pictures; look at it on the Colour page)' : ''}`] : [])].join('\n');
     }
     if (run.kind === 'sync') {
       const cameras = run.result?.calibration?.cameras || {};
@@ -83,7 +83,7 @@
       return 'Network cameras timed.\n' + Object.values(run.result?.cameras || {}).map(c => `${c.name}: ${c.why ? `not timed, ${c.why}` : `${c.own_ms} ms late by itself, held by ${c.held_ms} ms (against ${c.against.join(' and ')})`}`).join('\n');
     }
     const cameras = Object.values(run.result?.cameras || {});
-    return `Colour matched to ${run.result?.reference}${run.result?.in_obs ? ', in OBS' : ''}.\n` + cameras.map(c => `${c.name}: ${c.problem ? c.problem : c.name === run.result?.reference ? 'the one the others match' : c.delta_e ? `ΔE ${c.delta_e.before.mean} → ${c.delta_e.after.mean}` : '—'}${c.warnings?.length ? `\n   to put right: ${c.warnings.join('; ')}` : ''}${c.camera ? `\n   its own settings: ${c.camera.why || (c.camera.changed ? `set to ${c.camera.now}` : `left at ${c.camera.now}`)}` : ''}`).join('\n');
+    return `Colour matched to ${run.result?.reference}${run.result?.in_obs ? ', in OBS' : run.result?.held ? ' (measured only: not put on the pictures; look at it on the Colour page)' : ''}.\n` + cameras.map(c => `${c.name}: ${c.problem ? c.problem : c.name === run.result?.reference ? 'the one the others match' : c.delta_e ? `ΔE ${c.delta_e.before.mean} → ${c.delta_e.after.mean}` : '—'}${c.warnings?.length ? `\n   to put right: ${c.warnings.join('; ')}` : ''}${c.camera ? `\n   its own settings: ${c.camera.why || (c.camera.changed ? `set to ${c.camera.now}` : `left at ${c.camera.now}`)}` : ''}`).join('\n');
   }
 
   // -- a colour run: the page drawn as the manager asks (chartrun.js) ------------------------------------------------
