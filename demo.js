@@ -985,7 +985,7 @@
       Object.assign(run, { state: 'done', ended: now(), beacon_said: base.last?.beacon_said || null });
       save();
     }
-    return { ...base, corrects: S.beaconCorrects ?? base.corrects, auto: S.beaconAuto ?? base.auto, running: run?.state === 'running', last: run || base.last };
+    return { ...base, corrects: S.beaconCorrects ?? base.corrects, auto: S.beaconAuto ?? base.auto, level_db: S.beaconLevel ?? base.level_db, running: run?.state === 'running', last: run || base.last };
   }
   function calibrateRead() {
     const base = S.answers['/api/calibrate'] || { cameras: [], relay: true, lip_sync_by_camera: {} };
@@ -2235,6 +2235,7 @@
     if (path === '/api/beacon/settings') {
       if (typeof body.corrects === 'boolean') S.beaconCorrects = body.corrects;
       if (typeof body.auto === 'boolean') S.beaconAuto = body.auto;
+      if ((beaconRead().levels || []).includes(body.level_db)) S.beaconLevel = body.level_db;
       save(); return answer(beaconRead());
     }
     if (path === '/api/calibrate/choose') return walkChoose(body);

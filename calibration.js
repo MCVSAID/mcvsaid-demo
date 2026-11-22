@@ -193,7 +193,15 @@
       box.onchange = async () => { try { beacon(await api('/api/beacon/settings', { [key]: box.checked })); } catch (error) { box.checked = !box.checked; concert.fail(error); } };
       label.append(box, node('span', ` ${words}`)); body.append(label);
     }
-    if (!admin) body.append(node('p', 'Those two are the administrator’s.', 'hint'));
+    // How loud its hiss is (beacon.LEVELS): a gentle "shhh", never a beep; louder only for a camera far off or a loud room.
+    const LOUDNESS = { '-42': 'softest', '-36': 'soft (as it comes)', '-30': 'clearer, for a camera far off or a loud room', '-24': 'loudest' };
+    const loud = node('label'), pick = document.createElement('select'); pick.disabled = !admin;
+    for (const level of state.levels || []) { const o = document.createElement('option'); o.value = String(level); o.textContent = `${LOUDNESS[String(level)] || ''} (${level} dB)`; pick.append(o); }
+    if (state.level_db != null) pick.value = String(state.level_db);
+    const was = pick.value;
+    pick.onchange = async () => { try { beacon(await api('/api/beacon/settings', { level_db: Number(pick.value) })); } catch (error) { pick.value = was; concert.fail(error); } };
+    if (state.levels) { loud.append(node('span', 'Its hiss: '), pick); body.append(loud); }
+    if (!admin) body.append(node('p', 'Those are the administrator’s.', 'hint'));
     if (!state.relay) body.append(node('p', 'The beacon is read from the camera relay, which is off: switch it on (System › Network) first.', 'hint bad'));
   }
 
