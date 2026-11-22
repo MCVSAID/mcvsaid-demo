@@ -1217,7 +1217,10 @@
     // A network camera's own input volume (tenveo.py), as the manager reads it from the camera.
     const inputs = (cams()?.cameras || []).filter(c => c.kind === 'network').map(c => ({ id: c.id, name: c.name, volume: (S.inputVolume || {})[c.id] ?? 40, most: 60, guard: !!(S.inputGuard || {})[c.id],
       guarding: (S.inputGuard || {})[c.id] ? { listening: true, peak_db: -11.4, lowered: null, floor: Math.max(1, ((S.inputVolume || {})[c.id] ?? 40) - 12), stopped: false } : null }));
-    return { lip_sync_ms: S.lipSync || 0, camera: chosen?.camera || null, others: chosen?.others || 'muted', inputs,
+    // Levelling (level.py), as the manager reports it: each source heard brought up to level; the automixer's left alone.
+    const levelled = { on: !!S.soundLevel, target_db: -9, problem: null, sources: S.soundLevel ? Object.fromEntries(list.filter(c => !chosen || mixed === false && (chosen.others !== 'muted' || c.id === chosen.camera)).slice(0, mixed ? 0 : 6)
+      .map((c, i) => [c.name, auto ? { state: 'left alone: the automixer is working the faders' } : { level_db: -28 - i * 2, gain_db: 19 + i * 2, state: 'levelled' }]).concat(mixed ? [['Programme mix', { level_db: -24, gain_db: 15, state: 'levelled' }]] : [])) : {} };
+    return { lip_sync_ms: S.lipSync || 0, level: levelled, camera: chosen?.camera || null, others: chosen?.others || 'muted', inputs,
       automix: auto ? { open, heard: open, clarity_db: Object.fromEntries(list.slice(0, 3).map((c, i) => [c.name, [14.5, 4.2, 1.8][i]])), changes: 3 } : null, mix, measured: chosen ? { at: Date.now() / 1000 - 40, readings: {}, moved: list[2] ? { [list[2].name]: -6 } : {} } : null,
       calibration: S.calibration || null, flash_page: '/sync-flash',
       cameras: list.map((c, i) => ({ id: c.id, name: c.name, in_programme: !chosen || (!mixed && (c.id === chosen.camera || chosen.others === 'aligned')),
@@ -2163,6 +2166,7 @@
       if ('lip_sync_ms' in body) { S.lipSync = Math.max(-400, Math.min(400, Number(body.lip_sync_ms) || 0)); save(); return answer(programmeSound()); }
       if (body.input_guard) { S.inputGuard = { ...(S.inputGuard || {}), [body.input_guard.camera]: !!body.input_guard.on }; save(); return answer(programmeSound()); }
       if (body.input_volume) { S.inputVolume = { ...(S.inputVolume || {}), [body.input_volume.camera]: body.input_volume.value }; save(); return answer(programmeSound()); }
+      if (body.level) { if (typeof body.level.on !== 'boolean') return answer({ detail: 'on is true or false' }, 400); S.soundLevel = body.level.on; save(); return answer(programmeSound()); }
       if (body.mix_db) { S.mixDb = { ...(S.mixDb || {}), [body.mix_db.camera]: body.mix_db.db }; save(); return answer(programmeSound()); }
       if (body.others && !['aligned', 'muted', 'auto', 'mixed'].includes(body.others)) return answer({ detail: 'others is aligned, muted, auto or mixed' }, 400);
       S.programmeSound = body.camera ? { camera: body.camera, others: body.others || 'muted' } : null;

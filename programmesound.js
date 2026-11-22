@@ -37,6 +37,21 @@
     others.onchange = () => send({ camera: state.camera, others: others.value });
     row.append(node('span', 'Programme sound from '), pick, node('span', '; the other cameras '), others);
     parts.push(row);
+    // Levelling (level.py): each source heard in the programme turned up, or down, by its fader in OBS.
+    if (state.level) {
+      const line = node('p', ''); line.className = 'recipe-load-row';
+      const on = document.createElement('input'); on.type = 'checkbox'; on.checked = state.level.on; on.disabled = busy; on.id = 'sound-level-on';
+      on.onchange = () => send({ level: { on: on.checked } });
+      const label = document.createElement('label'); label.htmlFor = on.id; label.textContent = ' Level the programme’s sound by itself';
+      line.append(on, label, node('small', ' Turns each camera heard in the programme up (or down) in OBS until its loud moments peak near '
+        + `${state.level.target_db} dB, slowly, and not while nothing is heard; a limiter in OBS catches the peaks. Switched off, every fader it moved is put back.`));
+      parts.push(line);
+      const heard = Object.entries(state.level.sources || {});
+      if (state.level.on && (heard.length || state.level.problem)) {
+        parts.push(node('small', state.level.problem ? `Levelling is waiting for OBS: ${state.level.problem}.`
+          : heard.map(([name, s]) => `${name}: ${s.gain_db == null ? '' : `${s.gain_db > 0 ? '+' : ''}${s.gain_db} dB, `}${s.level_db == null ? '' : `heard at ${s.level_db} dB, `}${s.state}`).join(' · ')));
+      }
+    }
     if (state.camera && state.others === 'auto') {
       // The automixer: which microphone is open, and how clearly each hears someone now.
       const a = state.automix;
