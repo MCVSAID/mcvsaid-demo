@@ -1209,7 +1209,7 @@
           options: [['go', 'Match the colours'], ['skip', 'Skip']] }
       : next.kind === 'keep' ? { kind: 'keep', camera: next.name, reference: next.reference, pictures: [[next.reference, 'reference'], [`${next.name}, matched`, 'camera']],
           said: `${next.name}, matched to ${next.reference} by what both see. Do they look alike now? If they were not looking at the same thing it will look wrong: leave it.`, options: [['keep', 'Keep it'], ['leave', 'Leave it as it was']] }
-      : next.kind === 'beacon' ? { kind: 'beacon', said: next.again || `The stage beacon (${next.name}) can do the cameras’ lip sync from where it stands, before you walk anywhere: about 20 seconds of a soft hiss, with its screen shading. A camera it settles is not walked to; the rest are, as before.`,
+      : next.kind === 'beacon' ? { kind: 'beacon', said: next.again || `The stage beacon (${next.name}) can do the cameras’ lip sync from where it stands, before you walk anywhere: about 20 seconds of a soft hiss, with two orbs glowing softly on its screen. A camera it settles is not walked to; the rest are, as before.`,
           options: [['go', next.again ? 'Try again' : 'Measure from the beacon'], ['skip', 'Walk to each camera']] }
       : next.kind === 'beacon-done' ? { kind: 'beacon-done', said: next.said, options: [['go', 'Go on']] }
       : next.kind === 'mix' ? walkMix(run, next)
