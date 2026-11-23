@@ -22,7 +22,7 @@
       node('p', 'Every streaming camera’s microphone is in the programme. Mixed together, a camera whose picture (and so its sound) is a little off the others is heard as an echo. Choose the camera whose microphone leads: it is always heard, and the others either join it, each only while it is lined up with it, or stay out.')];
     const row = node('p', ''); row.className = 'recipe-load-row';
     const pick = document.createElement('select'); pick.setAttribute('aria-label', 'Programme sound from'); pick.disabled = busy;
-    for (const [value, text] of [['', 'every camera, as they are'], ...state.cameras.map(c => [c.id, c.name])]) {
+    for (const [value, text] of [['', 'every camera, as they are'], ...state.cameras.map(c => [c.id, c.soundless ? `${c.name} (sends no sound)` : c.name])]) {
       const o = node('option', text); o.value = value; o.selected = (state.camera || '') === value; pick.append(o);
     }
     const others = document.createElement('select'); others.setAttribute('aria-label', 'The other cameras'); others.disabled = busy || !state.camera;
@@ -37,6 +37,18 @@
     others.onchange = () => send({ camera: state.camera, others: others.value });
     row.append(node('span', 'Programme sound from '), pick, node('span', '; the other cameras '), others);
     parts.push(row);
+    // A network camera over SRT whose stream sends no sound (read from the relay's copy of it, not assumed): its source in
+    // OBS is silent, so where its sound is heard is said. Amber when it is the camera Programme sound comes from: then
+    // nothing is heard from that camera. It can still be chosen. In the mix, its line in the list below says it.
+    const lead = state.cameras.find(c => c.id === state.camera);
+    for (const c of state.cameras.filter(c => c.soundless)) {
+      if (c.id === state.camera) {
+        const line = node('p', `${c.name} sends no sound in its stream over SRT, so its source in OBS is silent and nothing is heard from the camera Programme sound comes from. Choose a phone camera instead: with the others “mixed as one sound”, ${c.name}’s sound joins the mix, read from the camera itself. Or take its picture over NDI, which carries its sound.`);
+        line.className = 'recording-warning'; parts.push(line);
+      } else if (!(state.camera && state.others === 'mixed')) {
+        parts.push(node('p', `${c.name} sends no sound in its stream over SRT: its source in OBS is silent. Its sound is heard only in the programme mix (a phone camera chosen, the others “mixed as one sound”), which reads it from the camera itself; or with its picture taken over NDI.`));
+      }
+    }
     // Levelling (level.py): each source heard in the programme turned up, or down, by its fader in OBS.
     if (state.level) {
       const line = node('p', ''); line.className = 'recipe-load-row';
@@ -62,18 +74,24 @@
     if (state.camera && state.others === 'mixed') {
       // The programme mix (mixer.py): every microphone kept in time with the chosen camera's, mixed here, one source in OBS.
       const m = state.mix || {};
-      const line = node('p', m.in_programme ? `The mix is in the programme (OBS source “${m.source}”, held ${m.offset_ms} ms by OBS, to be heard as ${state.cameras.find(c => c.id === state.camera)?.name || 'the leading camera'}’s picture is shown); the cameras’ own microphones are muted.`
-        : `The mix is not in the programme${m.why ? `: ${m.why}` : ''}. ${state.cameras.find(c => c.id === state.camera)?.name || 'The chosen camera'}’s own microphone is heard meanwhile.`);
+      const line = node('p', m.in_programme ? `The mix is in the programme (OBS source “${m.source}”, held ${m.offset_ms} ms by OBS, to be heard as ${lead?.name || 'the leading camera'}’s picture is shown); the cameras’ own microphones are muted.`
+        : `The mix is not in the programme${m.why ? `: ${m.why}` : ''}.${lead?.soundless ? '' : ` ${lead?.name || 'The chosen camera'}’s own microphone is heard meanwhile.`}`);
       if (!m.in_programme) line.className = 'recording-warning';
       const list = node('ul', '');
       for (const c of state.cameras) {
         const e = (m.cameras || {})[c.name], db = (m.db || {})[c.id];
+        // One that sends no sound in its stream is heard here or nowhere: said whether the mix reads it from the camera itself.
+        // With nothing of it in the mix, the control address is named only when it is what is missing (has_control): with
+        // it given, the mix is not going, or the camera's own sound is not read yet or cannot be.
+        const quiet = c.soundless && c.id !== state.camera;
         const what = c.id === state.camera ? 'leads: the mix keeps its time'
-          : !e ? (db === null ? 'left out' : 'not streaming, or its sound cannot be read')
+          : !e ? (db === null ? 'left out' : !quiet ? 'not streaming, or its sound cannot be read'
+            : c.has_control ? 'sends no sound in its stream over SRT, and the mix has none from the camera itself: the mix is not going, or its sound cannot be read from the camera'
+            : 'sends no sound in its stream over SRT, and the mix is not reading it from the camera itself (that needs its control address, on its card)')
           : !e.placed ? 'not placed yet: it has to hear what the leading camera hears, for a few seconds'
           : `${e.in_mix ? 'in the mix' : e.late ? 'out: its sound is arriving too late' : 'coming in'} · ${Math.abs(e.behind_ms)} ms ${e.behind_ms >= 0 ? 'behind' : 'ahead'}`
             + `${e.drift_ppm ? `, drifting ${Math.abs(e.drift_ppm)} parts in a million` : ''}${e.unsteady_ms != null ? `, steady to ${e.unsteady_ms} ms` : ''}${e.flipped ? ' · turned the right way up' : ''}`;
-        const item = node('li', `${c.name}: ${what} · level `);
+        const item = node('li', `${c.name}: ${what}${quiet && e ? ' · read from the camera itself (it sends no sound in its stream over SRT)' : ''} · level `);
         const level = document.createElement('input'); level.type = 'number'; level.min = -30; level.max = 24; level.step = 1; level.disabled = busy;
         level.value = db === null ? '' : db || 0; level.placeholder = 'out'; level.setAttribute('aria-label', `${c.name}: level in the mix, decibels (empty: left out)`);
         level.onchange = () => send({ mix_db: { camera: c.id, db: level.value === '' ? null : Math.max(-30, Math.min(24, Number(level.value) || 0)) } });
@@ -86,8 +104,9 @@
       const list = node('ul', '');
       for (const c of state.cameras) {
         const trim = c.trim_ms ? ` · sound moved ${c.trim_ms > 0 ? 'later' : 'earlier'} by ${Math.abs(c.trim_ms)} ms to line up` : '';
-        const line = node('li', `${c.name}: ${c.id === state.camera ? 'leads' : c.in_programme ? 'in the programme' : `out (${c.why})`}${trim}`);
-        if (!c.in_programme && c.why !== 'not streaming' && state.others === 'aligned') line.className = 'recording-warning';
+        const silent = c.id === state.camera && c.soundless;
+        const line = node('li', `${c.name}: ${silent ? 'leads, but sends no sound in its stream: its source in OBS is silent' : c.id === state.camera ? 'leads' : c.in_programme ? 'in the programme' : `out (${c.why})`}${trim}`);
+        if (silent || (!c.in_programme && c.why !== 'not streaming' && state.others === 'aligned')) line.className = 'recording-warning';
         list.append(line);
       }
       parts.push(list);
@@ -107,7 +126,7 @@
       const g = input.guarding;
       const heard = node('small', !input.guard ? '' : !g || !g.listening ? ' Not listening to it yet.' : ` Loudest in the last 10 s: ${g.peak_db == null ? '—' : `${g.peak_db} dB`}.${g.lowered ? ` Turned down from ${g.lowered.from} to ${g.lowered.to} at ${new Date(g.lowered.at * 1000).toLocaleTimeString()} (it reached ${g.lowered.peak_db} dB).` : ''}${g.stopped ? ` It has stopped at ${g.floor}, as far below where you set it as it goes: if it is still too loud, set it lower yourself.` : g.floor != null ? ` It goes no lower than ${g.floor}.` : ''} Never turned back up: do that here, between songs.`);
       row.append(node('span', `${input.name}: its own input volume `), volume, node('span', ` of ${input.most} `), set, node('span', ' '), guarding, heard,
-        node('small', ' Set on the camera itself, for its sound in OBS and in the mix alike, at once. Turn it down until the loudest sound of the show stays clear of the top.'));
+        node('small', ` Set on the camera itself, for its sound ${state.cameras.find(c => c.id === input.id)?.soundless ? 'in the mix (its stream brings none to OBS)' : 'in OBS and in the mix alike'}, at once. Turn it down until the loudest sound of the show stays clear of the top.`));
       parts.push(row);
     }
     // Lip sync: every camera's sound moved against its picture, for a voice that comes after the mouth.

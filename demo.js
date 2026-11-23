@@ -1326,6 +1326,7 @@
       const found = timed?.result?.cameras?.[c.id], input = sound.inputs.find(x => x.id === c.id), rows = [];
       rows.push(found && !found.why ? item(`timed:${c.id}`, `${c.name}: timed against a phone`, 'ready', `Timed at ${clock(timed.ended)} by ${S.netTimed.by === 'beacon' ? "the stage beacon's light" : "the calibrate page's flashes"} against ${found.against[0]}: ${found.own_ms} ms late by itself, and held to match.`)
         : item(`timed:${c.id}`, `${c.name}: timed against a phone`, 'todo', found?.why ? `Not timed: ${found.why}.` : 'Not timed: too little happening in both pictures. It is held by 600 ms, as last set.', timeIt));
+      if (soundless(c) && c.id === sound.camera) rows.push(item(`sound:${c.id}`, `${c.name}: its sound`, 'todo', 'Programme sound is set to come from it, and it sends no sound in its stream over SRT: its source in OBS is silent.', 'Choose a phone camera for Programme sound', '/sound#programme'));
       if (input) rows.push(input.volume <= 15 ? item(`input:${c.id}`, `${c.name}: input volume`, 'todo', `${input.volume} of ${input.most}: low enough to be close to silent.`, 'Set its input volume (Sound › Programme sound)', '/sound#programme')
         : item(`input:${c.id}`, `${c.name}: input volume`, 'ready', `${input.volume} of ${input.most}${input.guard ? ', guarded (loudest lately -11.4 dB).' : ', not guarded.'}`));
       if (mixed) {
@@ -1375,7 +1376,30 @@
       calibration: S.calibration || null, flash_page: '/sync-flash',
       cameras: list.map((c, i) => ({ id: c.id, name: c.name, in_programme: !chosen || (!mixed && (c.id === chosen.camera || chosen.others === 'aligned')),
         why: !chosen || (!mixed && (c.id === chosen.camera || chosen.others === 'aligned')) ? null : mixed ? 'its microphone is in the programme mix' : 'programme sound comes from the chosen camera alone', trim_ms: chosen && i === 2 ? -6 : null,
-        lip_sync_ms: S.calibrated?.[c.id] ?? (S.lipSync || 0), calibrated_ms: S.calibrated?.[c.id] ?? null })) };
+        lip_sync_ms: S.calibrated?.[c.id] ?? (S.lipSync || 0), calibrated_ms: S.calibrated?.[c.id] ?? null,
+        // A network camera over SRT whose stream sends no sound (Manager.soundless): in the demo, the one sent to the relay.
+        // has_control: its control address is kept, which the mix needs to read its sound from the camera itself.
+        soundless: soundless(c), has_control: c.kind === 'network' && !!c.has_control })) };
+  }
+  // Whether this is a network camera whose stream is read as sending no sound (watch.Watch.stream_sound): the demo's
+  // network camera once it comes over SRT and calls the relay, as the real one did (2026-11-22).
+  function soundless(c) { return c.kind === 'network' && c.route === 'srt' && !!c.srt_sent; }
+  // The Sound line of such a camera's readiness (readiness.evaluate_relayed), before its Camera file line: amber when
+  // Programme sound is set to come from it, else where its sound is heard. Gone again when its stream is not that.
+  function netSound() {
+    for (const c of cams()?.cameras || []) {
+      if (c.kind !== 'network' || !c.readiness) continue;
+      const checks = c.readiness.checks.filter(x => x.id !== 'sound'), none = 'it sends no sound in its stream over SRT';
+      if (soundless(c)) {
+        const lead = S.programmeSound?.camera === c.id, mix = !lead && S.programmeSound?.others === 'mixed' && c.has_control && (S.mixDb || {})[c.id] !== null;
+        const at = checks.findIndex(x => x.id === 'capture');
+        checks.splice(at < 0 ? checks.length : at, 0, { id: 'sound', label: 'Sound', status: lead ? 'warn' : 'ok',
+          detail: lead ? `${none}, and Programme sound is set to come from it: its source in OBS is silent. Choose a phone camera for Programme sound (Sound page)`
+            : mix ? `${none}; the programme mix reads its sound from the camera itself`
+            : `${none}, so its source in OBS is silent. Its sound is heard only in the programme mix, which reads it from the camera itself (Sound page: a phone camera to lead, the others mixed as one sound)` });
+      }
+      c.readiness.checks = checks; c.readiness.overall = checks.some(x => x.status === 'fail') ? 'fail' : checks.some(x => x.status === 'warn') ? 'warn' : 'ok';
+    }
   }
   function operatePost(main) {
     // The Operate page's Main stage and Previous shot: as the manager does, a person's choice, held.
@@ -1498,6 +1522,7 @@
       camera.has_control = done.has_control = set;
       if (camera.netfollow) { camera.netfollow.controllable = set; camera.netfollow.has_address = set; if (!set) camera.netfollow.armed = false; }
     }
+    if ('route' in body || 'srt' in body || 'control_address' in body) netSound();     // whether its stream sends sound, and where its sound is heard, follow these
     save(); return answer(done);
   }
   // Arming the manager's following of a network PTZ camera, and its onboard tracker's mode and framing (netcontrol.py).
@@ -2355,10 +2380,11 @@
       if (body.input_guard) { S.inputGuard = { ...(S.inputGuard || {}), [body.input_guard.camera]: !!body.input_guard.on }; save(); return answer(programmeSound()); }
       if (body.input_volume) { S.inputVolume = { ...(S.inputVolume || {}), [body.input_volume.camera]: body.input_volume.value }; save(); return answer(programmeSound()); }
       if (body.level) { if (typeof body.level.on !== 'boolean') return answer({ detail: 'on is true or false' }, 400); S.soundLevel = body.level.on; save(); return answer(programmeSound()); }
-      if (body.mix_db) { S.mixDb = { ...(S.mixDb || {}), [body.mix_db.camera]: body.mix_db.db }; save(); return answer(programmeSound()); }
+      if (body.mix_db) { S.mixDb = { ...(S.mixDb || {}), [body.mix_db.camera]: body.mix_db.db }; netSound(); save(); return answer(programmeSound()); }
       if (body.others && !['aligned', 'muted', 'auto', 'mixed'].includes(body.others)) return answer({ detail: 'others is aligned, muted, auto or mixed' }, 400);
       S.programmeSound = body.camera ? { camera: body.camera, others: body.others || 'muted' } : null;
       S.soundChangedAt = now();
+      netSound();                           // a camera that sends no sound in its stream says on its card where its sound is heard now
       save(); return answer(programmeSound());
     }
     if (path === '/api/sync/measure') {
