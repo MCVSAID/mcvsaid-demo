@@ -1319,6 +1319,21 @@ async function drawAll() {
       pick.onchange = () => direct({ default_shot: pick.value || null });
       fallback.append(pick); settings.append(fallback);
       if (director.default_shot && !(director.scenes || []).includes(director.default_shot)) { const gone = node('p', `The default shot “${director.default_shot}” is not a scene in OBS any more, so there is no fallback.`); gone.className = 'recording-warning'; settings.append(gone); }
+      // Favoured split screens: taken by the director whenever both cameras are worth showing (director.py favoured_pair).
+      const pairs = [], seenPairs = new Set();
+      for (const members of Object.values(director.splits || {})) { const key = [...members].sort().join('|'); if (!seenPairs.has(key)) { seenPairs.add(key); pairs.push([...members]); } }
+      const favoured = new Set((director.favoured_splits || []).map(pair => [...pair].sort().join('|')));
+      if (pairs.length) {
+        const box = document.createElement('fieldset'); box.className = 'favoured-splits';
+        box.append(node('legend', 'Favoured split screens'));
+        for (const pair of pairs) {
+          const key = [...pair].sort().join('|'), row = node('label', ''), tick = document.createElement('input'); tick.type = 'checkbox'; tick.checked = favoured.has(key);
+          tick.onchange = () => { const next = new Set(favoured); if (tick.checked) next.add(key); else next.delete(key); direct({ favoured_splits: [...next].map(k => k.split('|')) }); };
+          row.append(tick, node('span', ` ${pair.map(named).join(' and ')} side by side`)); box.append(row);
+        }
+        box.append(node('small', `With the model choosing, a ticked pair goes on air whenever both cameras show someone and no other camera is clearly better, without waiting for the model to ask. It stays a shot’s length at most (${director.max_shot_seconds || 18} s) unless the model wants it longer, then rests for 30 s.`));
+        settings.append(box);
+      }
       const aiFrom = settings.children.length;
       const zoom = node('label', ''); const zoomBox = document.createElement('input'); zoomBox.type = 'checkbox'; zoomBox.checked = director.zoom; zoomBox.disabled = !director.ai?.enabled;
       zoomBox.onchange = () => direct({ zoom: zoomBox.checked });

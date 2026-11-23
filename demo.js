@@ -1956,6 +1956,7 @@
     if ('take' in body) { cutTo(body.take, true); d.hold_until = d.enabled ? t + 10 : null; }
     if ('enabled' in body) { d.enabled = !!body.enabled; S.nextCut = t + 6; }
     if (body.camera_focus && typeof body.camera_focus === 'object') focusPost(body.camera_focus);
+    if (Array.isArray(body.favoured_splits)) d.favoured_splits = body.favoured_splits.filter(p => Array.isArray(p) && p.length === 2).map(p => [...p].sort());
     if ('record' in body) {
       if (body.record) { S.recStart = t; d.recording = { started: t, seconds: 0, file: 'demo-programme.mkv' }; d.cuts = 0; }
       else d.recording = null;
