@@ -1172,7 +1172,7 @@
           : { name: c.name, why: 'no phone camera saw the page flashing with it' }])) };
         Object.assign(run, { state: 'done', said: 'Done', show: null, ended: t });
         S.netTimed = { at: t, cameras: run.result.cameras };
-      } else if (run.kind === 'walk') { walkOn(run, t);
+      } else if (run.kind === 'walk' || run.kind === 'beacon') { walkOn(run, t);
       } else if (run.kind === 'colour') {
         if (run.step < CAL_STEPS.length && run.answered >= run.step && t >= run.nextAt) {
           const [show, said] = CAL_STEPS[run.step]; Object.assign(run, { step: run.step + 1, show, said, nextAt: t + 1.5 });
@@ -1196,6 +1196,11 @@
   function walkAsk(run) {
     const next = run.queue[0];
     if (!next) { Object.assign(run, { state: 'done', said: 'Done', show: null, ask: null, ended: now() }); return; }
+    // From the stage beacon alone (calibrate.py, kind 'beacon'): pressing its button was the asking, so its run begins at once.
+    if (next.kind === 'beacon' && run.kind === 'beacon') {
+      Object.assign(run, { ask: null, show: null, until: now() + 5, said: `The stage beacon (${next.name}) is measuring every camera from where it stands: about 30 seconds. Nothing to hold up` });
+      return;
+    }
     const ask = next.kind === 'camera' ? { kind: 'camera', camera: next.name, said: next.again ? `${next.again}. Still in front of it? Try again, or go on.`
         : `Go to ${next.name} (camera ${next.n} of ${next.of}). Hold this phone an arm’s length in front of it, ${next.sound ? 'screen and speaker towards the camera, sound turned up.' : 'its screen towards the camera.'}${next.with ? ` ${next.with} is beside it: hold the phone where both see it, and ${next.with} is done from this stop too.` : ''}`,
         options: next.again ? [['go', 'Try again'], ['skip', 'Go on']] : [['go', 'Measure this camera'], ['skip', 'Skip it']] }
@@ -1219,6 +1224,15 @@
   // and is not timed by the beacon until it has run steadily a while: that is waited out first (null: nothing asked yet).
   function walkMix(run, next) {
     const lit = run.all ? null : standing(), flashes = `go back to ${next.leader} and hold the phone in front of it`;
+    if (run.kind === 'beacon') {
+      // From the stage beacon alone: the beacon or nothing, and what it cannot do left for the check on a phone.
+      const cannot = !lit ? 'no stage beacon stands ready' : lit.mix?.cannot || mixCannot(true);
+      if (cannot) { run.result.mix = { by: 'beacon', why: `the stage beacon is not asked for it: ${cannot}` }; run.result.left['Programme mix: timing'] = run.result.mix.why; run.queue.shift(); walkAsk(run); return null; }
+      next.beacon = lit.name;
+      return { kind: 'mix', said: next.again || `Last, the programme mix’s own timing. The stage beacon (${lit.name}) measures it from where it stands: ${next.leader} is put on air and OBS records the programme `
+          + `for about 40 seconds, ${next.leader}’s microphone alone in the mix and every other sound in OBS muted meanwhile, and all of it put back after.`,
+        options: [['beacon', next.tried ? 'Try again' : 'Measure from the beacon'], ['skip', next.tried ? 'Go on' : 'Skip']] };
+    }
     if (!lit) return { kind: 'mix', said: `Last, the programme mix’s own timing: ${flashes}.`, options: [['go', 'Measure the mix'], ['skip', 'Skip']] };
     if (!lit.mix?.cannot && !next.waited && mixSettling() && !mixCannot(true, true)) {
       next.waited = true;
@@ -1245,8 +1259,9 @@
     // With the programme mix, whether the check's last step would ask it for the mix's own timing: as lip sync, not with its own part never measured.
     return lit ? { name: lit.name, cannot, timing: S.beaconNetwork ?? S.answers['/api/beacon']?.network ?? true, ...(mixLeader() ? { mix: { cannot } } : {}) } : null;
   }
-  function walkStart(all) {
-    const list = (cams()?.cameras || []).filter(c => c.id), phones = list.filter(c => c.kind !== 'network'), network = list.filter(c => c.kind === 'network');
+  function walkStart(all, alone) {
+    // A stage beacon phone is no camera of the show (Manager.cameras_in_use): never a stop, a lip sync or a colour match.
+    const list = (cams()?.cameras || []).filter(c => c.id && !c.telemetry?.beacon?.on), phones = list.filter(c => c.kind !== 'network'), network = list.filter(c => c.kind === 'network');
     // A stop a phone camera whose lip sync is due (or that has a network camera beside it to time); the colours are
     // matched afterwards, once, by what the cameras see.
     // A network camera with a phone mounted beside it (its card's Following) is timed by that phone's flashes and reads
@@ -1256,15 +1271,23 @@
     const unmeasured = c => all || (S.calibration?.cameras?.[c.name]?.set_ms == null && !S.beaconRests?.[c.name]?.sure), timing = c => besideOf(c).length > 0 && (all || !S.netTimed);
     const due = phones.filter(c => unmeasured(c) || timing(c)).sort((a, b) => besideOf(a).length - besideOf(b).length);
     const lit = standing(), beaconName = lit && !lit.cannot ? lit.name : null;
-    const run = { id: Math.random().toString(16).slice(2, 14), kind: 'walk', state: 'running', step: 0, show: null, ask: null, said: 'Starting', started: now(), ended: null,
+    const run = { id: Math.random().toString(16).slice(2, 14), kind: alone ? 'beacon' : 'walk', state: 'running', step: 0, show: null, ask: null, said: 'Starting', started: now(), ended: null,
       by_name: S.answers['/api/session']?.name || 'Morgan', answered: 0, problem: null, yours: true, until: null, all: !!all,
-      result: { cameras: {}, timing: null, colour: null, sound: null, mix: null, visited: due.map(c => c.name), beacon: null },
+      result: { cameras: {}, timing: null, colour: null, sound: null, mix: null, visited: alone ? [] : due.map(c => c.name), beacon: null, ...(alone ? { left: {} } : {}) },
       // The stage beacon first, when the demo has one and a phone's lip sync is due (calibrate.py's beacon_first):
       // it settles every camera but the fourth, which does not see it and is walked to.
       queue: [...(!all && beaconName && due.some(unmeasured) ? [{ kind: 'beacon', name: beaconName }] : []), ...due.map((c, i) => ({ kind: 'camera', id: c.id, name: c.name, n: i + 1, of: due.length, sound: unmeasured(c), chart: false, partners: besideOf(c), with: besideOf(c).map(n => n.name).join(' and '), timing: timing(c), late: [15, 60, 25, 40, 30, 20][phones.indexOf(c) % 6], fails: phones.indexOf(c) === 3 })),
         ...(apart.length && (all || !S.netTimed) ? [{ kind: 'network', names: apart.map(c => c.name).join(' and '), cameras: apart }] : []),
         ...(list.length > 1 ? [{ kind: 'colour' }] : []),
         { kind: 'sound', cameras: phones.map(c => ({ id: c.id, name: c.name })) }] };
+    if (alone && !run.queue.some(q => q.kind === 'beacon')) {
+      // Nothing for the beacon to set (only a network camera beside a phone to time): left for the check on a phone, unwalked.
+      for (const q of run.queue) {
+        if (q.kind === 'camera') for (const c of q.partners) run.result.left[`${c.name}: timing`] = 'the stage beacon’s runs do not time the network cameras';
+        if (q.kind === 'network') for (const c of q.cameras) run.result.left[`${c.name}: timing`] = 'the stage beacon’s runs do not time the network cameras';
+      }
+      run.queue = run.queue.filter(q => !['camera', 'network'].includes(q.kind));
+    }
     walkAsk(run);
     return run;
   }
@@ -1308,6 +1331,15 @@
         + (left.length ? `Still to walk to: ${left.map(q => `${q.name}, ${run.result.beacon.left[q.name]}`).join('; ')}.` : 'No camera’s lip sync is left to walk to.')
         + (apart ? ` It timed ${apart.cameras.map(c => c.name).join(' and ')} against the phones by its light, too.` : '');
       run.queue = [{ kind: 'beacon-done', said }, ...keep.slice(1).filter(q => q !== apart)];
+      if (run.kind === 'beacon') {
+        // From the stage beacon alone: nobody is walked anywhere; what it could not do is left for the check on a phone.
+        for (const q of run.queue) {
+          if (q.kind === 'camera' && q.sound) run.result.left[`${q.name}: lip sync`] = run.result.beacon.left[q.name] || 'the stage beacon did not settle it';
+          if (q.kind === 'network') for (const c of q.cameras) run.result.left[`${c.name}: timing`] = 'the stage beacon’s runs do not time the network cameras';
+        }
+        run.result.visited = [];
+        run.queue = run.queue.filter(q => !['beacon-done', 'camera', 'network'].includes(q.kind));
+      }
     } else if (done.kind === 'camera') {
       if (done.timing) {
         // The camera beside it, timed by the same flashes.
@@ -1341,16 +1373,17 @@
       done.byBeacon = false; done.tried = true;
       if (cannot) {
         done.found = { by: 'beacon', why: cannot };
-        done.again = `The stage beacon did not time the mix: ${cannot}. Try again, use the flashes (${flashes}), or go on.`;
+        done.again = `The stage beacon did not time the mix: ${cannot}. ` + (run.kind === 'beacon' ? 'Try again, or go on: the check on a phone has the flashes for it.' : `Try again, use the flashes (${flashes}), or go on.`);
       } else {
         const stream = Math.round(((S.answers['/api/beacon']?.last?.cameras?.[leader.name]?.own_ms ?? BEACON_HEARD[leader.name] ?? 40) + (Math.random() - 0.5) * 8) * 10) / 10;
         const made = mixRead(lit, stream, t);
-        S.beaconRun = { at: t - 5, by: `${run.by_name} (Pre-show calibration check)`, beacon: lit.name, state: 'done', purpose: 'mix', camera: null, ended: t, beacon_said: null,
+        S.beaconRun = { at: t - 5, by: `${run.by_name} (${run.kind === 'beacon' ? 'Do what is due from the stage beacon' : 'Pre-show calibration check'})`, beacon: lit.name, state: 'done', purpose: 'mix', camera: null, ended: t, beacon_said: null,
           cameras: { [leader.name]: { own_ms: stream, likeness: 0.86, cells: 9, clear_db: 27.5 } }, mix: made };
         if (made.state !== 'left') { run.result.mix = { trim_ms: made.trim_ms, by: 'beacon', off_ms: made.off_ms, state: made.state }; run.queue.shift(); }
         else {
           done.found = { by: 'beacon', state: 'left', trim_ms: made.trim_ms, off_ms: made.off_ms, why: made.why };
-          done.again = `The stage beacon read the mix ${Math.abs(made.off_ms)} ms ${made.off_ms >= 0 ? 'late' : 'early'} against ${done.leader}’s picture, and set nothing: ${made.why}. Use the flashes (${flashes}), or go on.`;
+          done.again = `The stage beacon read the mix ${Math.abs(made.off_ms)} ms ${made.off_ms >= 0 ? 'late' : 'early'} against ${done.leader}’s picture, and set nothing: ${made.why}. `
+            + (run.kind === 'beacon' ? 'Try again, or go on: the check on a phone has the flashes for it.' : `Use the flashes (${flashes}), or go on.`);
         }
       }
     } else if (done.kind === 'mix' && !done.flashed) { /* the mix waited for, and steady now: asked next */
@@ -1380,7 +1413,7 @@
     } else if (asked.kind === 'colour') {
       // Matched by the scene: each camera but the first phone is shown beside it, to keep or leave.
       run.queue.shift();
-      const list = (cams()?.cameras || []).filter(c => c.id), reference = list.find(c => c.kind !== 'network') || list[0];
+      const list = (cams()?.cameras || []).filter(c => c.id && !c.telemetry?.beacon?.on), reference = list.find(c => c.kind !== 'network') || list[0];
       if (choice === 'go') {
         run.result.colour = { by: 'scene', reference: reference.name, in_obs: false, cameras: { [reference.id]: { name: reference.name } } };
         run.queue.unshift(...list.filter(c => c !== reference).map(c => ({ kind: 'keep', id: c.id, name: c.name, reference: reference.name })));
@@ -2600,7 +2633,8 @@
       calibrateSync(); save(); return answer(programmeSound());
     }
     if (path === '/api/calibrate/start') {
-      if (!['sync', 'colour', 'timing', 'walk'].includes(body.kind)) return answer({ detail: 'Send kind (sync, colour, timing or walk), for colour reference and obs, and for walk all (true: every camera, not only those due)' }, 400);
+      if (!['sync', 'colour', 'timing', 'walk', 'beacon'].includes(body.kind)) return answer({ detail: 'Send kind (sync, colour, timing, walk or beacon), for colour reference and obs, and for walk all (true: every camera, not only those due)' }, 400);
+      if (body.kind === 'beacon' && !standing()) return answer({ detail: 'No stage beacon stands ready: make a spare phone a stage beacon (Stage beacon, below), its beacon screen up' }, 409);
       // As calibrate.py: a run that is measuring is not cut into; one only waiting at a question (here always the
       // visitor's own) is ended for the new one.
       if (S.calRun?.state === 'running' && !S.calRun.ask) return answer({ detail: `A ${S.calRun.kind} calibration is already going on, started by ${S.calRun.by_name}, and it is measuring just now (${S.calRun.said}). It ends by itself within seconds: start again then` }, 409);
@@ -2608,6 +2642,9 @@
       S.calRun = { id: Math.random().toString(16).slice(2, 14), kind: body.kind, state: 'running', step: 0, show: body.kind === 'colour' ? null : 'flash', said: body.kind === 'sync' ? 'Measuring: keep the phone flashing where every camera sees it (about 15 seconds)' : body.kind === 'timing' ? 'Timing: keep the phone flashing where a network camera and a phone camera both see it (about 20 seconds)' : 'Starting',
         started: now(), ended: null, by_name: S.answers['/api/session']?.name || 'Morgan', answered: 0, result: null, problem: null, yours: true, obs: body.obs !== false, nextAt: now() + 0.5 };
       if (body.kind === 'walk') S.calRun = walkStart(body.all === true);
+      // From the stage beacon alone (calibrate.py): the check's steps from the PC or a tablet, nobody walked anywhere.
+      // In the demo OBS is never really recording, so it is not refused for that as the manager refuses it.
+      if (body.kind === 'beacon') S.calRun = walkStart(false, true);
       save(); return answer(calibrateRead());
     }
     if (path === '/api/beacon/measure') {

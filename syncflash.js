@@ -138,7 +138,7 @@ async function offer() {
   if (audio) return;                                  // started meanwhile
   options.replaceChildren();
   if (!run || run.state !== 'running') { box.hidden = true; begin.hidden = false; return; }
-  const what = { walk: 'camera-by-camera', sync: 'sound', timing: 'timing' }[run.kind] || 'colour', whose = run.yours ? 'you started' : `started by ${run.by_name}`;
+  const what = { walk: 'camera-by-camera', sync: 'sound', timing: 'timing', beacon: 'stage beacon' }[run.kind] || 'colour', whose = run.yours ? 'you started' : `started by ${run.by_name}`;
   box.hidden = false; begin.hidden = true;
   if (!run.waiting) {
     document.getElementById('going-said').textContent = `A ${what} run ${whose} is measuring just now: “${run.said}” It ends by itself within seconds, and this can start then.`;

@@ -2,9 +2,11 @@
 // Set up › Calibrate (calibration.html, calibrate.py): before the show, what is lined up and what is not (preshow.py);
 // the address of the calibrate page for a phone, with its QR code;
 // the run going on (started from that phone), followed here and stopped from here if need be; and what was measured.
+// And "Do what is due from the stage beacon" (calibrate.py, kind 'beacon'): started here, at the PC or on a tablet, its
+// questions shown and answered here, and nobody walked on stage; what the beacon could not do is listed for the phone.
 (() => {
   const $ = selector => document.querySelector(selector);
-  let session = null, timer = null, drawn = '';
+  let session = null, timer = null, drawn = '', going = null;
   function node(tag, text, cls) { const e = document.createElement(tag); if (text !== undefined) e.textContent = text; if (cls) e.className = cls; return e; }
   // How far sound is from its picture, in words; and a moment, with its day when that is not today (a timing kept may be days old).
   const late = ms => `${Math.abs(ms)} ms ${ms >= 0 ? 'late' : 'early'}`;
@@ -51,7 +53,8 @@
   }
 
   function draw(state) {
-    const sig = JSON.stringify({ ...state, run: state.run && { ...state.run, yours: undefined } });
+    going = state.run?.state === 'running' ? state.run : null;
+    const sig = JSON.stringify(state);
     if (sig === drawn) return; drawn = sig;
     phone(state); now(state); cameras(state);
   }
@@ -77,6 +80,7 @@
         : `The stage beacon (${lit.name}) is ready: the check on the phone offers it first. From where it stands it can set the lip sync of each camera that is due${timing}, and the phone is walked only to a camera it could not see or hear, or was not sure of to within 25 ms.`)
         + mixed + ' Still a person’s: the beacon’s own part, measured once against a camera measured with the flashes (Stage beacon, below); the cameras’ colours; and where the programme’s sound comes from.', 'hint'));
     }
+    body.append(beaconDue(report));
     for (const group of report.groups) {
       body.append(node('h3', group.title));
       if (group.empty) { body.append(node('p', group.empty, 'hint')); continue; }
@@ -112,6 +116,63 @@
     }
   }
 
+  // Do what is due from the stage beacon (calibrate.py, kind 'beacon'): the check's steps from here, with nobody on stage.
+  const BY_BEACON = 'Do what is due from the stage beacon';
+  function beaconDue(report) {
+    const box = node('div', undefined, 'beacon-due');
+    const go = node('button', BY_BEACON); go.type = 'button'; go.className = 'primary';
+    const lit = report.beacon;
+    go.disabled = !lit || (going && !going.waiting);
+    go.onclick = async () => {
+      go.disabled = true;
+      try { drawn = ''; draw(await api('/api/calibrate/start', { kind: 'beacon' })); $('#now').scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
+      catch (error) { go.disabled = false; concert.fail(error); }
+    };
+    box.append(go);
+    box.append(node('p', !lit ? 'Needs a stage beacon standing ready: a spare phone on a stand in the stage area, set to Stage beacon, with its beacon screen up (Stage beacon, below).'
+      : `From here or a tablet, with nobody on stage: the stage beacon (${lit.name}) sets the lip sync of each camera that is due${lit.timing ? ' and times the network cameras by its light' : ''}`
+        + `${lit.mix && !lit.mix.cannot ? ', and with the programme mix its timing too' : ''}; the cameras’ colours are matched by what they see, and you choose where the programme’s sound comes from. `
+        + (lit.cannot ? 'It sets no lip sync until what is said above is done. ' : '')
+        + 'Whatever the beacon cannot do surely is listed at the end, for the Pre-show calibration check on a phone. Before the show only: its hiss is heard.', 'hint'));
+    return box;
+  }
+
+  // A question the run asks the page that drives it (run.ask), answered here: as the phone's page answers the check's.
+  function question(run, body) {
+    const ask = run.ask, box = node('div', undefined, 'calibrate-ask');
+    const answer = async choice => {
+      box.querySelectorAll('button, select').forEach(e => { e.disabled = true; });
+      try { await api('/api/calibrate/choose', { run: run.id, step: ask.step, choice }); drawn = ''; refresh(); }
+      catch (error) { concert.fail(error); drawn = ''; refresh(); }
+    };
+    // A colour match by the scene: the camera matched to, and this camera with its match on, both as OBS has them.
+    if (ask.pictures?.length) {
+      const pictures = node('div', undefined, 'calibrate-pictures');
+      for (const [words, which] of ask.pictures) {
+        const figure = node('figure'), image = document.createElement('img');
+        image.src = `/api/calibrate/picture/${which}?step=${ask.step}`; image.alt = words;
+        figure.append(image, node('figcaption', words)); pictures.append(figure);
+      }
+      box.append(pictures);
+    }
+    let select = null;
+    if (ask.kind === 'sound') {
+      select = document.createElement('select');
+      for (const camera of ask.cameras) select.append(new Option(camera.name, camera.id));
+      if (ask.cameras.some(c => c.id === ask.now.camera)) select.value = ask.now.camera;
+      const label = node('label', 'Camera: '); label.append(select); box.append(label);
+    }
+    const row = node('p');
+    ask.options.forEach(([value, words], index) => {
+      const button = node('button', words); button.type = 'button';
+      if (ask.prefer ? value === ask.prefer : !(value === 'skip' || value === 'keep' || (ask.kind !== 'sound' && index))) button.className = 'primary';
+      button.onclick = () => answer(select && value !== 'keep' ? { camera: select.value, others: value } : value);
+      row.append(button, ' ');
+    });
+    box.append(row);
+    body.append(box);
+  }
+
   function phone(state) {
     const body = $('#phone-body'); body.replaceChildren();
     if (state.phone) {
@@ -132,11 +193,20 @@
     const body = $('#now-body'); body.replaceChildren();
     const run = state.run;
     if (!run) { body.append(node('p', 'Nothing has been calibrated from a phone since the manager started.', 'hint')); return; }
-    const what = { sync: 'Sound', timing: 'Network camera timing', walk: 'Camera by camera' }[run.kind] || 'Colour';
+    const what = { sync: 'Sound', timing: 'Network camera timing', walk: 'Camera by camera', beacon: 'From the stage beacon' }[run.kind] || 'Colour';
     const when = new Date(run.started * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
     const head = node('p'); head.append(node('b', `${what}, `), node('span', `started ${when} by ${run.by_name}: `),
       node('span', run.state === 'running' ? run.said : run.state === 'done' ? 'done.' : `${run.state}. ${run.problem || ''}`, run.state === 'failed' ? 'bad' : ''));
     body.append(head);
+    // From the stage beacon: this page drives it, and answers what it asks; another page may take it over while it waits.
+    if (run.state === 'running' && run.kind === 'beacon') {
+      if (run.yours && run.ask) question(run, body);
+      else if (!run.yours && run.waiting) {
+        const take = node('button', 'Answer it here'); take.type = 'button';
+        take.onclick = async () => { try { drawn = ''; draw(await api('/api/calibrate/take', { run: run.id })); } catch (error) { concert.fail(error); } };
+        body.append(node('p', `It is waiting for an answer on the page that started it (${run.by_name}).`, 'hint'), take, ' ');
+      }
+    }
     if (run.state === 'running' && run.kind !== 'sync') {      // a walk stops between cameras, or once the camera on air has been measured
       const stop = node('button', 'Stop'); stop.type = 'button'; stop.className = 'danger';
       stop.onclick = async () => { try { draw(await api('/api/calibrate/stop', { anyone: true })); } catch (error) { concert.fail(error); } };
@@ -162,13 +232,13 @@
       body.append(list);
       body.append(node('p', 'The picture matching keeps each camera there from now on, and its card on Cameras says how it was last timed.', 'hint'));
     }
-    if (run.kind === 'walk' && run.result) {
+    if ((run.kind === 'walk' || run.kind === 'beacon') && run.result) {
       const list = node('ul'), r = run.result;
       if (r.beacon && !r.beacon.skipped) {
         if (r.beacon.why) list.append(node('li', `Stage beacon: did not measure: ${r.beacon.why}`, 'bad'));
         else {
           list.append(node('li', `Stage beacon (${r.beacon.beacon}) first: ${r.beacon.settled.length ? `settled ${r.beacon.settled.join(', ')}, not walked to` : 'settled no camera'}`));
-          for (const [name, why] of Object.entries(r.beacon.left)) list.append(node('li', `${name}: left to walk to by the beacon: ${why}`));
+          if (!r.left) for (const [name, why] of Object.entries(r.beacon.left)) list.append(node('li', `${name}: left to walk to by the beacon: ${why}`));      // from the beacon alone: said once, under what is left
           if (r.beacon.timed?.length) list.append(node('li', `Stage beacon: timed ${r.beacon.timed.join(', ')} against the phones by its light`));
           for (const [name, why] of Object.entries(r.beacon.untimed || {})) list.append(node('li', `${name}: not timed by the beacon, left to the flashes: ${why}`, 'bad'));
         }
@@ -183,6 +253,19 @@
       if (r.sound) list.append(node('li', r.sound.kept ? 'Programme sound left as it was' : `Programme sound: ${r.sound.camera}${{ muted: ' alone', aligned: ', the others joined in time', mixed: ' leading the programme mix' }[r.sound.others] || ''}`));
       if (r.mix && !r.mix.skipped) list.append(node('li', mixTimed(r.mix), r.mix.why ? 'bad' : ''));
       body.append(list);
+      // From the stage beacon alone: what it left, for the Pre-show calibration check on a phone (which finds just that due).
+      if (r.left && run.state !== 'running') {
+        const left = Object.entries(r.left);
+        if (!left.length) body.append(node('p', 'Nothing is left for anyone to do on stage.', 'hint'));
+        else {
+          body.append(node('h3', 'Left for the Pre-show calibration check on a phone'));
+          const rest = node('ul');
+          for (const [what, why] of left) rest.append(node('li', `${what}: ${why}`, 'bad'));
+          const link = node('a', 'the calibrate page'); link.href = state.phone || '/calibrate'; link.target = '_blank'; link.rel = 'noopener';
+          const line = node('p', 'Open '); line.append(link, node('span', ' on a phone and choose Pre-show calibration check: it walks only to these.'));
+          body.append(rest, line);
+        }
+      }
     }
     if (run.kind === 'sync' && run.result?.calibration?.cameras) {
       const list = node('ul');

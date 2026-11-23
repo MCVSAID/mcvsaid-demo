@@ -71,7 +71,7 @@
     const lit = report.beacon;
     const first = !lit ? 'With a stage beacon standing ready, it offers the beacon first, and walks you only to the cameras the beacon leaves.'
       : lit.cannot ? `The stage beacon (${lit.name}) is ready${lit.timing ? ' and is offered first for the network cameras’ timing' : ''}, but it sets no lip sync yet: ${lit.cannot}.`
-      : `The stage beacon (${lit.name}) is offered first: from where it stands it sets the lip sync of each camera that is due${lit.timing ? ' and times the network cameras' : ''}, and you are walked only to a camera it could not read surely. The colours and where the sound comes from are still yours.`;
+      : `The stage beacon (${lit.name}) is offered first: from where it stands it sets the lip sync of each camera that is due${lit.timing ? ' and times the network cameras' : ''}, and you are walked only to a camera it could not read surely. The colours and where the sound comes from are still yours. With nobody on stage at all, Do what is due from the stage beacon on Set up › Calibrate at the PC or a tablet does the same, and lists what is left for this.`;
     // With the programme mix, the mix's own timing is the check's last step: the beacon's when it can be sure of it (report.beacon.mix), else the flashes'.
     const mixed = !lit?.mix ? '' : lit.mix.cannot ? ' Last, the programme mix’s own timing, with the flashes at the camera that leads it.' : ` Last, the programme mix’s own timing, which the stage beacon (${lit.name}) is offered for: nobody goes back on stage.`;
     $('#due').textContent = items.length ? `Due now: ${items.map(i => i.label).join('; ')}. ${first} It takes you to each camera once: you hold this phone in front of it and tap, the manager puts that camera on air with its own microphone and sets its lip sync. Then the network cameras; the cameras’ colours when they are due, matched by what the cameras see and shown to you to keep or leave; and where the programme’s sound comes from.${mixed}`
@@ -83,14 +83,15 @@
   const own = c => c.camera ? `\n   its own settings: ${c.camera.why || (c.camera.changed ? `set to ${c.camera.now}` : `left at ${c.camera.now}`)}${c.camera.left?.length ? `; ${c.camera.left.join('; ')}` : ''}` : '';
 
   function summary(run) {
-    const what = { sync: 'Sound', timing: 'Network camera timing', walk: 'Camera by camera' }[run.kind] || 'Colour';
+    const what = { sync: 'Sound', timing: 'Network camera timing', walk: 'Camera by camera', beacon: 'From the stage beacon' }[run.kind] || 'Colour';
     if (run.state === 'running') return `${what}: ${run.said}${run.yours ? '' : ` (started by ${run.by_name})`}`;
     if (run.state !== 'done') return `${what}: ${run.problem || run.state}`;
-    if (run.kind === 'walk') {
+    if (run.kind === 'walk' || run.kind === 'beacon') {
       const colour = run.result?.colour;
       const set = Object.values(colour?.cameras || {}).filter(c => c.camera).map(c => `   ${c.name}${own(c).replace('\n   ', ': ')}`);
       const beacon = b => b.why ? `Stage beacon: did not measure (${b.why})` : `Stage beacon (${b.beacon}): ${b.settled.length ? `settled ${b.settled.join(', ')}` : 'settled no camera'}${Object.keys(b.left).length ? `; left to walk to: ${Object.keys(b.left).join(', ')}` : ''}`;
-      return 'Camera by camera, done.\n' + [...(run.result?.beacon && !run.result.beacon.skipped ? [beacon(run.result.beacon)] : []), ...Object.values(run.result?.cameras || {}).map(c => `${c.name}: ${c.set_ms != null ? `lip sync ${c.set_ms} ms` : c.skipped ? 'skipped' : `not measured, ${c.why}`}`),
+      const left = Object.entries(run.result?.left || {}).map(([what, why]) => `Left for the check on a phone: ${what}, ${why}`);
+      return `${run.kind === 'beacon' ? 'From the stage beacon' : 'Camera by camera'}, done.\n` + [...left, ...(run.result?.beacon && !run.result.beacon.skipped ? [beacon(run.result.beacon)] : []), ...Object.values(run.result?.cameras || {}).map(c => `${c.name}: ${c.set_ms != null ? `lip sync ${c.set_ms} ms` : c.skipped ? 'skipped' : `not measured, ${c.why}`}`),
         ...(colour && !colour.skipped ? [colour.why ? `Colour: not matched, ${colour.why}` : !colour.reference ? 'Colour: no camera’s chart was read' : `Colour: matched to ${colour.reference}${colour.in_obs ? ', in OBS' : colour.held ? ' (measured only: not put on the pictures; look at it on the Colour page)' : ''}`, ...set] : [])].join('\n');
     }
     if (run.kind === 'sync') {
