@@ -1,4 +1,4 @@
-<!doctype html><html lang="en"><meta charset="utf-8"><script src="/demo.js?v=5f58fa771148"></script><meta name="viewport" content="width=device-width,initial-scale=1"><title>Calibrate</title>
+<!doctype html><html lang="en"><meta charset="utf-8"><script src="/demo.js?v=75ba2929e856"></script><meta name="viewport" content="width=device-width,initial-scale=1"><title>Calibrate</title>
 <!-- The calibration pages, for a phone or tablet held in front of the cameras: at https://calibrate.mcvsaid.local
      (webnames.py) and at /calibrate on the dashboard. Logged in as a setup tech or an operator, it drives Calibrate
      (calibrate.py, calibrate.js): the manager measures sound, colour and the network cameras' timing from what this page shows. Without a login,
@@ -23,7 +23,8 @@
         leaves. Takes you to each camera once. You hold this phone in front of it and tap; the manager puts
         that camera on air with its own microphone and sets its lip sync. Then it times the network cameras, matches
         the cameras’ colours by what they see (each shown beside the one it is matched to, to keep or leave), and asks
-        where the programme’s sound should come from: one camera, or every microphone joined in time.</span>
+        where the programme’s sound should come from: one camera, or every microphone joined in time. With the
+        programme mix, it measures the mix’s own timing last: from the stage beacon when it can, else with the flashes.</span>
         <a class="go" href="/sync-flash?manager=walk">Start with what is due</a>
         <a class="go other" href="/sync-flash?manager=walk&amp;all=1">Every camera again</a>
         <small>Start with what is due passes over a camera the Before the show list has as ready: measured on this

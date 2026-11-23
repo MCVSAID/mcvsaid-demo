@@ -11,7 +11,8 @@ let audio = null, lock = null, next = 0, step = 0;
 // whole of it, shows what the manager asks at each camera (run.ask) with the answers to tap, and flashes and beeps only
 // while the manager says it is measuring (run.show === 'flash'). At the same stop, after the flashes, it shows the
 // chart for that camera's colours (run.show black, locate or chart: chartrun.js), each step said back to the manager
-// as on the calibrate page.
+// as on the calibrate page. Its last question, with the programme mix, is how the mix's own timing is measured: from the
+// stage beacon (the answer 'beacon', offered first when it can be), with the flashes at the leading camera ('go'), or not.
 // A run already going on is never a dead end (2026-11-21 and 22: a walk left at a question on a page since navigated
 // away from, and "Pre-show calibration check" could not be started again until the manager was restarted). Opened while a walk
 // waits at a question, this page offers to pick it up where it was, or to end it and start again (offer); a start the
@@ -32,7 +33,14 @@ function measured(run) {
       + Object.values(r.colour.cameras || {}).filter(c => c.problem).map(c => `; not ${c.name}`).join('')
       + Object.values(r.colour.cameras || {}).filter(c => c.warnings?.length).map(c => `\n   ${c.name}, to put right: ${c.warnings.join('; ')}`).join(''));
     if (r.sound) lines.push(r.sound.kept ? 'Programme sound: left as it was' : `Programme sound: ${r.sound.camera}${{ muted: ' alone', aligned: ', the others joined in time', mixed: ' leading the programme mix' }[r.sound.others] || ''}`);
-    if (r.mix && !r.mix.skipped) lines.push(r.mix.trim_ms != null ? `Programme mix: timing set to ${r.mix.trim_ms} ms` : `Programme mix: not measured (${r.mix.why})`);
+    // The mix's own timing, the run's last step: set with the flashes, or by the stage beacon set, checked (as good as
+    // right, and left), or read and not set over what is kept (calibrate.Calibrate.mix_timing).
+    const late = ms => `${Math.abs(ms)} ms ${ms >= 0 ? 'late' : 'early'}`, m = r.mix;
+    if (m && !m.skipped) lines.push(m.by !== 'beacon' ? (m.trim_ms != null ? `Programme mix: timing set to ${m.trim_ms} ms` : `Programme mix: not measured (${m.why})`)
+      : m.state === 'set' ? `Programme mix: timing set to ${m.trim_ms} ms from the stage beacon (it was heard ${late(m.off_ms)})`
+      : m.state === 'checked' ? `Programme mix: timing left at ${m.trim_ms} ms, checked from the stage beacon (heard ${late(m.off_ms)}, within what that reading can tell)`
+      : m.state === 'left' ? `Programme mix: the stage beacon heard it ${late(m.off_ms)} and set nothing, it is still ${m.trim_ms} ms (${m.why})`
+      : `Programme mix: not timed from the stage beacon (${m.why})`);
     return 'Done.\n' + (lines.join('\n') || 'Nothing was due.');
   }
   if (run.kind === 'timing') {
@@ -222,7 +230,7 @@ document.getElementById('walk-stop').onclick = async () => {
 if (MANAGER) offer();
 if (WALK) {
   document.querySelector('#words h1').textContent = ALL ? 'Every camera, one by one' : 'Pre-show calibration check';
-  document.querySelector('#words p').textContent = 'Turn this phone’s sound and brightness up and press Start. With a stage beacon standing ready it first offers to measure from the beacon, and a camera the beacon settles is not walked to. It then takes you from camera to camera, once each: hold the phone in front of it and tap; the manager puts that camera on air with its own microphone and measures its lip sync while this flashes and beeps. Then the network cameras; then, when the cameras’ colours need matching, they are matched by what they see, and each is shown here beside the one it is matched to, to keep or leave; and last where the programme’s sound comes from.';
+  document.querySelector('#words p').textContent = 'Turn this phone’s sound and brightness up and press Start. With a stage beacon standing ready it first offers to measure from the beacon, and a camera the beacon settles is not walked to. It then takes you from camera to camera, once each: hold the phone in front of it and tap; the manager puts that camera on air with its own microphone and measures its lip sync while this flashes and beeps. Then the network cameras; then, when the cameras’ colours need matching, they are matched by what they see, and each is shown here beside the one it is matched to, to keep or leave; and last where the programme’s sound comes from. With the programme mix chosen there, the mix’s own timing is measured at the very end: from the stage beacon when one stands ready and can be sure of it, with nobody going back on stage, else with the flashes at the camera that leads the mix.';
   document.getElementById('start').textContent = 'Start';
 } else if (MANAGER) {
   document.querySelector('#words p').textContent = SILENT

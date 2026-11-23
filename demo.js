@@ -989,13 +989,106 @@
     const up = a.height != null && b.height != null ? a.height - b.height : 0;
     return Math.round(Math.hypot(across, down, up) * 100) / 100;
   }
-  function beaconFinish(run, base) {
+  // The programme mix's own timing (programme_mix_trim_ms), as the manager keeps and says it (Manager.mix_kept and
+  // mix_measurable, StageBeacon.mix_facts and mixed): on its usual 860 ms until it is measured here, by the flashes (the
+  // check's last step, or Calibrate sync with the mix on air) or by the stage beacon ("Set the mix's timing from the
+  // beacon", and "Set lip sync from the beacon" with the mix on air), for which the camera that leads the mix is put on
+  // air and OBS records, before the show only. S.mixTrim is what the timing rests on; S.mixBegan when the demo's mix
+  // began (Programme sound set to it, or another camera made to lead it), before which a timing kept says nothing of
+  // now, and from which it has to have run MIX_STEADY seconds to be timed. What the beacon reads is made up: the mix
+  // 71 ms after the leading camera's picture until it has been measured here, and within a few milliseconds after.
+  const MIX_USUAL = 860, MIX_RIGHT = 788.7, MIX_STEADY = 20, MIX_WAIT_MS = 600, SURE_MS = 25;
+  function mixLeader() {
+    const chosen = S.programmeSound, leads = chosen?.others === 'mixed' && chosen.camera ? chosen.camera : null;
+    if (leads !== (S.mixOf ?? null)) { S.mixOf = leads; S.mixBegan = leads ? now() : null; }      // a mix begun, or begun anew for another leading camera (mixer.Mixer.track)
+    return leads ? (cams()?.cameras || []).find(c => c.id === leads) || null : null;
+  }
+  function mixKept() {
+    const kept = S.mixTrim, leader = mixLeader();
+    if (!kept) return null;
+    const chosen = S.programmeSound?.camera, since = Math.max(kept.at || 0, kept.checked_at || 0), stale = [];
+    if (kept.leader && chosen && chosen !== kept.leader) stale.push(`${named(chosen) || chosen} leads the mix now, and it was measured with ${named(kept.leader) || 'a camera no longer paired'} leading`);
+    if (leader && (S.mixBegan || 0) > since) stale.push('the mix has begun anew since');
+    return { ...kept, stale };
+  }
+  // Why the mix is not steady enough to be timed just yet (Manager.mix_settling), which passes by itself.
+  function mixSettling() {
+    const ran = Math.max(0, Math.round(now() - (S.mixBegan || 0)));
+    return mixLeader() && ran < MIX_STEADY ? `the mix began ${ran} s ago: it is timed once it has run ${MIX_STEADY} s` : null;
+  }
+  // Why the beacon could not time the mix just now (Manager.mix_measurable), or null; within: asked by the check's own run.
+  function mixCannot(within, steady) {
+    const leader = mixLeader(), d = cams()?.director || {};
+    if (!leader) return 'Programme sound is not the programme mix';
+    if (leader.kind === 'network') return 'the camera that leads the mix is not a phone';
+    if (d.recording) return 'OBS is recording: the mix is timed before the show, with the leading camera put on air';
+    if (d.streaming) return 'OBS is streaming: the mix is timed before the show, with the leading camera put on air';
+    if (S.calRun?.state === 'running' && !within) return 'a calibration is going on from the calibrate page';
+    return steady ? null : mixSettling();
+  }
+  // What a reading of the mix from this beacon rests on and how sure it is, before any is made (beacon.mix_from).
+  function mixFrom(lit, leader) {
+    const metres = beaconMetres(leader.name), own = lit?.own_known !== false, unsure = (own ? 0 : 60) + (metres == null ? 15 : 0);
+    return { distance_m: metres, unsure_ms: unsure, sure: unsure < SURE_MS, rests_on: [own ? 'the beacon’s own part as measured' : 'the beacon’s own part taken as nothing (never measured)',
+      metres != null ? `${metres} m from the beacon to ${leader.name}, by the room map (${Math.round(metres * MS_PER_M)} ms of sound)` : `the distance taken as nothing (${leader.name} or the beacon is not on the room map)`,
+      `the programme as OBS recorded it, ${leader.name} on air, its microphone alone in the mix`] };
+  }
+  function mixFacts(beacons) {
+    const leader = mixLeader(), lit = beacons.find(b => b.online && b.open), run = S.beaconRun;
+    return { chosen: !!leader, leader: named(S.programmeSound?.camera) || null, trim_ms: S.mixTrim?.trim_ms ?? MIX_USUAL, kept: mixKept(), beacon: lit?.name || null,
+      cannot: mixCannot() || (lit ? null : 'no stage beacon is connected with its beacon screen up'), last: run?.mix ? { ...run.mix, at: run.at } : null };
+  }
+  // The camera that leads the mix put on air and held there while OBS records (Manager.measure_programme), and the shot put back after.
+  function mixOnAir(run, leader) {
+    const d = cams()?.director; if (!d) return;
+    run.shot = { on_air: d.on_air ?? null, pair: d.pair ?? null, scene: d.scene ?? null, hold_until: d.hold_until ?? null };
+    Object.assign(d, { on_air: leader.id, pair: null, scene: `${d.prefix || 'Cam '}${leader.name}`, since: now(), hold_until: now() + 60 });
+  }
+  function mixOffAir(run) {
+    if (!run.shot) return;
+    Object.assign(cams().director, run.shot, { since: now() }); run.shot = null;
+  }
+  // What a run made of the mix (StageBeacon.mixed): how far it was heard from the leading camera's picture in OBS's
+  // recording, and whether its timing is set, checked (as good as right: left, and stamped) or left, a guess never set
+  // over a better measurement (stagebeacon.mix_outcome). `stream`: the leading camera's own reading in the same run.
+  function mixRead(lit, stream, t) {
+    const leader = mixLeader(), kept = mixKept(), made = mixFrom(lit, leader), was = S.mixTrim?.trim_ms ?? MIX_USUAL;
+    const gap = Math.round((was - (S.mixTrim ? was : MIX_RIGHT) + (Math.random() - 0.5) * 6) * 10) / 10, ppm = Math.round((6 + Math.random() * 10) * 10) / 10;
+    const said = { leader: leader.name, gap_ms: gap, off_ms: gap, from_ms: was, trim_ms: was, ...made, likeness: 0.87, clear_db: Math.round((24 + Math.random() * 5) * 10) / 10, ppm, spread_ms: 0.06,
+      pieces: [0, 1, 2].map(i => [Math.round(i * ppm * 2 / 3) / 100, Math.round((19 + Math.random() * 5) * 10) / 10]),      // a third of a 20 s run apart, the clocks ppm apart
+      leader_stream_ms: stream == null ? null : Math.round((stream - (made.distance_m || 0) * MS_PER_M) * 10) / 10 };
+    const within = `this reading is only to within about ${made.unsure_ms} ms`, byBeacon = kept?.by === 'beacon';
+    let state = Math.abs(gap) > 5 ? 'set' : 'checked', why = null;
+    if (!kept || kept.stale.length) state = 'set';
+    // The beacon's, and no surer than this reading: set from 5 ms off, else checked. The flashes', or the beacon's and surer:
+    // only a sure reading further off than it can be out itself, its distance from the room map, sets.
+    else if (!(byBeacon && made.unsure_ms <= (kept.unsure_ms || 0) && (made.distance_m != null || kept.distance_m == null))) {
+      const how = !byBeacon ? 'measured with the flashes' : kept.sure && !made.sure ? 'set from the beacon when it could be sure' : `set from the beacon to within about ${kept.unsure_ms || 0} ms`;
+      if (!made.sure) [state, why] = ['left', `${within}, and the timing kept was ${how}`];
+      else if (Math.abs(gap) <= SURE_MS + made.unsure_ms) state = 'checked';
+      else if (made.distance_m == null) [state, why] = ['left', `the beacon or the leading camera is not on the room map, and the timing kept was ${how}: place both on Stage layout`];
+      else state = 'set';
+    }
+    const sureness = { unsure_ms: made.unsure_ms, sure: made.sure, rests_on: made.rests_on, distance_m: made.distance_m };
+    if (state === 'set') {
+      said.trim_ms = Math.round(was - gap);
+      S.mixTrim = { at: t, by: 'beacon', leader: leader.id, off_ms: gap, wait_ms: MIX_WAIT_MS, leader_stream_ms: said.leader_stream_ms, ...sureness, trim_ms: said.trim_ms };
+    // Checked by a reading surer than the beacon's one it was kept from: kept from then on as surely as this one (StageBeacon.mixed).
+    } else if (state === 'checked') S.mixTrim = { ...S.mixTrim, ...(byBeacon && made.unsure_ms < (kept.unsure_ms || 0) ? sureness : {}), checked_at: t };
+    else said.why = why;
+    // Set or checked, it counts as a measure of the programme too (the run's lip_sync_calibrated entry, preshow.programme).
+    if (state !== 'left') S.mixMeasured = { at: t, offset_ms: gap, ...(state === 'set' ? { mix_trim_ms: said.trim_ms } : { checked: true }) };
+    return { ...said, state };
+  }
+  function beaconFinish(run, base, lit) {
     const before = Object.keys(base.last?.cameras || {}).length ? base.last.cameras
       : Object.fromEntries(Object.entries(BEACON_HEARD).map(([name, ms]) => [name, { own_ms: ms, likeness: 0.86, cells: 9, clear_db: 27.5 }]));
-    const own = base.beacons?.[0]?.own_ms ?? 14;
-    run.cameras = Object.fromEntries(Object.entries(before).map(([name, c]) => {
+    const own = base.beacons?.[0]?.own_ms ?? 14, leads = mixLeader()?.name;
+    // A run for the mix's timing alone reads the leading camera's own stream beside it, and no other (StageBeacon.run).
+    run.cameras = Object.fromEntries(Object.entries(before).filter(([name]) => run.purpose !== 'mix' || name === leads).map(([name, c]) => {
       if (c.why) return [name, c];
       const delta = Math.round((Math.random() - 0.5) * 8), reading = Math.round((c.own_ms + delta) * 10) / 10;
+      if (run.purpose === 'mix') return [name, { ...c, own_ms: reading, state: undefined, delta_ms: undefined }];
       if (run.purpose === 'own') return [name, { ...c, own_ms: Math.round((reading + own) * 10) / 10, state: undefined, delta_ms: undefined }];
       if (run.purpose !== 'set') return [name, { ...c, own_ms: reading, state: 'checked', delta_ms: delta }];
       const metres = beaconMetres(name), stream = reading - (metres || 0) * MS_PER_M, wide = name === 'Centre Wide';
@@ -1013,24 +1106,12 @@
     }
     if (run.purpose === 'set') S.beaconSet = Object.fromEntries(Object.entries(run.cameras).filter(([, c]) => c.from_beacon).map(([name, c]) => [name, c.from_beacon.set_ms]));
     if (run.purpose === 'set') { S.beaconSetAt = now(); S.beaconRests = Object.fromEntries(Object.entries(run.cameras).filter(([, c]) => c.from_beacon).map(([name, c]) => [name, c.from_beacon])); }
+    // The programme mix's timing, from OBS's recording of the programme around the same run; and the shot put back.
+    if (run.records) { run.mix = mixLeader()?.id === run.records ? mixRead(lit, run.cameras[leads]?.own_ms, now()) : { why: 'the camera that leads the mix changed while OBS recorded, so nothing is taken from it' }; mixOffAir(run); }
   }
   function beaconRead() {
     const base = S.answers['/api/beacon'] || { beacons: [], running: false, last: null, relay: true, corrects: false, auto: false, marks: {} };
     const run = S.beaconRun;
-    if (run && run.state === 'running' && now() - run.at > 21) {
-      const before = base.last?.cameras || {};
-      if (run.light_only) run.cameras = {}; else beaconFinish(run, base);
-      if (run.purpose !== 'own' && ((S.beaconNetwork ?? base.network ?? true) || run.light_only) && (base.network_cameras || []).length) {
-        const was = base.last?.network?.cameras || {};
-        const phones = base.last?.network?.phones || Object.keys(before).filter(name => !before[name].why).slice(0, 3);
-        run.network = { phones: phones.length ? phones : ['Stage Left', 'Keys'], cameras: Object.fromEntries(base.network_cameras.map(name => {
-          const c = was[name]?.own_ms != null ? was[name] : { own_ms: 150, held_ms: 5350, against: (phones.length ? phones : ['Stage Left', 'Keys']).slice(0, 2), likeness: 0.82 };
-          return [name, { ...c, own_ms: c.own_ms + Math.round((Math.random() - 0.5) * 10), from_ms: c.held_ms }];
-        })) };
-      }
-      Object.assign(run, { state: 'done', ended: now(), beacon_said: base.last?.beacon_said || null });
-      save();
-    }
     // Made a beacon, or a camera again, from the card (S.beaconMode, {phone id: on}); a short test (S.beaconTest).
     const mode = S.beaconMode || {};
     const asBeacon = c => ({ id: c.id, name: c.name, online: c.online, open: true, running: false, route: 'speaker', other_outputs: [], battery_percent: 100, charging: true,
@@ -1042,6 +1123,23 @@
       const on = mode[phone.id] ?? was;
       if (on) beacons.push(was ? phone : asBeacon(phone)); else candidates.push(was ? asPhone(phone) : phone);
     }
+    // Its own part as the demo's own-part run measured it (beaconFinish).
+    if (S.beaconOwn && beacons[0]) beacons[0] = { ...beacons[0], own_ms: S.beaconOwn.own_ms, own_known: true };
+    // A run that has OBS record the programme (the mix's timing) takes as long as the recording: about ten seconds more.
+    if (run && run.state === 'running' && now() - run.at > (run.records ? 31 : 21)) {
+      const before = base.last?.cameras || {};
+      if (run.light_only) run.cameras = {}; else beaconFinish(run, base, beacons[0]);
+      if (run.purpose !== 'own' && run.purpose !== 'mix' && ((S.beaconNetwork ?? base.network ?? true) || run.light_only) && (base.network_cameras || []).length) {
+        const was = base.last?.network?.cameras || {};
+        const phones = base.last?.network?.phones || Object.keys(before).filter(name => !before[name].why).slice(0, 3);
+        run.network = { phones: phones.length ? phones : ['Stage Left', 'Keys'], cameras: Object.fromEntries(base.network_cameras.map(name => {
+          const c = was[name]?.own_ms != null ? was[name] : { own_ms: 150, held_ms: 5350, against: (phones.length ? phones : ['Stage Left', 'Keys']).slice(0, 2), likeness: 0.82 };
+          return [name, { ...c, own_ms: c.own_ms + Math.round((Math.random() - 0.5) * 10), from_ms: c.held_ms }];
+        })) };
+      }
+      Object.assign(run, { state: 'done', ended: now(), beacon_said: base.last?.beacon_said || null });
+      save();
+    }
     const test = S.beaconTest;
     if (test && test.state === 'running' && now() - test.at > (base.test_seconds || 8) + 1) {
       Object.assign(test, { state: 'done', ended: now(), said: { route: 'speaker', frames: 476, late_frames: 1, refresh_hz: 60, start_delay_ms: 38.5, lead_ms: 33.3, sound: 2 } });
@@ -1049,15 +1147,13 @@
     }
     const running = run?.state === 'running' || test?.state === 'running';
     for (const b of beacons) b.running = running && (test?.state === 'running' ? test.id === b.id : b === beacons[0]);
-    // Its own part as the demo's own-part run measured it (beaconFinish).
-    if (S.beaconOwn && beacons[0]) beacons[0] = { ...beacons[0], own_ms: S.beaconOwn.own_ms, own_known: true };
     const ownMeasured = S.beaconOwn && beacons[0] ? { ...(base.own_measured || {}), [beacons[0].id]: { at: S.beaconOwn.at, how: S.beaconOwn.how } } : base.own_measured;
     return { ...base, beacons, own_measured: ownMeasured, candidates, test_seconds: base.test_seconds || 8, tested: test || base.tested || null,
       corrects: S.beaconCorrects ?? base.corrects, auto: S.beaconAuto ?? base.auto, level_db: S.beaconLevel ?? base.level_db, running, last: run || base.last,
-      network: S.beaconNetwork ?? base.network ?? true, network_minutes: S.beaconNetworkMinutes ?? base.network_minutes ?? 15 };
+      network: S.beaconNetwork ?? base.network ?? true, network_minutes: S.beaconNetworkMinutes ?? base.network_minutes ?? 15, mix: mixFacts(beacons) };
   }
   function stopBeacon() {
-    if (S.beaconRun?.state === 'running') Object.assign(S.beaconRun, { state: 'stopped', ended: now() });
+    if (S.beaconRun?.state === 'running') { mixOffAir(S.beaconRun); Object.assign(S.beaconRun, { state: 'stopped', ended: now() }); }
     if (S.beaconTest?.state === 'running') Object.assign(S.beaconTest, { state: 'stopped', ended: now() });
   }
   function calibrateRead() {
@@ -1111,10 +1207,30 @@
       : next.kind === 'beacon' ? { kind: 'beacon', said: next.again || `The stage beacon (${next.name}) can do the cameras’ lip sync from where it stands, before you walk anywhere: about 20 seconds of a soft hiss, with its screen shading. A camera it settles is not walked to; the rest are, as before.`,
           options: [['go', next.again ? 'Try again' : 'Measure from the beacon'], ['skip', 'Walk to each camera']] }
       : next.kind === 'beacon-done' ? { kind: 'beacon-done', said: next.said, options: [['go', 'Go on']] }
-      : next.kind === 'mix' ? { kind: 'mix', said: `Last, the programme mix’s own timing: go back to ${next.leader} and hold the phone in front of it.`, options: [['go', 'Measure the mix'], ['skip', 'Skip']] }
+      : next.kind === 'mix' ? walkMix(run, next)
       : { kind: 'sound', said: 'Where should the programme’s sound come from?', cameras: next.cameras, now: { camera: S.programmeSound?.camera || null, others: S.programmeSound?.others || 'aligned' }, mix: true,
           options: [['muted', 'One camera’s microphone alone'], ['aligned', 'Every microphone joined, lined up in time with that camera’s'], ['mixed', 'The programme mix: every microphone kept in time and mixed as one'], ['keep', 'Leave it as it is']] };
+    if (!ask) return;                                    // the mix waited for first (walkMix): asked once it is steady
     run.step++; Object.assign(run, { ask: { ...ask, step: run.step }, show: null, said: ask.said });
+  }
+  // The check's last step with the programme mix (calibrate.Calibrate.mix_timing): the mix's own timing from the stage
+  // beacon when one stands ready and could be sure of it, with nobody going back on stage, else with the flashes at the
+  // leading camera as before; never the beacon when every camera is asked for again. The mix has only just been chosen,
+  // and is not timed by the beacon until it has run steadily a while: that is waited out first (null: nothing asked yet).
+  function walkMix(run, next) {
+    const lit = run.all ? null : standing(), flashes = `go back to ${next.leader} and hold the phone in front of it`;
+    if (!lit) return { kind: 'mix', said: `Last, the programme mix’s own timing: ${flashes}.`, options: [['go', 'Measure the mix'], ['skip', 'Skip']] };
+    if (!lit.mix?.cannot && !next.waited && mixSettling() && !mixCannot(true, true)) {
+      next.waited = true;
+      Object.assign(run, { ask: null, show: null, until: Math.min(S.mixBegan + MIX_STEADY, now() + 30), said: 'Waiting a moment for the programme mix to be steady, so that the stage beacon can time it' });
+      return null;
+    }
+    const cannot = lit.mix?.cannot || mixCannot(true);
+    next.beacon = cannot ? null : lit.name;
+    if (cannot) return { kind: 'mix', said: `Last, the programme mix’s own timing. The stage beacon (${lit.name}) is not asked for it: ${cannot}. So with the flashes: ${flashes}.`, options: [['go', 'Measure the mix'], ['skip', 'Skip']] };
+    return { kind: 'mix', said: next.again || `Last, the programme mix’s own timing. The stage beacon (${lit.name}) can measure it from where it stands, with nobody on stage: ${next.leader} is put on air and OBS records the programme `
+        + `for about 40 seconds, ${next.leader}’s microphone alone in the mix and every other sound in OBS muted meanwhile, and all of it put back after. Or with the flashes: ${flashes}.`,
+      options: [['beacon', next.tried ? 'Try again' : 'Measure from the beacon'], ['go', `Use the flashes at ${next.leader}`], ['skip', next.tried ? 'Go on' : 'Skip']] };
   }
   function walkFitted() {
     const base = S.answers['/api/calibrate'] || {}, found = base.run?.kind === 'colour' && base.run.result ? base.run.result : { cameras: {}, reference: 'the chart' };
@@ -1125,8 +1241,9 @@
   // and a camera has been measured through OBS, so it sets lip sync.
   function standing() {
     const lit = beaconRead().beacons.find(b => b.online && b.open);
-    return lit ? { name: lit.name, cannot: lit.own_known === false ? 'its own part (what the beacon phone puts between its screen and its speaker) has not been measured. Measure it once, on the Stage beacon card, against a camera measured here with the flashes' : null,
-      timing: S.beaconNetwork ?? S.answers['/api/beacon']?.network ?? true } : null;
+    const cannot = lit?.own_known === false ? 'its own part (what the beacon phone puts between its screen and its speaker) has not been measured. Measure it once, on the Stage beacon card, against a camera measured here with the flashes' : null;
+    // With the programme mix, whether the check's last step would ask it for the mix's own timing: as lip sync, not with its own part never measured.
+    return lit ? { name: lit.name, cannot, timing: S.beaconNetwork ?? S.answers['/api/beacon']?.network ?? true, ...(mixLeader() ? { mix: { cannot } } : {}) } : null;
   }
   function walkStart(all) {
     const list = (cams()?.cameras || []).filter(c => c.id), phones = list.filter(c => c.kind !== 'network'), network = list.filter(c => c.kind === 'network');
@@ -1140,7 +1257,7 @@
     const due = phones.filter(c => unmeasured(c) || timing(c)).sort((a, b) => besideOf(a).length - besideOf(b).length);
     const lit = standing(), beaconName = lit && !lit.cannot ? lit.name : null;
     const run = { id: Math.random().toString(16).slice(2, 14), kind: 'walk', state: 'running', step: 0, show: null, ask: null, said: 'Starting', started: now(), ended: null,
-      by_name: S.answers['/api/session']?.name || 'Morgan', answered: 0, problem: null, yours: true, until: null,
+      by_name: S.answers['/api/session']?.name || 'Morgan', answered: 0, problem: null, yours: true, until: null, all: !!all,
       result: { cameras: {}, timing: null, colour: null, sound: null, mix: null, visited: due.map(c => c.name), beacon: null },
       // The stage beacon first, when the demo has one and a phone's lip sync is due (calibrate.py's beacon_first):
       // it settles every camera but the fourth, which does not see it and is walked to.
@@ -1216,9 +1333,34 @@
       const phones = (cams()?.cameras || []).filter(c => c.kind !== 'network').slice(0, 2).map(c => c.name);
       run.result.timing = { phones, cameras: Object.fromEntries(done.cameras.map(c => [c.id, { name: c.name, own_ms: 310, held_ms: 590, from_ms: 600, against: phones, pairs: 13, spread_ms: 8.5 }])) };
       S.netTimed = { at: t, cameras: run.result.timing.cameras }; run.queue.shift();
+    } else if (done.kind === 'mix' && done.byBeacon) {
+      // The beacon's run for the mix alone is over (a 'mix' run, as the Stage beacon card's): set or checked ends the
+      // check; read and not set over what is kept, or not to be made after all, is said and asked again.
+      const lit = beaconRead().beacons.find(b => b.online && b.open), leader = mixLeader(), cannot = !lit ? 'the stage beacon went away' : mixCannot(true);
+      const flashes = `go back to ${done.leader} and hold the phone in front of it`;
+      done.byBeacon = false; done.tried = true;
+      if (cannot) {
+        done.found = { by: 'beacon', why: cannot };
+        done.again = `The stage beacon did not time the mix: ${cannot}. Try again, use the flashes (${flashes}), or go on.`;
+      } else {
+        const stream = Math.round(((S.answers['/api/beacon']?.last?.cameras?.[leader.name]?.own_ms ?? BEACON_HEARD[leader.name] ?? 40) + (Math.random() - 0.5) * 8) * 10) / 10;
+        const made = mixRead(lit, stream, t);
+        S.beaconRun = { at: t - 5, by: `${run.by_name} (Pre-show calibration check)`, beacon: lit.name, state: 'done', purpose: 'mix', camera: null, ended: t, beacon_said: null,
+          cameras: { [leader.name]: { own_ms: stream, likeness: 0.86, cells: 9, clear_db: 27.5 } }, mix: made };
+        if (made.state !== 'left') { run.result.mix = { trim_ms: made.trim_ms, by: 'beacon', off_ms: made.off_ms, state: made.state }; run.queue.shift(); }
+        else {
+          done.found = { by: 'beacon', state: 'left', trim_ms: made.trim_ms, off_ms: made.off_ms, why: made.why };
+          done.again = `The stage beacon read the mix ${Math.abs(made.off_ms)} ms ${made.off_ms >= 0 ? 'late' : 'early'} against ${done.leader}’s picture, and set nothing: ${made.why}. Use the flashes (${flashes}), or go on.`;
+        }
+      }
+    } else if (done.kind === 'mix' && !done.flashed) { /* the mix waited for, and steady now: asked next */
     } else if (done.kind === 'mix') {
-      run.result.mix = { trim_ms: 941 }; run.queue.shift();
-      S.calibration = { ...(S.calibration || { cameras: {} }), at: t, mixed: true, programme: { offset_ms: -81, pairs: 8, spread_ms: 3, mix_trim_ms: 941 } };
+      // With the flashes at the leading camera (Manager.calibrate_sync, mix_only): 81 ms early on its usual timing in the
+      // demo, and where it was already measured here, a couple of milliseconds from that.
+      const was = S.mixTrim?.trim_ms ?? MIX_USUAL, offset = S.mixTrim ? -2 : -81, trim = was - offset;
+      run.result.mix = { trim_ms: trim }; run.queue.shift();
+      S.mixTrim = { at: t, by: 'flash', leader: S.programmeSound?.camera || null, off_ms: offset, wait_ms: MIX_WAIT_MS, leader_stream_ms: null, trim_ms: trim };
+      S.calibration = { ...(S.calibration || { cameras: {} }), at: t, mixed: true, programme: { offset_ms: offset, pairs: 8, spread_ms: 3, mix_trim_ms: trim } };
     }
     walkAsk(run);
   }
@@ -1255,16 +1397,21 @@
       else { run.result.beacon = { skipped: true }; run.queue.shift(); walkAsk(run); }
     } else if (asked.kind === 'beacon-done') {
       run.queue.shift(); walkAsk(run);
+    } else if (asked.kind === 'mix' && choice === 'beacon' && asked.beacon) {
+      // The mix's timing from the stage beacon (a 'mix' run of it): about 40 seconds on an installation, five here.
+      asked.byBeacon = true;
+      Object.assign(run, { show: null, until: now() + 5, said: `The stage beacon (${asked.beacon}) is timing the programme mix from where it stands: ${asked.leader} is on air and OBS is recording, about 40 seconds. Nothing to hold up` });
     } else if (choice === 'go' && asked.kind === 'camera' && !asked.sound && !asked.timing) {
       run.chart = { i: 0, asked: 0, nextAt: now() + 0.5 }; run.said = 'Finding the phone';            // its lip sync is as measured: the chart alone
     } else if (choice === 'go') {
+      if (asked.kind === 'mix') asked.flashed = true;
       Object.assign(run, { show: asked.kind === 'network' || (asked.kind === 'camera' && !asked.sound) ? 'flash-silent' : 'flash', until: now() + 5,
         said: asked.kind === 'camera' && !asked.sound ? `Timing ${asked.with} against the phones by the flashes both see. No beeps for this one. Hold still, about 20 seconds`
         : asked.kind === 'camera' ? `Measuring ${asked.name}: its picture is on air and its own microphone is the only one open. Hold still, about 15 seconds${asked.timing ? `; ${asked.with} is timed by the same flashes` : ''}`
         : asked.kind === 'network' ? `Timing ${asked.names} against the phones by the flashes both see. No beeps for this one. Hold still, about 20 seconds` : 'Measuring the programme mix against the picture. Hold still, about 15 seconds' });
     } else {
       if (asked.kind === 'camera') run.result.cameras[asked.id] = run.result.cameras[asked.id] || { name: asked.name, skipped: true };
-      else if (asked.kind === 'network') run.result.timing = { skipped: true }; else run.result.mix = { skipped: true };
+      else if (asked.kind === 'network') run.result.timing = { skipped: true }; else run.result.mix = asked.found || { skipped: true };      // what the beacon made of the mix, when it was tried and set nothing
       run.queue.shift(); walkAsk(run);
     }
     save(); return answer(calibrateRead());
@@ -1279,6 +1426,8 @@
       else { found[c.name] = { offset_ms: late, pairs: 9, spread_ms: 6.5, set_ms: -late - 70 }; set[c.id] = -late - 70; }
     });
     S.calibrated = set; S.calibration = { at: Date.now() / 1000, cameras: found, programme: { offset_ms: 85, pairs: 8, spread_ms: 9, alone: true, camera: list[0]?.name }, mixed: S.programmeSound?.others === 'mixed' };
+    // With the programme mix on air it is recorded once more as it is, and the mix's own timing set from that (Manager.mix_timed).
+    if (mixLeader()) { const was = S.mixTrim?.trim_ms ?? MIX_USUAL, offset = S.mixTrim ? -2 : -81; S.mixTrim = { at: now(), by: 'flash', leader: S.programmeSound.camera, off_ms: offset, wait_ms: MIX_WAIT_MS, leader_stream_ms: null, trim_ms: was - offset }; }
     return S.calibration;
   }
   // Before the show (preshow.py), as the manager reports it, from what the demo has been asked to do: lip sync as
@@ -1313,13 +1462,32 @@
       return { ...item(`lip-sync:${c.id}`, `${c.name}: lip sync`, 'todo', `${read?.why ? `Not measured: the last reading, at ${clock(cal.at)}, failed: ${read.why}. ` : 'Not measured. '}It is on every camera's lip sync (${S.lipSync || 0} ms).`, itself), measure: c.id };
     });
     const what = !sound.camera ? 'every camera, each with its own picture' : mixed ? `the programme mix, led by ${all.find(c => c.id === sound.camera)?.name}` : all.find(c => c.id === sound.camera)?.name;
-    const programme = [!cal ? item('programme', 'Programme sound against the picture', 'todo', `Programme sound is ${what}. It has not been measured against the picture in the last day (or since measurements were forgotten).`, flashAll)
-      : S.soundChangedAt >= cal.at ? item('programme', 'Programme sound against the picture', 'todo', `Programme sound was changed at ${clock(S.soundChangedAt)} (now ${what}), after the programme was last measured, at ${clock(cal.at)}: what was measured was the sound as it was then.`, flashAll)
+    // The programme as last measured: by the flashes (S.calibration), or by the stage beacon's reading of the mix since
+    // (S.mixMeasured: set from it, or left as it was, the timing kept being as good as right).
+    const byBeacon = S.mixMeasured && S.mixMeasured.at > (cal?.at || 0) ? S.mixMeasured : null, measuredAt = byBeacon ? byBeacon.at : cal?.at;
+    const programme = [measuredAt == null ? item('programme', 'Programme sound against the picture', 'todo', `Programme sound is ${what}. It has not been measured against the picture in the last day (or since measurements were forgotten).`, flashAll)
+      : S.soundChangedAt >= measuredAt ? item('programme', 'Programme sound against the picture', 'todo', `Programme sound was changed at ${clock(S.soundChangedAt)} (now ${what}), after the programme was last measured, at ${clock(measuredAt)}: what was measured was the sound as it was then.`, flashAll)
+      : byBeacon ? item('programme', 'Programme sound against the picture', 'ready', `Programme sound is ${what}. Measured at ${clock(measuredAt)} from the stage beacon: it was ${byBeacon.offset_ms} ms off the picture, ${byBeacon.checked ? "within what that reading can tell, and the mix's timing was left as it was" : 'and the mix’s timing was set from that'}. Programme sound has not been changed since.`)
       : item('programme', 'Programme sound against the picture', 'ready', `Programme sound is ${what}. Measured at ${clock(cal.at)}: it was ${cal.programme.offset_ms} ms off the picture, and ${cal.mixed ? 'the mix’s timing' : 'each camera’s lip sync'} was set from that. Programme sound has not been changed since.`)];
     if (mixed) {
       programme.push(item('mix-on-air', 'Programme mix: in the programme', 'ready', 'OBS is playing the mix, and it is in the programme.'));
-      programme.push(cal?.mixed && !(S.soundChangedAt >= cal.at) ? item('mix-trim', 'Programme mix: its timing', 'ready', '941 ms, as Calibrate sound measured it here.')
-        : item('mix-trim', 'Programme mix: its timing', 'todo', 'On its usual timing (860 ms), not measured here: as it was measured once, on other cameras. Voices can be off the mouths by a few hundred milliseconds.', `${flashAll}, with the mix on air: it sets the mix’s timing`));
+      // The mix's own timing, from what it rests on (preshow.mix_trim and mix_action): ready when measured here, by the
+      // flashes or surely by the beacon, and nothing begun anew since; else what to do, the beacon's card first when
+      // one stands ready and a reading from it would be sure.
+      const facts = beaconRead().mix, kept = facts.kept, trim = facts.trim_ms, read = facts.last || {}, at = kept?.at || 0, checked = kept?.checked_at || 0, later = (read.at || 0) > Math.max(at, checked);
+      const mixByFlash = `${flashAll}, with the mix on air: it sets the mix’s timing`, unsure = lit?.name === facts.beacon ? lit.mix?.cannot : null;
+      const mixAction = !facts.beacon ? mixByFlash : facts.cannot ? `${mixByFlash} (the stage beacon, ${facts.beacon}, cannot time it just now: ${facts.cannot})`
+        : unsure ? `${mixByFlash}. Set the mix’s timing from the beacon, on the Stage beacon card here (${facts.beacon}), gives it one too, but not a sure one: ${unsure}`
+        : `Set the mix’s timing from the beacon, on the Stage beacon card here (${facts.beacon}): ${facts.leader} is put on air and OBS records the programme for about half a minute, with nobody on stage (the Pre-show calibration check on a phone offers the same as its last step). Or c${mixByFlash.slice(1)}`;
+      const tried = later && read.why && !read.state ? ` The stage beacon’s last run, at ${clock(read.at)}, did not time it: ${read.why}.` : '';
+      const how = !kept ? '' : (kept.by === 'beacon' ? `set from the stage beacon at ${clock(at)}${kept.unsure_ms && kept.sure !== false ? ` (to within about ${kept.unsure_ms} ms)` : ''}` : `as Calibrate sound measured it here with the flashes at ${clock(at)}`)
+        + (checked > at ? `, and checked by the stage beacon at ${clock(checked)}` : '');
+      const heard = later && read.state === 'left' ? `the stage beacon’s reading at ${clock(read.at)} had the mix ${Math.abs(read.gap_ms)} ms ${read.gap_ms >= 0 ? 'late' : 'early'} against ${facts.leader}’s picture, to within about ${read.unsure_ms} ms, and set nothing: ${read.why}.` : null;
+      programme.push(!kept ? item('mix-trim', 'Programme mix: its timing', 'todo', `On its usual timing (${trim} ms), not measured here: as it was measured once, on other cameras. Voices can be off the mouths by a few hundred milliseconds.${tried}`, mixAction)
+        : kept.stale.length ? item('mix-trim', 'Programme mix: its timing', 'todo', `Stale: ${trim} ms, ${how}, but ${kept.stale.join('; ')}. Nothing measured says it still holds.${tried}`, mixAction)
+        : kept.by === 'beacon' && kept.sure === false ? item('mix-trim', 'Programme mix: its timing', 'todo', `${trim} ms, ${how}, but only to within about ${kept.unsure_ms} ms: it rests on ${kept.rests_on.join('; ')}.${tried}`, mixAction)
+        : heard && Math.abs(read.gap_ms) > read.unsure_ms + SURE_MS ? item('mix-trim', 'Programme mix: its timing', 'todo', `${trim} ms, ${how}. But ${heard}`, mixAction)
+        : item('mix-trim', 'Programme mix: its timing', 'ready', `${trim} ms, ${how}. Nothing it rests on has begun anew since.${heard ? ` ${heard[0].toUpperCase()}${heard.slice(1)}` : ''}`));
     }
     const timed = S.netTimed ? { ended: S.netTimed.at, result: S.netTimed } : null;
     const net = network.flatMap(c => {
@@ -1362,7 +1530,7 @@
     const chosen = S.programmeSound || null, list = (cams()?.cameras || []).filter(c => c.id);
     const auto = chosen?.others === 'auto', open = list.find(c => c.id === chosen?.camera)?.name, mixed = chosen?.others === 'mixed';
     // The programme mix (mixer.py), as the manager reports it: every other camera placed, followed and in the mix.
-    const mix = mixed ? { going: true, in_programme: true, source: 'Programme mix', offset_ms: 1240, db: S.mixDb || {},
+    const mix = mixed ? { going: true, in_programme: true, source: 'Programme mix', offset_ms: 1240, trim_ms: S.mixTrim?.trim_ms ?? MIX_USUAL, measured: mixKept(), db: S.mixDb || {},
       cameras: Object.fromEntries(list.filter(c => c.id !== chosen.camera).map((c, i) => [c.name, { placed: true, in_mix: (S.mixDb || {})[c.id] !== null, late: false, readings: 90,
         behind_ms: [4.31, -11.87, 7.02, 2.4, -3.3][i % 5], drift_ppm: [22.1, -8.4, 3.9, 14.2, -17.6][i % 5], unsteady_ms: [0.0036, 0.0051, 0.0044, 0.0029, 0.0062][i % 5], read_ago: 2, flipped: false }])) } : null;
     // A network camera's own input volume (tenveo.py), as the manager reads it from the camera.
@@ -2401,7 +2569,7 @@
     }
     if (path === '/api/sync/calibrate') {
       // Calibrate sync (avsync.py), as the manager answers: in the demo the first three cameras saw the flashes.
-      if (body.clear) { S.calibrated = null; S.calibration = null; S.soundMeasured = null; S.beaconRests = null; save(); return answer(programmeSound()); }
+      if (body.clear) { S.calibrated = null; S.calibration = null; S.soundMeasured = null; S.beaconRests = null; S.mixTrim = null; S.mixMeasured = null; save(); return answer(programmeSound()); }      // the mix back on its usual timing, too
       calibrateSync(); save(); return answer(programmeSound());
     }
     if (path === '/api/calibrate/start') {
@@ -2419,10 +2587,16 @@
       const state = beaconRead();
       if (state.running) return answer({ detail: 'The stage beacon is measuring already' }, 409);
       if (!state.beacons.some(b => b.online && b.open)) return answer({ detail: 'No stage beacon is connected with its beacon screen up: open the camera app on the beacon phone and choose Stage beacon' }, 409);
-      const purpose = ['set', 'own', 'network'].includes(body?.purpose) ? body.purpose : 'check';
+      const purpose = ['set', 'own', 'network', 'mix'].includes(body?.purpose) ? body.purpose : 'check';
       if (purpose === 'network' && !(state.network_cameras || []).length) return answer({ detail: 'No network camera is showing a picture in OBS' }, 409);
+      // The programme mix's timing (StageBeacon.start): a 'mix' run's whole purpose, refused with why it cannot be; a
+      // 'set' run's by the way while Programme sound is the mix, and said with the run when it could not. For it the
+      // camera that leads the mix is put on air and OBS records (the demo's monitor shows it; the shot is put back after).
+      const mixed = purpose === 'mix' || (purpose === 'set' && mixLeader()), cannot = mixed ? mixCannot() : null;
+      if (purpose === 'mix' && cannot) return answer({ detail: `The programme mix cannot be timed from the stage beacon now: ${cannot}` }, 409);
       S.beaconRun = { at: now(), by: S.answers['/api/session']?.name || 'Morgan', beacon: state.beacons[0].name, state: 'running', cameras: {}, purpose, camera: body?.camera || null,
-        ...(purpose === 'network' ? { light_only: true } : {}) };
+        ...(purpose === 'network' ? { light_only: true } : {}), ...(mixed && cannot ? { mix: { why: cannot } } : mixed ? { records: mixLeader().id, on_air: mixLeader().name } : {}) };
+      if (S.beaconRun.records) mixOnAir(S.beaconRun, mixLeader());
       save(); return answer(beaconRead());
     }
     // Managing the beacon phones (stagebeacon.py): made a beacon or a camera again, tested, a run stopped.

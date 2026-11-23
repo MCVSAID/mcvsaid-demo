@@ -99,6 +99,17 @@
         list.append(item);
       }
       parts.push(line, list, node('small', 'Each phone’s sound runs on its own clock, a few parts in a million from the next, so microphones lined up once slide apart and sound hollow. Here each is followed against the leading camera’s and played a very little faster or slower to stay with it, then all are mixed into one source for OBS. It needs the camera relay on. A level left empty leaves that microphone out. What the room does is still there: a microphone far from the others is its own echo however well it keeps time.'));
+      // The mix's own timing (how much sooner OBS plays it than a camera's stream) and what that rests on (Manager.mix_kept):
+      // the flashes, the stage beacon, or nothing measured here; and whether it is still known to hold.
+      const k = m.measured, moment = at => { const d = new Date(at * 1000), clock = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); return d.toDateString() === new Date().toDateString() ? `at ${clock}` : `on ${d.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' })} at ${clock}`; };
+      if (m.trim_ms != null && k !== undefined) {
+        const timing = node('p', !k ? `Its timing: its usual ${m.trim_ms} ms, not measured here. Voices can be off the mouths until it is: measure it on Set up › Calibrate (the stage beacon, or the flashes at ${state.cameras.find(c => c.id === state.camera)?.name || 'the leading camera'}).`
+          : `Its timing: ${m.trim_ms} ms, ${k.by === 'beacon' ? 'set from the stage beacon' : 'measured with the flashes'}${k.at ? ` ${moment(k.at)}` : ''}`
+            + `${k.by === 'beacon' && k.sure === false ? `, to within about ${k.unsure_ms} ms only` : ''}${k.checked_at > (k.at || 0) ? `, and checked by the stage beacon ${moment(k.checked_at)}` : ''}.`
+            + `${k.by === 'beacon' && k.rests_on ? ` It rests on ${k.rests_on.join('; ')}.` : ''}${(k.stale || []).length ? ` No longer known to hold: ${k.stale.join('; ')}. Measure it again on Set up › Calibrate.` : ''}`);
+        if (!k || (k.stale || []).length || (k.by === 'beacon' && k.sure === false)) timing.className = 'recording-warning';
+        parts.push(timing);
+      }
     }
     if (state.camera && state.others !== 'auto' && state.others !== 'mixed') {
       const list = node('ul', '');
@@ -143,8 +154,9 @@
     const open = node('a', page); open.href = page; open.target = '_blank'; open.rel = 'noopener';
     const measure = document.createElement('button'); measure.textContent = 'Measure'; measure.disabled = busy;
     measure.onclick = () => send({}, '/api/sync/calibrate', 'Recording the programme to measure: keep the sync page flashing…', 'Measured.');
-    const clear = document.createElement('button'); clear.textContent = 'Forget measurements'; clear.disabled = busy || !state.cameras.some(c => c.calibrated_ms != null);
-    clear.onclick = () => send({ clear: true }, '/api/sync/calibrate', 'Forgetting…', 'Every camera is back on the one lip sync.');
+    // The programme mix's timing is forgotten with them (and what it rested on), so one measured with no camera's lip sync is enough to forget.
+    const clear = document.createElement('button'); clear.textContent = 'Forget measurements'; clear.disabled = busy || !(state.cameras.some(c => c.calibrated_ms != null) || state.mix?.measured);
+    clear.onclick = () => send({ clear: true }, '/api/sync/calibrate', 'Forgetting…', `Every camera is back on the one lip sync${state.mix?.measured ? ', and the programme mix on its usual timing' : ''}.`);
     const how = node('p', 'Calibrate sync: open '); how.append(open, node('span', ' on a phone or tablet, turn its sound up, press Start flashing, and hold it where the cameras see it (all of them at once if you can). While it flashes, press '), measure, node('span', ' and keep it there until it says Measured (about 15 s: OBS records the programme with the camera your sound comes from on air and its microphone the only one open, then puts the shot and every microphone back as they were; about 30 s with the programme mix, whose own timing is measured after). '), clear);
     calibrate.append(how);
     const cal = state.calibration;

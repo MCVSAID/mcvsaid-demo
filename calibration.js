@@ -6,6 +6,18 @@
   const $ = selector => document.querySelector(selector);
   let session = null, timer = null, drawn = '';
   function node(tag, text, cls) { const e = document.createElement(tag); if (text !== undefined) e.textContent = text; if (cls) e.className = cls; return e; }
+  // How far sound is from its picture, in words; and a moment, with its day when that is not today (a timing kept may be days old).
+  const late = ms => `${Math.abs(ms)} ms ${ms >= 0 ? 'late' : 'early'}`;
+  const moment = at => { const d = new Date(at * 1000), clock = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); return d.toDateString() === new Date().toDateString() ? `at ${clock}` : `on ${d.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' })} at ${clock}`; };
+  // The programme mix's own timing as the check's last step left it (calibrate.Calibrate.mix_timing): set with the flashes,
+  // or by the stage beacon set, checked (left as it was, being as good as right), or read and not set over what is kept.
+  function mixTimed(m) {
+    if (m.by !== 'beacon') return m.trim_ms != null ? `Programme mix: timing set to ${m.trim_ms} ms` : `Programme mix not measured: ${m.why}`;
+    if (m.state === 'set') return `Programme mix: timing set to ${m.trim_ms} ms from the stage beacon (it was heard ${late(m.off_ms)} against the leading camera’s picture)`;
+    if (m.state === 'checked') return `Programme mix: timing left at ${m.trim_ms} ms, checked from the stage beacon (heard ${late(m.off_ms)}, within what that reading can tell)`;
+    if (m.state === 'left') return `Programme mix: the stage beacon heard it ${late(m.off_ms)} and set nothing (it is still ${m.trim_ms} ms): ${m.why}`;
+    return `Programme mix not timed from the stage beacon: ${m.why}`;
+  }
   async function api(path, body) {
     const response = await fetch(path, body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': session?.csrf || '' }, body: JSON.stringify(body) });
     const data = await response.json().catch(() => ({}));
@@ -57,9 +69,13 @@
     // A stage beacon standing ready (calibrate.Calibrate.standing): what the check on the phone offers it for, and what is still a person's.
     if (report.beacon) {
       const lit = report.beacon, timing = lit.timing ? ' and time the network cameras by its light' : '';
+      // With the programme mix: whether the check's last step asks it for the mix's own timing (standing's 'mix'), and why not.
+      const mixed = !lit.mix ? '' : !lit.mix.cannot ? ' With the programme mix, the check offers it once more as its last step, for the mix’s own timing: the camera that leads the mix is put on air and OBS records the programme for about half a minute, and nobody goes back on stage.'
+        : lit.mix.cannot === lit.cannot ? ' Nor is it asked for the programme mix’s own timing until then: that is measured with the flashes at the camera that leads the mix.'
+        : ` It is not asked for the programme mix’s own timing, which is measured with the flashes at the camera that leads the mix: ${lit.mix.cannot}.`;
       body.append(node('p', (lit.cannot ? `The stage beacon (${lit.name}) is ready${lit.timing ? ', and the check on the phone offers it for the network cameras’ timing' : ''}, but it sets no lip sync yet: ${lit.cannot}. Until then each camera is walked to.`
         : `The stage beacon (${lit.name}) is ready: the check on the phone offers it first. From where it stands it can set the lip sync of each camera that is due${timing}, and the phone is walked only to a camera it could not see or hear, or was not sure of to within 25 ms.`)
-        + ' Still a person’s: the beacon’s own part, measured once against a camera measured with the flashes (Stage beacon, below); the cameras’ colours; and where the programme’s sound comes from.', 'hint'));
+        + mixed + ' Still a person’s: the beacon’s own part, measured once against a camera measured with the flashes (Stage beacon, below); the cameras’ colours; and where the programme’s sound comes from.', 'hint'));
     }
     for (const group of report.groups) {
       body.append(node('h3', group.title));
@@ -165,7 +181,7 @@
         list.append(node('li', r.colour.why ? `Colour not matched: ${r.colour.why}` : !r.colour.reference ? 'Colour: no camera’s chart was read' : `Colour: matched to ${r.colour.reference}${r.colour.in_obs ? ', and put in OBS' : ''}${missed.length ? `; not ${missed.map(c => `${c.name} (${c.problem})`).join('; ')}` : ''}`, r.colour.why || missed.length ? 'bad' : ''));
       }
       if (r.sound) list.append(node('li', r.sound.kept ? 'Programme sound left as it was' : `Programme sound: ${r.sound.camera}${{ muted: ' alone', aligned: ', the others joined in time', mixed: ' leading the programme mix' }[r.sound.others] || ''}`));
-      if (r.mix && !r.mix.skipped) list.append(node('li', r.mix.trim_ms != null ? `Programme mix: timing set to ${r.mix.trim_ms} ms` : `Programme mix not measured: ${r.mix.why}`, r.mix.why ? 'bad' : ''));
+      if (r.mix && !r.mix.skipped) list.append(node('li', mixTimed(r.mix), r.mix.why ? 'bad' : ''));
       body.append(list);
     }
     if (run.kind === 'sync' && run.result?.calibration?.cameras) {
@@ -235,12 +251,33 @@
     const go = node('button', !state.running ? 'Measure every camera now' : state.tested?.state === 'running' ? 'Testing…' : 'Measuring…'); go.type = 'button'; go.disabled = state.running || !state.beacons.some(b => b.online && b.open);
     go.onclick = async () => { try { beacon(await api('/api/beacon/measure', {})); } catch (error) { concert.fail(error); } };
     // Lip sync from nothing (beacon.from_reading): every phone's set from its reading, then marked.
+    // With the programme mix on air and able to be timed (StageBeacon.mix_facts), that run times the mix too, which is
+    // no longer nothing on air and nothing recorded: said before it is begun, and why not when it will not.
+    const mix = state.mix?.chosen ? state.mix : null, leads = mix?.leader || 'the camera that leads the mix';
+    const records = `${leads} is put on air and OBS records the programme for about half a minute, with ${leads}’s microphone alone in the mix and every other sound in OBS muted meanwhile; all of it is put back after`;
     const set = node('button', 'Set lip sync from the beacon'); set.type = 'button'; set.disabled = go.disabled;
     set.onclick = async () => {
-      if (!await concert.sure('Measure every camera from the beacon and set each phone’s lip sync from what it finds? Each is set from its reading less its distance from the beacon (the room map, Stage layout) and the beacon’s own part, with OBS’s part as last measured.', { ok: 'Set lip sync' })) return;
+      const mixToo = !mix ? '' : mix.cannot ? ` The programme mix’s own timing is not measured with it: ${mix.cannot}.` : ` Programme sound is the programme mix, so the mix’s own timing is measured in the same run, and for that ${records}. Before the show only.`;
+      if (!await concert.sure('Measure every camera from the beacon and set each phone’s lip sync from what it finds? Each is set from its reading less its distance from the beacon (the room map, Stage layout) and the beacon’s own part, with OBS’s part as last measured.' + mixToo, { ok: 'Set lip sync' })) return;
       try { beacon(await api('/api/beacon/measure', { purpose: 'set' })); } catch (error) { concert.fail(error); }
     };
     body.append(go, ' ', set);
+    // The programme mix's own timing alone (a 'mix' run): what it is on now and what that rests on (Manager.mix_kept), and
+    // the run that sets it, which no camera's lip sync, mark or timing is touched by. Disabled with the reason said.
+    if (mix) {
+      const kept = mix.kept;
+      const rests = !kept ? `its usual ${mix.trim_ms} ms, not measured here`
+        : `${mix.trim_ms} ms, ${kept.by === 'beacon' ? 'set from the stage beacon' : 'measured with the flashes'}${kept.at ? ` ${moment(kept.at)}` : ''}${kept.by === 'beacon' && kept.sure === false ? `, to within about ${kept.unsure_ms} ms only` : ''}`
+          + `${kept.checked_at > (kept.at || 0) ? `, and checked by the beacon ${moment(kept.checked_at)}` : ''}${kept.stale?.length ? `; no longer known to hold: ${kept.stale.join('; ')}` : ''}`;
+      const time = button('Set the mix’s timing from the beacon', mix.cannot ? `Not just now: ${mix.cannot}` : `${records}. No camera’s lip sync is touched`);
+      time.disabled = go.disabled || !!mix.cannot;
+      time.onclick = async () => {
+        if (!await concert.sure(`Time the programme mix from the beacon? ${records}. Its timing is set from how far the beacon’s hiss is from its light in that recording, less the beacon’s own part and its distance from ${leads} (the room map, Stage layout); a timing measured better than this run can is left as it is. Before the show only.`, { ok: 'Set the mix’s timing' })) return;
+        try { beacon(await api('/api/beacon/measure', { purpose: 'mix' })); } catch (error) { concert.fail(error); }
+      };
+      const line = node('p'); line.append(time, node('span', ` The programme mix’s timing: ${rests}.${mix.cannot ? ` It cannot be set from the beacon just now: ${mix.cannot}.` : ''}`, !kept || kept.stale?.length || (kept.by === 'beacon' && kept.sure === false) ? 'hint bad' : 'hint'));
+      body.append(line);
+    }
     // A run for the network cameras' timing alone (beaconsync.py): the light only, its hiss too soft to hear.
     if (state.network_cameras?.length) {
       const time = button('Time the network cameras now', `${state.network_cameras.join(', ')}: timed against the phones by the beacon’s light as OBS shows it from each. Next to no hiss, and no camera’s lip sync is measured`);
@@ -260,8 +297,15 @@
     const last = state.last;
     if (last) {
       const when = new Date(last.at * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-      const [doing, did, not] = last.light_only ? ['Timing the network cameras', 'Timed the network cameras', 'not timed'] : ['Measuring', 'Measured', 'not measured'];
-      body.append(node('p', `${last.state === 'running' ? doing : did} at ${when}, ${last.by}${last.state === 'failed' ? `: ${not}: ${last.why}` : last.state === 'running' ? ': the beacon is showing its code (about 20 seconds)' : ''}.`, last.state === 'failed' ? 'bad' : ''));
+      const [doing, did, not] = last.light_only ? ['Timing the network cameras', 'Timed the network cameras', 'not timed'] : last.purpose === 'mix' ? ['Timing the programme mix', 'Timed the programme mix', 'not timed'] : ['Measuring', 'Measured', 'not measured'];
+      // A run that times the mix, its own or a lip sync run's by the way, has a camera on air and OBS recording meanwhile (last.on_air).
+      const onAir = last.on_air || (last.purpose === 'mix' ? 'the camera that leads the mix' : null);
+      const showing = onAir ? `: OBS is recording the programme, ${onAir} on air, while the beacon shows its code (about 40 seconds)` : ': the beacon is showing its code (about 20 seconds)';
+      // Stopped (Stop the beacon): said as that, not as a run that measured.
+      body.append(node('p', last.state === 'stopped' ? `${doing} at ${when}, ${last.by}, was stopped before it was done.`
+        : `${last.state === 'running' ? doing : did} at ${when}, ${last.by}${last.state === 'failed' ? `: ${not}: ${last.why}` : last.state === 'running' ? showing : ''}.`, last.state === 'failed' ? 'bad' : ''));
+      // What the run muted in OBS for its recording and could not unmute again, OBS having gone away (Manager.mutes_owed_back).
+      if (last.left_muted?.length) body.append(node('p', `${last.left_muted.join(', ')} could not be unmuted in OBS again after this run (OBS did not answer). The manager unmutes ${last.left_muted.length > 1 ? 'them' : 'it'} once OBS answers again: look at OBS’s mixer before the show.`, 'bad'));
       const list = node('ul');
       for (const [name, c] of Object.entries(last.cameras || {})) {
         const words = c.soundless ? 'sends no sound in its stream, so it has no lip sync to measure (its picture is timed against the phones by the beacon’s light)' : c.why ? `not measured: ${c.why}` : `${c.own_ms} ms (sound after picture in its own stream, the distance included; seen ${c.likeness}, heard ${c.clear_db} dB clear)${c.state ? `: ${FOUND[c.state] || c.state}` : last.purpose === 'own' ? ', the beacon’s own part included' : ''}${c.delta_ms != null && c.state !== 'checked' ? ` by ${c.delta_ms} ms` : c.state === 'checked' ? ` (${c.delta_ms >= 0 ? '+' : ''}${c.delta_ms} ms)` : ''}${c.set_ms != null ? `, to ${c.set_ms} ms` : ''}`;
@@ -270,6 +314,18 @@
         list.append(item);
       }
       if (list.children.length) body.append(list);
+      // The programme mix's own timing, as this run read it in OBS's recording of the programme (StageBeacon.mixed): set,
+      // checked (as good as right: left), left (not set over a better measurement), or not read, with why.
+      const mixed = last.mix;
+      if (mixed && last.state !== 'running') {
+        const heard = mixed.off_ms == null ? '' : `heard ${late(mixed.off_ms)} against ${mixed.leader}’s picture in OBS’s recording of the programme${mixed.clear_db != null ? ` (its hiss ${mixed.clear_db} dB clear)` : ''}`;
+        const rests = !mixed.rests_on ? '' : ` ${mixed.unsure_ms ? `To within about ${mixed.unsure_ms} ms, resting` : 'Resting'} on ${mixed.rests_on.join('; ')}.`;
+        const words = mixed.state === 'set' ? `The programme mix: ${heard}. Its timing is set to ${mixed.trim_ms} ms, from ${mixed.from_ms}.${rests}`
+          : mixed.state === 'checked' ? `The programme mix: ${heard}, which is within what this reading can tell. Its timing is left at ${mixed.trim_ms} ms, and counts as checked.${rests}`
+          : mixed.off_ms != null ? `The programme mix: ${heard}. Nothing was changed (its timing is still ${mixed.trim_ms} ms): ${mixed.why}.${rests}`
+          : `The programme mix’s timing was not measured: ${mixed.why}${mixed.clear_db != null ? ` (its hiss ${mixed.clear_db} dB clear)` : ''}.`;
+        body.append(node('p', words, mixed.state === 'set' || mixed.state === 'checked' ? '' : 'bad'));
+      }
       if (last.own) body.append(node('p', last.own.why ? `The beacon’s own part was not measured: ${last.own.why}.` : `The beacon’s own part: ${last.own.own_ms} ms (${last.own.how}${Object.keys(last.own.cameras).length > 1 ? `, the cameras within ${last.own.spread_ms} ms of each other` : ''}).`, last.own.why ? 'bad' : ''));
       // The network cameras, timed against the phones by the same light (sync.SyncKeeper.time_by_beacon).
       const net = last.network;
