@@ -216,12 +216,16 @@
       answer => outcomeLine(answer.cameras) + (Object.values(answer.cameras).some(r => r.delta_e) ? '. Put the LUTs in OBS when they look right.' : ''));
     const apply = node('button', 'Put every LUT in OBS'); apply.disabled = busy || !state.cameras.some(c => c.calibration && !c.calibration.reference);
     apply.onclick = () => ask('/api/colour/obs', { cameras: state.cameras.filter(c => c.calibration && !c.calibration.reference).map(c => c.id), on: true }, answer => outcomeLine(answer.cameras));
-    calibration.append(node('p', ''), take, fit, apply);
+    // Pictures from an earlier light: seen 2026-11-22, three evening matches fitted on 13:51's pictures, none the wiser.
+    const oldest = Math.min(...ready().map(c => c.capture.when)), age = Date.now() / 1000 - oldest;
+    const stale = ready().length && age > 15 * 60 ? node('p', `These pictures were taken ${age >= 5400 ? `${Math.round(age / 3600)} h` : `${Math.round(age / 60)} min`} ago, at ${when(oldest)}: a match fitted on them is of the light then. Take pictures from OBS again first, or use Match the cameras by themselves.`) : null;
+    if (stale) stale.className = 'recording-warning';
+    calibration.append(node('p', ''), take, fit, apply, ...(stale ? [stale] : []));
     // The whole match in one go, with nobody at a phone (Calibrate.match): what the steps above do by hand.
     const alone = node('p', '');
     const go = node('button', 'Match the cameras by themselves'); go.disabled = busy || state.cameras.filter(c => c.online).length < 2;
     go.onclick = () => ask('/api/colour/match', { cameras: chosen.size ? [...chosen] : 'all', ...(scene && form.reference !== 'chart' ? { reference: form.reference } : {}) }, answer => matched(answer.match));
-    alone.append(go, node('small', ' Point the cameras at the same view first. It locks the camera the others are matched to, has the AI look whether each camera shows the same thing (when the AI is set up), sets a network camera’s own white balance and exposure where that is allowed, then fits each LUT and puts the good ones in OBS. About a minute.'));
+    alone.append(go, node('small', ' Point the cameras at the same view first. It locks the camera the others are matched to afresh on the light now (a lock kept from earlier is taken again), takes new pictures, has the AI look whether each camera shows the same thing (when the AI is set up), sets a network camera’s own white balance and exposure where that is allowed, then fits each LUT and puts the good ones in OBS. About a minute.'));
     calibration.append(alone);
     const grid = node('div', ''); grid.className = 'colour-pictures';
     for (const camera of state.cameras) if (camera.capture) grid.append(picture(camera));
