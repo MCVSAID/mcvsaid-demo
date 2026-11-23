@@ -1606,11 +1606,22 @@
     save(); note(`In the demo the ${kind} moves at once; a real one connects to its new phone within a few seconds.`);
     return answer({ request_id: 'demo', state: 'SUCCEEDED', result: { type: 'ack', ok: true, demo: true } });
   }
+  // What a network camera's NDI frame times do for it, at the end of its Timing line (ndiclock.word_line): over NDI,
+  // as the demonstration manager said it when the demo was made (held by them, the drift seen, its last anchor); over
+  // SRT, why they are not read.
+  const NDI_SRT = 'its picture comes over SRT through the camera relay: its NDI frame times say nothing of that way, so it is held by its timings alone';
+  function framesSaid(camera) {
+    const line = (camera.readiness?.checks || []).find(c => c.id === 'delay');
+    if (camera.ndi_said === undefined && line) { const said = line.detail.split('; ')[1] || null; camera.ndi_said = said === NDI_SRT ? null : said; }
+    return camera.route === 'srt' ? NDI_SRT : camera.ndi_said;
+  }
+  function withFrames(camera, detail) { const said = framesSaid(camera); return said ? `${detail}; ${said}` : detail; }
   // A network camera's delay or NDI source name changed on its card (routes/cameras.py network_change): kept on the
   // camera, with the words of its readiness and sync lines that say them.
   function networkPost(id, body) {
     const camera = cams().cameras.find(c => c.id === id && c.kind === 'network'); if (!camera) return answer({ detail: 'No such network camera' }, 404);
     const done = { camera_id: id }, checks = camera.readiness?.checks || [];
+    framesSaid(camera);               // what its Timing line said of its frame times, kept before anything here changes it
     if ('delay_ms' in body) {
       const delay = Number(body.delay_ms);
       if (!(delay >= 0 && delay <= 6000)) return answer({ detail: 'A delay is from 0 to 6000 ms' }, 400);
@@ -1618,7 +1629,7 @@
       // Set while the phones are being lined up, it follows them from then on (sync.py hold_network).
       const follows = camera.delay_follows = done.follows = !!(cams().sync?.enabled && cams().sync?.target_ms);
       const said = follows ? `held by ${camera.delay_ms} ms, following the phones` : camera.delay_ms ? `held by ${camera.delay_ms} ms, set by hand` : 'not held back (no delay set)';
-      const line = checks.find(c => c.id === 'delay'); if (line) line.detail = follows || !camera.delay_ms ? (camera.delay_ms || follows ? said : 'not held back: not timed against the phones yet (it is, once its picture and a phone’s show the same movement)') : `${said}: not timed against the phones yet`;
+      const line = checks.find(c => c.id === 'delay'); if (line) line.detail = withFrames(camera, follows || !camera.delay_ms ? (camera.delay_ms || follows ? said : 'not held back: not timed against the phones yet (it is, once its picture and a phone’s show the same movement)') : `${said}: not timed against the phones yet`);
       const aligned = cams().sync?.cameras?.[id]; if (aligned) { aligned.delay_ms = camera.delay_ms; aligned.follows = follows; aligned.status = said; }
     }
     if ('ndi_name' in body) {
@@ -1663,6 +1674,7 @@
            { id: 'source', label: 'OBS source', status: 'ok', detail: `“${source}”, taking it from the camera relay` }]
         : [{ id: 'ndi', label: 'NDI in OBS', status: 'ok', detail: 'OBS has the NDI plugin' }, { id: 'source', label: 'OBS source', status: 'ok', detail: `“${source}”, taking “${camera.ndi_name}”` },
            { id: 'picture', label: 'Picture in OBS', status: 'ok', detail: 'OBS shows its picture' }];
+      const timing = kept.find(c => c.id === 'delay'); if (timing) timing.detail = withFrames(camera, timing.detail.split('; ')[0]);
       if (camera.readiness) { camera.readiness.checks = [...lines, ...kept]; camera.readiness.overall = camera.readiness.checks.some(c => c.status === 'fail') ? 'fail' : camera.readiness.checks.some(c => c.status === 'warn') ? 'warn' : 'ok'; }
       if (camera.telemetry) camera.telemetry.streaming = !relayed || !!camera.srt_sent;
     }
