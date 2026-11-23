@@ -1696,6 +1696,21 @@
         if (camera.telemetry) camera.telemetry.streaming = camera.srt_sent;
       }
     }
+    if ('clock' in body) {
+      // Keep its clock here / Let it keep its own (tenveo.Tenveo.keep_time): its NTP pointed at this computer's time
+      // server. No camera is told anything here: its card and readiness say what the real one would then show.
+      if (!['keep', 'own'].includes(body.clock)) return answer({ detail: 'clock is keep or own' }, 400);
+      if (!camera.has_control) return answer({ detail: 'Give the camera’s control address first, so the manager can reach it' }, 409);
+      const kept = body.clock === 'keep';
+      camera.clock = { on: true, serving: true, problem: null, kept, asked_ago_s: kept ? 21 : null };
+      done.clock = kept ? 'kept' : 'own';
+      if (camera.readiness) {
+        const line = { id: 'clock', label: 'Clock', status: kept ? 'ok' : 'warn', detail: kept ? 'kept by this computer’s clock (it asked 21 s ago)' : 'its clock is not kept by this computer, so the times it writes into its frames cannot be set beside the phones’: Keep its clock here, on its card' };
+        const at = camera.readiness.checks.findIndex(c => c.id === 'clock');
+        if (at >= 0) camera.readiness.checks[at] = line; else camera.readiness.checks.push(line);
+        camera.readiness.overall = camera.readiness.checks.some(c => c.status === 'fail') ? 'fail' : camera.readiness.checks.some(c => c.status === 'warn') ? 'warn' : 'ok';
+      }
+    }
     if ('control_address' in body) {
       // The camera's control API address (netcontrol.py): kept, never shown; here it only turns the controls on or off.
       const set = !!String(body.control_address || '').trim();

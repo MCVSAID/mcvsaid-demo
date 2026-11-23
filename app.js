@@ -536,6 +536,24 @@ function networkCard(camera, { card, head, chip, facts, alerts, actions, more, p
         + `Or set it on the camera’s own page: SRT on, mode caller, this computer’s address, port ${camera.srt_port}, latency 80 ms. Set there, the relay asks for no passphrase.`));
     }
   } else if (viaRelay) picture.append(node('small', `It calls the camera relay over SRT on port ${camera.srt_port}, as a phone does.`));
+  // Its clock: kept from this computer's time server (timeserver.py), so the times it writes into its frames can be set
+  // beside the phones'. Said for everyone; set by an administrator, over its control address.
+  if (camera.clock?.on) {
+    const c = camera.clock;
+    const said = !c.serving ? `This computer’s time server is not answering${c.problem ? `: ${c.problem}` : ''}.`
+      : c.kept ? `Its clock is kept by this computer’s: it last asked ${c.asked_ago_s} s ago.`
+      : `Its clock is not kept by this computer’s${c.asked_ago_s != null ? ` (it last asked ${Math.floor(c.asked_ago_s / 60)} minutes ago)` : ''}, so the times in its frames cannot be set beside the phones’.`;
+    picture.append(node('small', said));
+    if (role === 'admin') {
+      const keepClock = node('button', 'Keep its clock here'); keepClock.disabled = off || !camera.has_control || !c.serving;
+      keepClock.title = camera.has_control ? 'Sets the camera’s own NTP, over its control address: this computer’s address, asked every minute' : 'Needs its control address (Following, below)';
+      keepClock.onclick = () => change({ clock: 'keep' }, '', done => done.clock === 'kept' ? `${camera.name} now keeps its clock from this computer, asking every minute. Its card says so once it has asked.` : `${camera.name} did not keep the NTP settings it was sent: check its Network page.`);
+      const ownClock = node('button', 'Let it keep its own'); ownClock.disabled = off || !camera.has_control;
+      ownClock.onclick = () => change({ clock: 'own' }, `${camera.name} no longer asks this computer the time.`);
+      const clockRow = document.createElement('div'); clockRow.className = 'actions'; clockRow.append(keepClock, ownClock);
+      picture.append(clockRow, node('small', 'Best set before the show: what the camera does to its picture times when its clock is put right mid-stream is not known yet. Or on the camera’s own page: Network › NTP Settings, on, this computer’s address, every 1 minute.'));
+    }
+  }
   // Where OBS takes it from over NDI.
   const source = document.createElement('input'); source.type = 'text'; source.maxLength = 255; source.value = camera.ndi_name; source.size = 28; source.setAttribute('aria-label', 'NDI source name');
   source.disabled = role !== 'admin' || off;
