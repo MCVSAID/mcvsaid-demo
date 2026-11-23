@@ -406,7 +406,7 @@
         const words = mixed.state === 'set' ? `The programme mix: ${heard}. Its timing is set to ${mixed.trim_ms} ms, from ${mixed.from_ms}.${rests}`
           : mixed.state === 'checked' ? `The programme mix: ${heard}, which is within what this reading can tell. Its timing is left at ${mixed.trim_ms} ms, and counts as checked.${rests}`
           : mixed.off_ms != null ? `The programme mix: ${heard}. Nothing was changed (its timing is still ${mixed.trim_ms} ms): ${mixed.why}.${rests}`
-          : `The programme mix’s timing was not measured: ${mixed.why}${mixed.clear_db != null ? ` (its hiss ${mixed.clear_db} dB clear)` : ''}.`;
+          : `The programme mix’s timing was not measured: ${mixed.why}${mixed.clear_db != null ? ` (its hiss ${mixed.clear_db} dB clear)` : ''}.${mixed.kept ? ' OBS’s recording of it is kept on this computer, with what it was read for, to be looked into (the one before it replaced).' : ''}`;
         body.append(node('p', words, mixed.state === 'set' || mixed.state === 'checked' ? '' : 'bad'));
       }
       if (last.own) body.append(node('p', last.own.why ? `The beacon’s own part was not measured: ${last.own.why}.` : `The beacon’s own part: ${last.own.own_ms} ms (${last.own.how}${Object.keys(last.own.cameras).length > 1 ? `, the cameras within ${last.own.spread_ms} ms of each other` : ''}).`, last.own.why ? 'bad' : ''));
