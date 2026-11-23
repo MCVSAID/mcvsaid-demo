@@ -442,10 +442,12 @@ window.concert = {
     live.replaceChildren(...[kind, ...pills].filter(Boolean));
     const version = document.querySelector('#version'); if (version && data.manager_version) version.textContent = `Manager ${data.manager_version}`;
     // Beside the pages.
-    const online = cameras.filter(c => c.online).length, hot = cameras.filter(c => ['hot', 'critical'].includes(c.thermal?.level));
+    // The Cameras page's count leaves out a stage beacon, which has no card there (app.js).
+    const counted = cameras.filter(c => c.kind === 'network' || !c.telemetry?.beacon?.on);
+    const online = counted.filter(c => c.online).length, hot = cameras.filter(c => ['hot', 'critical'].includes(c.thermal?.level));
     const badges = {
       '/': state && ready.state !== 'ok' ? ['', state[1], state[0]] : null,
-      '/cameras': cameras.length ? [`${online}/${cameras.length}`, online < cameras.length ? 'warn' : 'ok', `${online} of ${cameras.length} cameras online`] : null,
+      '/cameras': counted.length ? [`${online}/${counted.length}`, online < counted.length ? 'warn' : 'ok', `${online} of ${counted.length} cameras online`] : null,
       '/recipe': director.recipe?.current ? [`${director.recipe.current}/${director.recipe.count}`, 'ok', `${director.recipe.step?.label || 'Step'} of ${director.recipe.title}`] : null,
       '/director': director.problem ? ['', 'fail', `Programme control is not working: ${director.problem}`] : null,
       '/offload': director.recording ? ['REC', 'rec', 'The programme is being recorded'] : null,

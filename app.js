@@ -370,6 +370,8 @@ let updatingAll = false;
 // and which it will leave alone, and does nothing until the operator accepts.
 let fleetBusy = false, fleetNote = '', coolerJob = null;
 const { FLEET, armedNow, streamingNow, recordsWithStream } = window.concertFleet;     // fleet.js, shared with the Operate page
+// A phone in its stage beacon mode (stagebeacon.is_beacon): paired like a camera, never a camera of the show.
+const isStageBeacon = c => c.kind !== 'network' && !!c.telemetry?.beacon?.on;
 // A camera not used at this location is set aside, kept paired; one no longer wanted at all is removed (administrator).
 function asideButton(camera) {
   const inUse = camera.in_use !== false;
@@ -1279,6 +1281,9 @@ async function drawAll() {
     studioSummary = answer.creator || null;          // Creator Studio's framings, for each card's What it shows (shows.js)
     // The cameras in use at this location; those set aside are left out of everything but their own short list.
     const cameras = paired.filter(c => c.in_use !== false), aside = paired.filter(c => c.in_use === false);
+    // A stage beacon (stagebeacon.py) is paired like a camera but is no camera of the show: it has no card here, only a line
+    // saying where it is looked after (Set up › Calibrate).
+    const beacons = paired.filter(isStageBeacon);
     // Show length, and which cameras are not expected to last it at their present load.
     const heatPlan = document.querySelector('#heat-plan');
     await paint(heatPlan, show_minutes !== undefined, async (heatPlan) => {
@@ -2213,6 +2218,7 @@ async function drawAll() {
       try {
       const camera = paired.find(c => c.slot === slot);
       if (camera?.in_use === false) continue;              // set aside here: in the short list below, not a card
+      if (camera && isStageBeacon(camera)) continue;      // a stage beacon: a line below, not a card
       const card = node('article', ''); card.className = 'camera-card';
       // The card is a summary: name, a chip per fact, temperature, battery and storage, whether it is ready, anything
       // wrong, and the next step. Everything else is under "Controls and settings", in groups, each opened when wanted.
@@ -2802,6 +2808,12 @@ async function drawAll() {
       grid.append(card);
     }
     } catch (error) { console.error(error); grid.append(failedCard('Not in use here', error)); }
+    if (beacons.length) {
+      const card = node('article', ''); card.className = 'set-aside';
+      const line = node('small', `Not shown here, being ${beacons.length === 1 ? 'a stage beacon' : 'stage beacons'}: ${beacons.map(b => `${b.name} (${b.online ? 'connected' : 'offline'})`).join(', ')}. Looked after on `);
+      const go = document.createElement('a'); go.href = '/calibration'; go.textContent = 'Set up › Calibrate'; line.append(go, '.');
+      card.append(line); grid.append(card);
+    }
     });
     paintActivity();
   } catch (error) { console.error(error); concert.fail(error); }
