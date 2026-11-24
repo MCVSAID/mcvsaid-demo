@@ -15,6 +15,7 @@
   // or by the stage beacon set, checked (left as it was, being as good as right), or read and not set over what is kept.
   function mixTimed(m) {
     if (m.by !== 'beacon') return m.trim_ms != null ? `Programme mix: timing set to ${m.trim_ms} ms` : `Programme mix not measured: ${m.why}`;
+    if (m.state === 'ready') return `Programme mix: timing left at ${m.trim_ms} ms: it is not due`;
     if (m.state === 'set') return `Programme mix: timing set to ${m.trim_ms} ms from the stage beacon (it was heard ${late(m.off_ms)} against the leading camera’s picture)`;
     if (m.state === 'checked') return `Programme mix: timing left at ${m.trim_ms} ms, checked from the stage beacon (heard ${late(m.off_ms)}, within what that reading can tell)`;
     if (m.state === 'left') return `Programme mix: the stage beacon heard it ${late(m.off_ms)} and set nothing (it is still ${m.trim_ms} ms): ${m.why}`;
@@ -131,7 +132,7 @@
     box.append(go);
     box.append(node('p', !lit ? 'Needs a stage beacon standing ready: a spare phone on a stand in the stage area, set to Stage beacon, with its beacon screen up (Stage beacon, below).'
       : `From here or a tablet, with nobody on stage: the stage beacon (${lit.name}) sets the lip sync of each camera that is due${lit.timing ? ' and times the network cameras by its light' : ''}`
-        + `${lit.mix && !lit.mix.cannot ? ', and with the programme mix its timing too' : ''}; the cameras’ colours are matched by what they see, and you choose where the programme’s sound comes from. `
+        + `${lit.mix && !lit.mix.cannot ? ', and with the programme mix its timing too' : ''}, all from this one press: it waits for the cameras to be lined up, looks again when a reading needs a second one, and tries once more by itself when a run fails. It asks only for the cameras’ colours when those are due (turn the cameras to the same view), and where the programme’s sound comes from when nothing is chosen yet. `
         + (lit.cannot ? 'It sets no lip sync until what is said above is done. ' : '')
         + 'Whatever the beacon cannot do surely is listed at the end, for the Pre-show calibration check on a phone. Before the show only: its hiss is heard.', 'hint'));
     return box;

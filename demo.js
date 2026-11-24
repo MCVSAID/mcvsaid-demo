@@ -1201,6 +1201,12 @@
       Object.assign(run, { ask: null, show: null, until: now() + 5, said: `The stage beacon (${next.name}) is measuring every camera from where it stands: about 30 seconds. Nothing to hold up` });
       return;
     }
+    // From the stage beacon alone, with Programme sound chosen already: left as it is and not asked about; with the mix, its timing next.
+    if (next.kind === 'sound' && run.kind === 'beacon' && next.cameras.some(c => c.id === S.programmeSound?.camera)) {
+      run.queue.shift(); run.result.sound = { kept: true, others: S.programmeSound.others };
+      if (S.programmeSound.others === 'mixed') run.queue.push({ kind: 'mix', leader: next.cameras.find(c => c.id === S.programmeSound.camera).name });
+      walkAsk(run); return;
+    }
     const ask = next.kind === 'camera' ? { kind: 'camera', camera: next.name, said: next.again ? `${next.again}. Still in front of it? Try again, or go on.`
         : `Go to ${next.name} (camera ${next.n} of ${next.of}). Hold this phone an arm’s length in front of it, ${next.sound ? 'screen and speaker towards the camera, sound turned up.' : 'its screen towards the camera.'}${next.with ? ` ${next.with} is beside it: hold the phone where both see it, and ${next.with} is done from this stop too.` : ''}`,
         options: next.again ? [['go', 'Try again'], ['skip', 'Go on']] : [['go', 'Measure this camera'], ['skip', 'Skip it']] }
@@ -1224,21 +1230,21 @@
   // and is not timed by the beacon until it has run steadily a while: that is waited out first (null: nothing asked yet).
   function walkMix(run, next) {
     const lit = run.all ? null : standing(), flashes = `go back to ${next.leader} and hold the phone in front of it`;
-    if (run.kind === 'beacon') {
-      // From the stage beacon alone: the beacon or nothing, and what it cannot do left for the check on a phone.
-      const cannot = !lit ? 'no stage beacon stands ready' : lit.mix?.cannot || mixCannot(true);
-      if (cannot) { run.result.mix = { by: 'beacon', why: `the stage beacon is not asked for it: ${cannot}` }; run.result.left['Programme mix: timing'] = run.result.mix.why; run.queue.shift(); walkAsk(run); return null; }
-      next.beacon = lit.name;
-      return { kind: 'mix', said: next.again || `Last, the programme mix’s own timing. The stage beacon (${lit.name}) measures it from where it stands: ${next.leader} is put on air and OBS records the programme `
-          + `for about 40 seconds, ${next.leader}’s microphone alone in the mix and every other sound in OBS muted meanwhile, and all of it put back after.`,
-        options: [['beacon', next.tried ? 'Try again' : 'Measure from the beacon'], ['skip', next.tried ? 'Go on' : 'Skip']] };
-    }
-    if (!lit) return { kind: 'mix', said: `Last, the programme mix’s own timing: ${flashes}.`, options: [['go', 'Measure the mix'], ['skip', 'Skip']] };
-    if (!lit.mix?.cannot && !next.waited && mixSettling() && !mixCannot(true, true)) {
+    if (lit && !lit.mix?.cannot && !next.waited && mixSettling() && !mixCannot(true, true)) {
       next.waited = true;
       Object.assign(run, { ask: null, show: null, until: Math.min(S.mixBegan + MIX_STEADY, now() + 30), said: 'Waiting a moment for the programme mix to be steady, so that the stage beacon can time it' });
       return null;
     }
+    if (run.kind === 'beacon') {
+      // From the stage beacon alone: the beacon or nothing, and what it cannot do left for the check on a phone.
+      const cannot = !lit ? 'no stage beacon stands ready' : lit.mix?.cannot || mixCannot(true);
+      if (cannot) { run.result.mix = { by: 'beacon', why: `the stage beacon is not asked for it: ${cannot}` }; run.result.left['Programme mix: timing'] = run.result.mix.why; run.queue.shift(); walkAsk(run); return null; }
+      // Nothing asked: the button was the asking. Measured at once, and once more by itself if that set nothing (walkOn).
+      next.beacon = lit.name; next.byBeacon = true; next.tries = (next.tries || 0) + 1;
+      Object.assign(run, { ask: null, show: null, until: now() + 5, said: `${next.tries > 1 ? 'The stage beacon set nothing: trying once more. ' : ''}The stage beacon (${lit.name}) is timing the programme mix from where it stands: ${next.leader} is on air and OBS is recording, about 40 seconds. Nothing to hold up` });
+      return null;
+    }
+    if (!lit) return { kind: 'mix', said: `Last, the programme mix’s own timing: ${flashes}.`, options: [['go', 'Measure the mix'], ['skip', 'Skip']] };
     const cannot = lit.mix?.cannot || mixCannot(true);
     next.beacon = cannot ? null : lit.name;
     if (cannot) return { kind: 'mix', said: `Last, the programme mix’s own timing. The stage beacon (${lit.name}) is not asked for it: ${cannot}. So with the flashes: ${flashes}.`, options: [['go', 'Measure the mix'], ['skip', 'Skip']] };
@@ -1386,6 +1392,8 @@
             + (run.kind === 'beacon' ? 'Try again, or go on: the check on a phone has the flashes for it.' : `Use the flashes (${flashes}), or go on.`);
         }
       }
+      // From the stage beacon alone nothing is asked again: tried twice, then left for the check on a phone.
+      if (run.kind === 'beacon' && done.again && done.tries >= 2) { run.result.mix = done.found; run.result.left['Programme mix: timing'] = done.found.why; run.queue.shift(); }
     } else if (done.kind === 'mix' && !done.flashed) { /* the mix waited for, and steady now: asked next */
     } else if (done.kind === 'mix') {
       // With the flashes at the leading camera (Manager.calibrate_sync, mix_only): 81 ms early on its usual timing in the
