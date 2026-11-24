@@ -3,7 +3,7 @@
 <body><noscript><style>#login{display:none}</style><p style="padding:24px;font:17px/1.5 sans-serif">This is the MCVSAID demo: the dashboard with seven simulated cameras, run entirely in your browser. There is no server behind it and no login. Switch on JavaScript to try it.</p></noscript><header><p class="crumbs"><a href="/system#devices">System</a> › Cameras &amp; devices</p><h1>Add a network camera</h1></header>
 <form id="login"><label>Your name <input id="username" type="text" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="40"></label><label>Password <input id="password" type="password" autocomplete="current-password" required></label><button>Log in</button></form>
 <main id="setup" hidden>
-<p>A camera that is not a phone, such as a PTZ camera on the network. OBS takes its picture over NDI; the manager knows it by a name, a slot and the NDI source it sends, and the director chooses it like any other camera.</p>
+<p>A camera that is not a phone, such as a PTZ camera on the network. OBS takes its picture over <a href="https://ndi.video/" target="_blank" rel="noopener">NDI®</a>; the manager knows it by a name, a slot and the NDI source it sends, and the director chooses it like any other camera.</p>
 <p id="trouble" class="recording-warning" hidden></p>
 <p id="plugin" hidden></p>
 <form id="add" autocomplete="off">
@@ -19,7 +19,7 @@
 <section id="have" hidden><h2>Network cameras here</h2><ul id="have-list"></ul></section>
 <section id="guide"><h2>What it needs</h2>
 <ul>
-<li><b>In OBS: the NDI runtime and the DistroAV plugin</b> (both free; installed by an administrator of this computer, then OBS restarted). Without them OBS cannot take NDI: the camera can still be added here, and says it is not ready, and why, until they are there.</li>
+<li><b>In OBS: the <a href="https://ndi.video/tools/" target="_blank" rel="noopener">NDI runtime</a> and the DistroAV plugin</b> (both free; installed by an administrator of this computer, then OBS restarted). Without them OBS cannot take NDI: the camera can still be added here, and says it is not ready, and why, until they are there.</li>
 <li><b>The camera on the same network as this computer</b>, with NDI switched on in its own settings.</li>
 </ul>
 <h2>After adding it</h2>
@@ -28,5 +28,6 @@
 <li>Its card on the Cameras page says whether OBS shows its picture. Once it does, the director can cut to it.</li>
 <li>Its <b>delay</b> is set for you. It has no timing strip to be measured by, so with OBS sync on the manager watches its picture beside the phones’ and, once the same things have been seen to happen in both, lines it up with them and keeps it so. Its card (Maintenance) says when it was last timed; the delay can be set there by hand as a starting point.</li>
 </ol>
-<p><small>A PTZ camera is aimed and zoomed on the Operate page once its card has its control address; its picture size, frame rate and exposure are set on the camera itself. A network camera has no battery, temperature, lens, recording or app for the manager to look after, so none of those is shown for it.</small></p></section>
+<p><small>A PTZ camera is aimed and zoomed on the Operate page once its card has its control address; its picture size, frame rate and exposure are set on the camera itself. A network camera has no battery, temperature, lens, recording or app for the manager to look after, so none of those is shown for it.</small></p>
+<p><small>NDI® is a registered trademark of Vizrt NDI AB.</small></p></section>
 <pre id="result" aria-live="polite"></pre></main><script src="/nav.js"></script><script src="/network-camera.js"></script></body></html>
