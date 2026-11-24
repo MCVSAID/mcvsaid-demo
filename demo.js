@@ -957,6 +957,7 @@
     if (path === '/api/calibrate') return calibrateRead();
     if (path === '/api/preshow') return preshowRead();
     if (path === '/api/beacon') return beaconRead();
+    if (path === '/api/colour') return colourRead();
     if (path === '/api/teleprompter') return promptRead();
     if (path === '/api/karaoke') return karaokeRead();
     if (path.startsWith('/api/teleprompter/scripts/')) return promptText(decodeURIComponent(path.slice('/api/teleprompter/scripts/'.length)));
@@ -1475,6 +1476,42 @@
   // Calibrate sound last left each camera, the programme measured since Programme sound was changed, the mix's
   // timing, each network camera timed (the calibrate page's timing run) and its input volume, the relay, and the
   // connections (in the demo the last phone dropped once, a quarter of an hour ago).
+  // The colour chart standing by the beacon (chartwatch.py), as the demonstration manager read it when the demo was
+  // recorded (every camera but the crowd's sees it, drawn into its pictures), with what has been done here since: read
+  // again, matched again (each camera near its reference after), its settings changed.
+  function chartState() { return S.chart || (S.chart = { settings: {}, after: {}, forgotten: {}, matched: null, lastAt: null, why: null }); }
+  function chartRead() {
+    const base = S.answers['/api/colour']?.chart || { on: true, auto: true, minutes: 10, reference: null, busy: false, doing: null, last: null, matched: null, target: 'camera', thresholds: { drift_de: 2, floor_de: 3 } };
+    const c = chartState(), set = c.settings;
+    let last = base.last ? { ...base.last, cameras: { ...base.last.cameras } } : null;
+    if (last) {
+      if (c.lastAt) Object.assign(last, { at: c.lastAt, why: c.why || last.why });
+      for (const [id, e] of Object.entries(last.cameras)) {
+        const after = c.after[id], gone = c.forgotten[id];
+        if (after) last.cameras[id] = { ...e, delta_e: { ...e.delta_e, mean: after.mean, max: after.max }, matched_after: after.mean, words: 'alike in light and tint', light: 0.02, red: 0.01, blue: -0.02, due: [false, `ΔE ${after.mean} from the reference, within ${Math.max(3, after.mean + 2).toFixed(1)}`] };
+        if (gone && c.lastAt && e.found) last.cameras[id] = { ...last.cameras[id], how: 'looked for' };
+      }
+    }
+    return { ...base, on: set.on ?? base.on, auto: set.auto ?? base.auto, minutes: set.minutes ?? base.minutes, reference: 'reference' in set ? set.reference : base.reference, busy: false, doing: null,
+      last, matched: c.matched || base.matched };
+  }
+  function colourRead() { return { ...(S.answers['/api/colour'] || { cameras: [], job: null, filter: 'Camera colour match' }), chart: chartRead() }; }
+  // What Before the show makes of it (preshow.chart).
+  function chartItems(item, clock) {
+    const chart = chartRead(), last = chart.last;
+    if (!chart.on || !last || !Object.values(last.cameras).some(e => e.found)) return [];
+    const when = clock(last.at), ref = last.reference?.name;
+    return Object.values(last.cameras).sort((a, b) => a.slot - b.slot).map(e => {
+      const id = `colour-chart:${e.id}`, label = `${e.name}: on the chart by the beacon`;
+      if (!e.found) return item(id, label, 'idle', `Does not see the chart by the beacon (${e.problem || 'not found'}), read at ${when}.`);
+      if (e.trouble) return item(id, label, 'todo', `Its picture of the chart cannot be read, at ${when}: ${e.trouble}. Nothing is compared or matched on it until it can.`, 'Clear what is in front of the chart by the beacon (a cable, glare on it), then Read the chart now on the Colour page', '/colour');
+      if (e.reference) return item(id, label, 'ready', `The camera the others are matched to on the chart, read at ${when}.`);
+      if (!e.delta_e) return item(id, label, 'unknown', `Not compared at ${when}: ${e.against || 'the reference camera’s chart was not read'}.`, 'Clear what is in front of the chart by the beacon (a cable, glare on it), then Read the chart now on the Colour page', '/colour');
+      const said = `ΔE ${e.delta_e.mean} from ${ref} on the chart at ${when} (worst ${e.delta_e.max}, ${e.delta_e.worst}); ${e.words}`;
+      return e.due?.[0] ? item(id, label, 'todo', `${said}: drifted (${e.due[1]}).${chart.auto ? ' It is matched again by itself while it is off programme.' : ''}`, 'Match it again on the chart, on the Colour page (it is never changed while on programme)', '/colour')
+        : item(id, label, 'ready', `${said}.${e.matched_after != null ? ` Its match left it at ${e.matched_after}.` : ''}`);
+    });
+  }
   function preshowRead() {
     calibrateRead();                                    // a run that has just finished counts at once
     const t = now(), clock = at => new Date(at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
@@ -1558,7 +1595,7 @@
       : item(`connection:${c.id}`, `${c.name}: connection`, 'ready', c.kind === 'network' ? 'Showing a picture, without a break in the last hour.' : 'Connected, with no drop in the last hour.'));
     const groups = [{ id: 'lip-sync', title: 'Lip sync, camera by camera', items: lips, empty: null }, { id: 'programme', title: 'Programme sound', items: programme, empty: null },
       ...(net.length ? [{ id: 'network', title: 'Network cameras', items: net, empty: null }] : []),
-      ...(colour.length ? [{ id: 'colour', title: 'Colour match', items: colour, empty: null }] : []),
+      ...(colour.length || chartItems(item, clock).length ? [{ id: 'colour', title: 'Colour match', items: [...colour, ...chartItems(item, clock)], empty: null }] : []),
       { id: 'relay', title: 'Camera relay', items: [item('relay', 'Camera relay: same release as the manager', 'ready', `Both are on ${version}.`)], empty: null },
       { id: 'connections', title: 'Connections in the last hour', items: links, empty: null }];
     const counts = { ready: 0, todo: 0, unknown: 0, idle: 0 };
@@ -2654,6 +2691,41 @@
       // In the demo OBS is never really recording, so it is not refused for that as the manager refuses it.
       if (body.kind === 'beacon') S.calRun = walkStart(false, true);
       save(); return answer(calibrateRead());
+    }
+    // The colour chart by the beacon (chartwatch.py): read again, matched again, its settings, a camera's spot forgotten.
+    if (path === '/api/colour/chart/check') { const c = chartState(); c.lastAt = now(); c.why = 'asked for on the Colour page'; save(); return answer({ colour: colourRead() }); }
+    if (path === '/api/colour/chart/match') {
+      const chart = chartRead(), last = chart.last, ids = body?.cameras === 'all' || body?.cameras === undefined ? null : body.cameras;
+      if (ids !== null && (!Array.isArray(ids) || !ids.length)) return answer({ detail: 'cameras is "all" or a list of paired cameras' }, 400);
+      if (!last || !last.reference) return answer({ detail: 'No camera is streaming with a picture in OBS' }, 409);
+      const live = new Set([director().on_air, ...(director().pair || [])].filter(Boolean)), c = chartState();
+      const cameras = {};
+      for (const e of Object.values(last.cameras)) {
+        if (e.reference || (ids && !ids.includes(e.id))) continue;
+        if (live.has(e.id)) { cameras[e.id] = { name: e.name, problem: 'on programme: nothing is changed while it is' }; continue; }
+        if (!e.found) { cameras[e.id] = { name: e.name, problem: e.problem || 'no colour chart found in its picture' }; continue; }
+        if (e.trouble) { cameras[e.id] = { name: e.name, problem: `its chart: ${e.trouble}` }; continue; }
+        const after = { mean: [1.9, 2.3, 2.1, 2.6][e.slot % 4], max: [4.4, 5.1, 4.8, 5.6][e.slot % 4] };
+        cameras[e.id] = { name: e.name, delta_e: { before: { mean: e.delta_e.mean, max: e.delta_e.max }, after }, in_obs: true,
+          ...(e.network ? { camera: { held: 5600, changed: true, now: '5600 K (red −1, blue +3), exposure automatic +1', set: {}, left: [] } } : {}) };
+        c.after[e.id] = after;
+      }
+      c.matched = { at: now(), by: 'asked for on the Colour page', reference: last.reference.name, cameras, ended: now() };
+      c.lastAt = now(); c.why = 'after the match'; save();
+      return answer({ match: c.matched, colour: colourRead() });
+    }
+    if (path === '/api/colour/chart/settings') {
+      const keys = ['on', 'auto', 'minutes', 'reference'];
+      if (!body || typeof body !== 'object' || !Object.keys(body).length || Object.keys(body).some(k => !keys.includes(k))) return answer({ detail: 'Settings are on, auto, minutes and reference' }, 400);
+      if (('on' in body && typeof body.on !== 'boolean') || ('auto' in body && typeof body.auto !== 'boolean')) return answer({ detail: 'on and auto are true or false' }, 400);
+      if ('minutes' in body && !(typeof body.minutes === 'number' && body.minutes >= 0 && body.minutes <= 120)) return answer({ detail: 'minutes is 0 to 120' }, 400);
+      if ('reference' in body && body.reference !== null && !(cams()?.cameras || []).some(k => k.id === body.reference)) return answer({ detail: 'reference is a paired camera, or null' }, 400);
+      Object.assign(chartState().settings, body); save();
+      return answer({ colour: colourRead() });
+    }
+    if (path === '/api/colour/chart/forget') {
+      if (!(cams()?.cameras || []).some(k => k.id === body?.camera)) return answer({ detail: 'Expected camera' }, 400);
+      chartState().forgotten[body.camera] = true; save(); return answer({ colour: colourRead() });
     }
     if (path === '/api/beacon/measure') {
       const state = beaconRead();

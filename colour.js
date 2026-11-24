@@ -12,8 +12,8 @@
   const boxes = {};                    // camera id -> [x0, y0, x1, y1]: the view the cameras share, for matching without a chart
   const boxStart = {};                 // camera id -> the first corner of a box being drawn
   const form = { wb_mode: 'kelvin', wb_kelvin: 5600, wb_preset: 'daylight', ae_mode: 'lock', ae_compensation: 0, exposure_us: 16667, iso: 200, kind: 'scene', reference: 'chart' };
-  const status = node('div', ''), settings = node('div', ''), calibration = node('div', ''), message = node('p', '');
-  panel.append(node('h2', 'Colour'), settings, status, calibration, message);
+  const status = node('div', ''), settings = node('div', ''), calibration = node('div', ''), chart = node('div', ''), message = node('p', '');
+  panel.append(node('h2', 'Colour'), settings, status, chart, calibration, message);
 
   async function ask(path, body, done) {
     busy = true; said = 'Working…'; paint();
@@ -233,10 +233,69 @@
     calibration.append(node('small', 'Each LUT is also put beside every recording’s camera files, for Resolve, Premiere or Final Cut.'));
   }
 
+  // -- the colour chart standing by the stage beacon (chartwatch.py) -------------------------------------------------
+  const stops = v => `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v).toFixed(2)}`;
+  const chartMatched = m => m.why ? m.why : `Matched to ${m.reference} on the chart${m.by && m.by.startsWith('by itself') ? ' by itself' : ''}. ` + Object.values(m.cameras).map(c => `${c.name}: ${c.problem ? c.problem : `ΔE ${c.delta_e.before.mean} → ${c.delta_e.after.mean}${c.in_obs ? ', in OBS' : ''}`}`
+    + (c.camera ? `; its own settings ${c.camera.why || (c.camera.changed ? `set to ${c.camera.now}` : `left at ${c.camera.now}`)}` : '')).join('. ');
+  function paintChart() {
+    chart.replaceChildren(node('h3', 'The colour chart by the beacon'));
+    const c = state.chart;
+    if (!c) return;
+    const last = c.last, cams = last ? Object.values(last.cameras || {}) : [];
+    chart.append(node('small', 'An X-Rite ColorChecker left standing beside the stage beacon, where the cameras see it. Each camera’s picture is looked over for it (no corners to click), and it is read as OBS shows it after every beacon run'
+      + (c.minutes ? ` and every ${c.minutes} minutes` : '') + '. Each camera is set against the reference camera on it (not against the chart’s printed colours, which two cameras miss alike in the cyans). '
+      + `A camera more than ${c.thresholds.drift_de} ΔE further off than its last match left it (and at least ${c.thresholds.floor_de}) is matched again${c.auto ? ' by itself' : ' when asked'}; never while it is on programme.`));
+    const line = node('p', '');
+    const on = document.createElement('input'); on.type = 'checkbox'; on.checked = c.on; on.disabled = busy;
+    on.onchange = () => ask('/api/colour/chart/settings', { on: on.checked }, () => on.checked ? 'The chart by the beacon is read again.' : 'The chart by the beacon is no longer read.');
+    const onLabel = node('label', ' Read it '); onLabel.prepend(on);
+    const auto = document.createElement('input'); auto.type = 'checkbox'; auto.checked = c.auto; auto.disabled = busy;
+    auto.onchange = () => ask('/api/colour/chart/settings', { auto: auto.checked }, () => auto.checked ? 'A camera that drifts is matched again by itself, off programme.' : 'A camera that drifts is said, and matched when asked.');
+    const autoLabel = node('label', ' match a camera again by itself when it drifts '); autoLabel.prepend(auto);
+    line.append(onLabel, autoLabel, node('span', ' every '),
+      select([[0, 'only after a beacon run'], [5, '5 minutes'], [10, '10 minutes'], [15, '15 minutes'], [30, '30 minutes'], [60, 'hour']], c.minutes, v => ask('/api/colour/chart/settings', { minutes: Number(v) }), 'How often the chart is read'),
+      node('span', ' · reference '),
+      select([['', 'the latest match’s, else the first phone'], ...state.cameras.map(k => [k.id, k.name])], c.reference || '', v => ask('/api/colour/chart/settings', { reference: v || null }), 'The camera the others are matched to on the chart'));
+    chart.append(line);
+    if (!last) chart.append(node('p', 'Not read yet.'));
+    else {
+      chart.append(node('p', `Read at ${when(last.at)} (${last.why})${last.reference ? `, against ${last.reference.name}` : ''}${last.reason ? `: ${last.reason}` : ''}.`));
+      if (cams.length) {
+        const table = document.createElement('table'); table.className = 'colour-table';
+        const head = document.createElement('tr');
+        for (const title of ['Camera', 'The chart in its picture', 'ΔE from the reference', 'Light and tint', '']) head.append(node('th', title));
+        table.append(head);
+        for (const e of cams.sort((a, b) => a.slot - b.slot)) {
+          const row = document.createElement('tr');
+          row.append(node('td', `${e.name}${e.reference ? ' · reference' : ''}${e.on_programme ? ' · on programme' : ''}`));
+          const where = node('td', e.found ? `${e.how === 'where it was' ? 'where it was' : 'found'} (patches ${e.pitch_px} px)${e.lut_hides ? ', with its LUT off: through its LUT it does not look like the chart' : ''}` : e.problem || 'not found');
+          if (e.trouble) { where.className = 'recording-warning'; where.append(node('div', e.trouble)); }
+          row.append(where);
+          const due = e.due && e.due[0];
+          const off = node('td', e.delta_e ? `${e.delta_e.mean} (worst ${e.delta_e.max}, ${e.delta_e.worst})${e.matched_after != null ? ` · its match left ${e.matched_after}` : ''}` : e.reference ? '—' : e.against || '');
+          if (due) { off.className = 'recording-warning'; off.append(node('div', `drifted: ${e.due[1]}`)); }
+          row.append(off, node('td', e.delta_e ? `${e.words} (light ${stops(e.light)}, red ${stops(e.red)}, blue ${stops(e.blue)} stops)` : ''));
+          const act = node('td', '');
+          if (!e.reference && e.found && !e.trouble) { const go = node('button', 'Match now'); go.disabled = busy || e.on_programme; go.onclick = () => ask('/api/colour/chart/match', { cameras: [e.id] }, answer => chartMatched(answer.match)); act.append(go); }
+          const again = node('button', 'Look for it again'); again.disabled = busy; again.title = 'Forget where its chart was found: its whole picture is looked over at the next reading';
+          again.onclick = () => ask('/api/colour/chart/forget', { camera: e.id }, () => `${e.name}: looked for over its whole picture at the next reading.`);
+          act.append(again); row.append(act); table.append(row);
+        }
+        chart.append(table);
+      }
+    }
+    if (c.matched) chart.append(node('p', `Last matched ${when(c.matched.at)}: ${chartMatched(c.matched)}`));
+    const read = node('button', c.busy && c.doing === 'check' ? 'Reading…' : 'Read the chart now'); read.disabled = busy || c.busy;
+    read.onclick = () => ask('/api/colour/chart/check', { search: true }, () => 'Read.');
+    const all = node('button', c.busy && c.doing === 'match' ? 'Matching…' : `Match every camera to ${last?.reference?.name || 'the reference'} now`); all.disabled = busy || c.busy || !cams.some(e => e.delta_e);
+    all.onclick = () => ask('/api/colour/chart/match', { cameras: 'all' }, answer => chartMatched(answer.match));
+    chart.append(read, all);
+  }
+
   function paint(all) {
     if (!state) return;
     if (all || !drawn) { paintSettings(); paintCalibration(); drawn = true; }
-    paintStatus();
+    paintStatus(); paintChart();
     message.textContent = said; message.className = /cannot|not |fail|refus|error|No /i.test(said) ? 'recording-warning' : '';
   }
   async function refresh() {
