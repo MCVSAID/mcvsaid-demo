@@ -3,8 +3,8 @@
 An interactive demonstration of the MCVSAID dashboard, published at **https://demo.mcvsaid.com**, linked from
 the MCVSAID site at **https://mcvsaid.com**.
 
-It is the real dashboard, running entirely in your browser with **simulated cameras**: six made-up cameras with drawn
-pictures, made-up performers, and nothing connected. Nothing you press leaves your browser, and what you change lasts
+It is the real dashboard, running entirely in your browser with **simulated cameras**: six made-up phones and a made-up
+network camera with drawn pictures, made-up performers, and nothing connected. Nothing you press leaves your browser, and what you change lasts
 only until you close the tab (or press *Start over*). The programme monitor shows drawn stills, not video.
 
 Choose *Cooking* as the kind of event (under the name in the side bar) to see the **Recipe** page: a recipe part-way
