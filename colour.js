@@ -177,7 +177,7 @@
   }
   function hintFor(camera) {
     if (form.kind === 'scene') return boxes[camera.id] ? 'Only what is inside the box is compared. Click again to draw another.' : boxStart[camera.id] ? 'Now click the opposite corner of the box.'
-      : 'The whole picture is compared. To leave out what the other cameras do not see (a window frame, a different part of the room), click two corners of a box round the view they share.';
+      : 'Only the view it shares with the camera it is matched to is compared: found in the two pictures by itself (a camera whose shared view cannot be found is not matched). To choose it yourself, click two corners of a box round the view they share.';
     const n = (corners[camera.id] || []).length;
     if (n === 4) return 'Corners set. Click again to start over.';
     return form.kind === 'chart' ? `Click the corners of the patch area, going round: next the ${CORNERS[n]}. (Any starting corner works: the greys are found.)` : `Click the four corners of the grey card (${4 - n} to go).`;
